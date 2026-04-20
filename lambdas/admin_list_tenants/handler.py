@@ -92,7 +92,7 @@ def handler(event, context):
                 "status": status,
                 "user_count": int(user_count),
                 "document_count": unique_docs,
-                "created_at": created_at.isoformat() if created_at else ""
+                "created_at": str(created_at) if created_at else ""
             })
 
         return http.ok({"tenants": tenants})
