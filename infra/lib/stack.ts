@@ -147,7 +147,19 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
         ],
       })
     );
-
+    // Grant Cognito permissions for admin user management
+// Grant Cognito permissions for admin user management
+    lambdaRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminSetUserPassword',
+          'cognito-idp:AdminGetUser',
+          'cognito-idp:AdminDeleteUser',
+        ],
+        resources: [userPool.userPoolArn],
+      })
+    );
     vectorTable.grantReadWriteData(lambdaRole);
     configTable.grantReadWriteData(lambdaRole);
     docsBucket.grantReadWrite(lambdaRole);
