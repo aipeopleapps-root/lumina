@@ -30,10 +30,12 @@ def handler(event, context):
         table = _dynamodb.Table(_VECTOR_TABLE)
         
         # Query all chunks for this tenant
+        # Use ExpressionAttributeNames because 'module' is a reserved keyword
         response = table.query(
             KeyConditionExpression="tenant_id = :tid",
             ExpressionAttributeValues={":tid": ctx.tenant_id},
-            ProjectionExpression="doc_id,source_name,doc_type,module,created_at,s3_key"
+            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key",
+            ExpressionAttributeNames={"#mod": "module"}
         )
         
         # Group by doc_id to get unique documents
