@@ -49,7 +49,6 @@ yarn-error.log*
 
 # Build artifacts
 *.js.map
-*.d.ts
 
 # OS
 Thumbs.db

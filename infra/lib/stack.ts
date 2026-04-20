@@ -93,6 +93,16 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       pointInTimeRecovery: false,
     });
 
+    // Platform configuration table (for admin)
+    const configTable = new dynamodb.Table(this, 'ConfigTable', {
+      tableName: 'workday-ai-config',
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: false,
+    });
+
     vectorTable.addGlobalSecondaryIndex({
       indexName: 'doc_id-index',
       partitionKey: { name: 'doc_id', type: dynamodb.AttributeType.STRING },
@@ -124,6 +134,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       ],
     });
 
+
+
     // Grant Bedrock permissions for all Claude Sonnet and Titan models
     lambdaRole.addToPolicy(
       new iam.PolicyStatement({
@@ -137,6 +149,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     );
 
     vectorTable.grantReadWriteData(lambdaRole);
+    configTable.grantReadWriteData(lambdaRole);
     docsBucket.grantReadWrite(lambdaRole);
     dbCluster.grantDataApiAccess(lambdaRole);
     dbSecret.grantRead(lambdaRole);
@@ -152,6 +165,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       EMBEDDING_DIM: String(EMBEDDING_DIM),
       POWERTOOLS_SERVICE_NAME: 'workday-ai-platform',
       LOG_LEVEL: 'INFO',
+      CONFIG_TABLE_NAME: configTable.tableName, 
+      USER_POOL_ID: userPool.userPoolId,
     };
 
     const lambdasRoot = path.join(__dirname, '..', '..', 'lambdas');
@@ -187,6 +202,13 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const ingestFn = makeFn('IngestFn', 'ingest', 120);
     const analyzeFn = makeFn('AnalyzeFn', 'analyze', 90);
     const chatFn = makeFn('ChatFn', 'chat', 60);
+    // Admin functions
+    const adminCreateTenantFn = makeFn('AdminCreateTenantFn', 'admin_create_tenant', 30);
+    const adminCreateUserFn = makeFn('AdminCreateUserFn', 'admin_create_user', 30);
+    const adminListTenantsFn = makeFn('AdminListTenantsFn', 'admin_list_tenants', 30);
+    // Document management functions
+    const documentsListFn = makeFn('DocumentsListFn', 'documents_list', 30);
+    const documentsDownloadUrlFn = makeFn('DocumentsDownloadUrlFn', 'documents_download_url', 15);
 
     dbSg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
@@ -209,7 +231,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
         jwtAudience: [userPoolClient.userPoolClientId],
       }
     );
-
+    new cdk.CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
     httpApi.addRoutes({
       path: '/upload-url',
       methods: [apigwv2.HttpMethod.POST],
@@ -234,7 +256,38 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       integration: new apigwv2_integrations.HttpLambdaIntegration('ChatInt', chatFn),
       authorizer,
     });
-
+    // Admin routes
+    httpApi.addRoutes({
+      path: '/admin/create-tenant',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminCreateTenantInt', adminCreateTenantFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/create-user',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminCreateUserInt', adminCreateUserFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/list-tenants',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminListTenantsInt', adminListTenantsFn),
+      authorizer,
+    });
+        // Document routes
+    httpApi.addRoutes({
+      path: '/documents/list',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('DocumentsListInt', documentsListFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/documents/download-url',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('DocumentsDownloadUrlInt', documentsDownloadUrlFn),
+      authorizer,
+    });
     new cdk.CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
