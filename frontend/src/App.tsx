@@ -139,7 +139,7 @@ export default function App() {
       </header>
 
 {/* Role-based main content */}
-<main className="flex-1 bg-slate-50 overflow-y-auto">
+<main className="flex-1 bg-slate-50 overflow-hidden">
         {/* Admin: Full-screen tenant/user management */}
         {me.role === 'admin' && <AdminPanel />}
         
@@ -159,8 +159,8 @@ export default function App() {
         {/* Client: Split view - Chat + Documents */}
         {me.role === 'client' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 divide-x divide-slate-200 h-full">
-            <section className="p-6 overflow-y-auto bg-white">
-              <div className="mb-4">
+            <section className="flex flex-col bg-white">
+              <div className="p-6 pb-4 border-b border-slate-200">
                 <h2 className="text-xl font-semibold mb-1">Ask Workday Expert</h2>
                 <p className="text-sm text-slate-500">
                   Ask questions about your Workday configuration. Answers are grounded in your uploaded documents.
