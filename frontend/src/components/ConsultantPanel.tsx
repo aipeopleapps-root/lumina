@@ -36,7 +36,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setStatus('Uploading file…');
       const putResp = await fetch(uploadUrl.url, {
         method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        headers: { 'Content-Type': uploadUrl.content_type },
         body: file,
       });
       if (!putResp.ok) throw new Error(`S3 upload failed: ${putResp.status}`);
