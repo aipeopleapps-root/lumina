@@ -47,7 +47,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
             s3.HttpMethods.DELETE,
             s3.HttpMethods.HEAD,
           ],
-          allowedOrigins: ['http://localhost:5173', 'http://localhost:3000'],
+          allowedOrigins: ['http://localhost:5173', 'http://localhost:3000', 'https://main.d2jd92e8asbd1j.amplifyapp.com'],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
         },
