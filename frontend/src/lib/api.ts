@@ -32,10 +32,12 @@ export interface ChatResponse {
 }
 
 export interface Finding {
+  category: string;
   title: string;
   severity: string;
-  description: string;
+  detail: string;
   recommendation: string;
+  evidence?: string[];
 }
 
 export interface AnalyzeResponse {
@@ -90,13 +92,13 @@ export async function chat(message: string, history: any[] = []): Promise<ChatRe
   return api.post('/chat', { message, history });
 }
 
-export async function ingestDoc(s3Key: string, docId: string, docType: string, module: string) {
-  return api.post('/ingest', {
-    s3_key: s3Key,
-    doc_id: docId,
-    doc_type: docType,
-    module: module,
-  });
+export async function ingestDoc(params: {
+  s3_key: string;
+  doc_id: string;
+  doc_type: string;
+  module: string;
+}) {
+  return api.post('/ingest', params);
 }
 
 export async function analyzeDoc(docId: string, focus: string = 'all'): Promise<AnalyzeResponse> {
