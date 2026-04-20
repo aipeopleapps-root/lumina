@@ -22,7 +22,6 @@ import os
 import uuid
 
 import boto3
-import psycopg2
 
 from common import tenant_from_event, TenantError, http, db
 
