@@ -48,6 +48,13 @@ class Cursor:
         self.conn = conn
         self.last_result = None
     
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Nothing to clean up for cursor
+        return False
+    
     def execute(self, sql, params=None):
         """Execute SQL with optional parameters"""
         if not self.conn.transaction_id:
