@@ -14,7 +14,7 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
 
 _s3 = boto3.client("s3")
-_BUCKET = os.environ["DOCS_BUCKET"]
+_BUCKET = os.environ["DOCS_BUCKET_NAME"]
 _EXPIRES_IN = 3600  # 1 hour
 
 
