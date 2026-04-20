@@ -57,7 +57,3 @@ def handler(event, context):
     except Exception as e:
         log.error("Failed to generate download URL: %s", e)
         return http.error("Failed to generate download URL")
-        
-except Exception as e:
-        log.error("Failed to process request: %s", e, exc_info=True)
-        return http.error(str(e))
