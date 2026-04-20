@@ -68,7 +68,7 @@ export default function App() {
           className="bg-white p-8 rounded-lg shadow-sm border border-slate-200 w-96"
         >
           <h1 className="text-xl font-semibold mb-1">Workday Insight Studio</h1>
-          <p className="text-sm text-slate-500 mb-6">AI-Powered Workday Advisory by Deloitte</p>
+          <p className="text-sm text-slate-500 mb-6">AI-Powered Workday Advisory by Green Dot</p>
           <label className="block text-sm mb-2">Email</label>
           <input
             type="email"
@@ -112,7 +112,7 @@ export default function App() {
           </div>
           <div>
             <div className="text-sm font-medium">Workday Insight Studio</div>
-            <div className="text-xs text-slate-500">Powered by Deloitte</div>
+            <div className="text-xs text-slate-500">Powered by Green Dot</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
