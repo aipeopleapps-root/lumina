@@ -85,7 +85,7 @@ def handler(event, context):
                         role = EXCLUDED.role,
                         cognito_sub = EXCLUDED.cognito_sub
                     RETURNING user_id
-                """, (email, tenant_id, role, cognito_sub, ctx.user_email))
+                """, (email, tenant_id, role, cognito_sub, ctx.user_id))
                 
                 user_id = cur.fetchone()[0]
                 
@@ -93,7 +93,7 @@ def handler(event, context):
 
         log.info(
             "Admin %s created user %s (tenant=%s, role=%s)",
-            ctx.user_email,
+            ctx.user_id,
             email,
             tenant_id,
             role

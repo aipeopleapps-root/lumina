@@ -114,7 +114,7 @@ def handler(event, context):
         # 3. Log admin action
         log.info(
             "Admin %s created tenant %s (%s)",
-            ctx.user_email,
+            ctx.user_id,
             tenant_id,
             name
         )
