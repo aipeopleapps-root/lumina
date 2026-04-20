@@ -30,19 +30,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     setResult(null);
 
     try {
-      // 1. Get a presigned PUT URL from the API — simpler demo path: use
-      //    AWS SDK browser client for S3 upload. For prototype, we ask a
-      //    supporting /ingest pattern: upload to the s3_key first via a
-      //    pre-signed URL, then call /ingest with the key. To keep the
-      //    demo self-contained, we use the upload endpoint on /ingest
-      //    via multipart. A pragmatic approach: upload directly with the
-      //    Cognito Identity-scoped session. Here we assume a companion
-      //    "upload" endpoint that returns a presigned POST.
-      //
-      //    For the prototype, we inline a simpler path: the consultant
-      //    panel reads the file, sends its content to a presigned S3
-      //    URL the user's session is allowed to write to. If you wire
-      //    in a /upload-url endpoint later, swap this block out.
       setUploading(true);
       setStatus('Requesting upload URL…');
       const uploadUrl = await getPresignedUrl(file.name, tenantId);
@@ -183,9 +170,9 @@ function FindingCard({ f }: { f: Finding }) {
         <span className="text-sm font-medium">{f.title}</span>
       </div>
       <p className="text-sm text-slate-700 mb-2">{f.detail}</p>
-      {f.evidence?.length > 0 && (
+      {f.evidence && f.evidence.length > 0 && (
         <div className="bg-slate-50 border-l-2 border-slate-300 pl-3 py-1 mb-2">
-          {f.evidence!.map((e, i) => (
+          {f.evidence.map((e: string, i: number) => (
             <p key={i} className="text-xs text-slate-600 font-mono whitespace-pre-wrap">
               {e}
             </p>
@@ -200,19 +187,10 @@ function FindingCard({ f }: { f: Finding }) {
   );
 }
 
-// ---- S3 presigned upload helper -------------------------------------------
-// For the prototype, we use a tiny approach: the frontend calls a lightweight
-// /upload-url endpoint (not built in this file set — see TODO below) to get a
-// presigned PUT. For speed, an alternative is to use the Amplify Storage
-// module with Cognito Identity Pool federation. Simplest for the demo:
-// create a companion Lambda that returns a presigned URL scoped to the
-// caller's tenant prefix.
 async function getPresignedUrl(
   filename: string,
   tenantId: string
 ): Promise<{ url: string; key: string }> {
-  // TODO: implement /upload-url Lambda. Temporary stub throws so the dev
-  // experience surfaces the next thing to wire up.
   const session = await fetchAuthSession();
   const token = session.tokens?.idToken?.toString();
   const api = import.meta.env.VITE_API_ENDPOINT;
@@ -225,11 +203,7 @@ async function getPresignedUrl(
     body: JSON.stringify({ filename }),
   });
   if (!r.ok) {
-    throw new Error(
-      `No /upload-url endpoint yet. Next step: add an "upload-url" Lambda that ` +
-        `returns a presigned PUT scoped to tenants/${tenantId}/uploads/. ` +
-        `See docs/next-steps.md.`
-    );
+    throw new Error(`Upload URL request failed: ${r.status}`);
   }
   return r.json();
 }
