@@ -190,7 +190,7 @@ function FindingCard({ f }: { f: Finding }) {
 async function getPresignedUrl(
   filename: string,
   tenantId: string
-): Promise<{ url: string; key: string }> {
+): Promise<{ url: string; key: string; content_type: string }> {
   const session = await fetchAuthSession();
   const token = session.tokens?.idToken?.toString();
   const api = import.meta.env.VITE_API_ENDPOINT;
