@@ -67,8 +67,8 @@ export default function App() {
           onSubmit={onSignIn}
           className="bg-white p-8 rounded-lg shadow-sm border border-slate-200 w-96"
         >
-          <h1 className="text-xl font-semibold mb-1">Workday AI Platform</h1>
-          <p className="text-sm text-slate-500 mb-6">Sign in to the demo</p>
+          <h1 className="text-xl font-semibold mb-1">Workday Insight Studio</h1>
+          <p className="text-sm text-slate-500 mb-6">AI-Powered Workday Advisory by Deloitte</p>
           <label className="block text-sm mb-2">Email</label>
           <input
             type="email"
@@ -111,13 +111,13 @@ export default function App() {
             WD
           </div>
           <div>
-            <div className="text-sm font-medium">Workday AI Platform</div>
-            <div className="text-xs text-slate-500">Demo environment</div>
+            <div className="text-sm font-medium">Workday Insight Studio</div>
+            <div className="text-xs text-slate-500">Powered by Deloitte</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <div className="text-xs text-slate-500">Tenant</div>
+            <div className="text-xs text-slate-500">Client</div>
             <div className="text-sm font-semibold tracking-wide uppercase">
               {me.tenantId}
             </div>
@@ -161,7 +161,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 divide-x divide-slate-200 h-full">
             <section className="p-6 overflow-y-auto bg-white">
               <div className="mb-4">
-                <h2 className="text-xl font-semibold mb-1">AI Coach</h2>
+                <h2 className="text-xl font-semibold mb-1">Ask Workday Expert</h2>
                 <p className="text-sm text-slate-500">
                   Ask questions about your Workday configuration. Answers are grounded in your uploaded documents.
                 </p>
