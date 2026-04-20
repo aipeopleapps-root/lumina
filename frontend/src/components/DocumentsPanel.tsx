@@ -14,6 +14,7 @@ interface Document {
 export function DocumentsPanel() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadDocuments();
@@ -21,12 +22,13 @@ export function DocumentsPanel() {
 
   const loadDocuments = async () => {
     setLoading(true);
+    setError(null);
     try {
-      // This endpoint needs to be created
       const data = await api.get('/documents/list');
-      setDocuments(data.documents);
-    } catch (error) {
-      console.error('Failed to load documents:', error);
+      setDocuments(data.documents || []);
+    } catch (err: any) {
+      console.error('Failed to load documents:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -34,12 +36,9 @@ export function DocumentsPanel() {
 
   const handleDownload = async (doc: Document) => {
     try {
-      // Get presigned download URL
       const result = await api.post('/documents/download-url', {
         s3_key: doc.s3_key
       });
-      
-      // Open in new tab to trigger download
       window.open(result.url, '_blank');
     } catch (error) {
       alert('Failed to download document');
@@ -48,6 +47,16 @@ export function DocumentsPanel() {
 
   if (loading) {
     return <div className="p-6">Loading documents...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+          Failed to load documents. {error}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -77,34 +86,16 @@ export function DocumentsPanel() {
                     {doc.source_name}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                      </svg>
-                      {doc.doc_type}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                      </svg>
-                      {doc.module}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {new Date(doc.uploaded_at).toLocaleDateString()}
-                    </span>
+                    <span>{doc.doc_type}</span>
+                    <span>{doc.module}</span>
+                    <span>{new Date(doc.uploaded_at).toLocaleDateString()}</span>
                     <span>{doc.chunk_count} chunks</span>
                   </div>
                 </div>
                 <button
                   onClick={() => handleDownload(doc)}
-                  className="ml-4 px-4 py-2 bg-slate-900 text-white text-sm rounded hover:bg-slate-800 flex items-center gap-2"
+                  className="ml-4 px-4 py-2 bg-slate-900 text-white text-sm rounded hover:bg-slate-800"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
                   Download
                 </button>
               </div>
