@@ -1,0 +1,49 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Install CDK dependencies
+        run: |
+          cd infra
+          npm install
+      
+      - name: CDK Diff (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: |
+          cd infra
+          npx cdk diff
+      
+      - name: CDK Deploy (Main Branch)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cd infra
+          npx cdk deploy --require-approval never
