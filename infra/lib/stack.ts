@@ -179,6 +179,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       LOG_LEVEL: 'INFO',
       CONFIG_TABLE_NAME: configTable.tableName, 
       USER_POOL_ID: userPool.userPoolId,
+      DOCS_BUCKET_NAME: docsBucket.bucketName,
     };
 
     const lambdasRoot = path.join(__dirname, '..', '..', 'lambdas');
