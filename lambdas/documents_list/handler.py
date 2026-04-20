@@ -46,7 +46,7 @@ def handler(event, context):
                     "source_name": item.get("source_name", "Unknown"),
                     "doc_type": item.get("doc_type", "unknown"),
                     "module": item.get("module", "unknown"),
-                    "uploaded_at": item.get("created_at", ""),
+                    "uploaded_at": str(item.get("created_at", "")),
                     "s3_key": item.get("s3_key", ""),
                     "chunk_count": 0
                 }
@@ -60,7 +60,7 @@ def handler(event, context):
         # Convert to list and sort by upload date (newest first)
         documents = sorted(
             docs_map.values(),
-            key=lambda x: x["uploaded_at"],
+            key=lambda x: x.get("uploaded_at", ""),
             reverse=True
         )
         
