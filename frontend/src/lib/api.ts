@@ -14,6 +14,38 @@ async function getAuthToken(): Promise<string> {
   return token;
 }
 
+// Types
+export interface Citation {
+  source_name: string;
+  doc_type: string;
+  module: string;
+  chunk_index: number;
+  excerpt: string;
+  score: number;
+}
+
+export interface ChatResponse {
+  answer: string;
+  citations: Citation[];
+  model_id: string;
+  latency_ms: number;
+}
+
+export interface Finding {
+  title: string;
+  severity: string;
+  description: string;
+  recommendation: string;
+}
+
+export interface AnalyzeResponse {
+  findings: Finding[];
+  summary: string;
+  model_id: string;
+  latency_ms: number;
+}
+
+// Generic API functions
 export const api = {
   async get(path: string) {
     const token = await getAuthToken();
@@ -52,3 +84,21 @@ export const api = {
     return response.json();
   },
 };
+
+// Specific API functions (for backward compatibility with existing components)
+export async function chat(message: string, history: any[] = []): Promise<ChatResponse> {
+  return api.post('/chat', { message, history });
+}
+
+export async function ingestDoc(s3Key: string, docId: string, docType: string, module: string) {
+  return api.post('/ingest', {
+    s3_key: s3Key,
+    doc_id: docId,
+    doc_type: docType,
+    module: module,
+  });
+}
+
+export async function analyzeDoc(docId: string, focus: string = 'all'): Promise<AnalyzeResponse> {
+  return api.post('/analyze', { doc_id: docId, focus });
+}
