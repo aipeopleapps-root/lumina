@@ -97,6 +97,7 @@ export async function ingestDoc(params: {
   doc_id: string;
   doc_type: string;
   module: string;
+  source_name?: string;
 }) {
   return api.post('/ingest', params);
 }

@@ -185,7 +185,7 @@ function FindingCard({ f }: { f: Finding }) {
       <p className="text-sm text-slate-700 mb-2">{f.detail}</p>
       {f.evidence?.length > 0 && (
         <div className="bg-slate-50 border-l-2 border-slate-300 pl-3 py-1 mb-2">
-          {f.evidence.map((e, i) => (
+          {f.evidence!.map((e, i) => (
             <p key={i} className="text-xs text-slate-600 font-mono whitespace-pre-wrap">
               {e}
             </p>
