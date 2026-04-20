@@ -1,0 +1,246 @@
+import * as cdk from 'aws-cdk-lib';
+import { Construct } from 'constructs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigwv2_integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as apigwv2_authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as path from 'path';
+
+const GENERATION_MODEL_ID = 'global.anthropic.claude-sonnet-4-20250514-v1:0';
+const EMBEDDING_MODEL_ID = 'amazon.titan-embed-text-v2:0';
+const EMBEDDING_DIM = 1024;
+
+export class WorkdayAiPlatformStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    const vpc = new ec2.Vpc(this, 'Vpc', {
+      maxAzs: 2,
+      natGateways: 1,
+      subnetConfiguration: [
+        { cidrMask: 24, name: 'public', subnetType: ec2.SubnetType.PUBLIC },
+        { cidrMask: 24, name: 'private', subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      ],
+    });
+
+    const docsBucket = new s3.Bucket(this, 'DocsBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      versioned: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.GET,
+            s3.HttpMethods.PUT,
+            s3.HttpMethods.POST,
+            s3.HttpMethods.DELETE,
+            s3.HttpMethods.HEAD,
+          ],
+          allowedOrigins: ['http://localhost:5173', 'http://localhost:3000'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+        },
+      ],
+    });
+
+    const dbSecret = new secretsmanager.Secret(this, 'DbSecret', {
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'platformadmin' }),
+        generateStringKey: 'password',
+        excludePunctuation: true,
+      },
+    });
+
+    const dbSg = new ec2.SecurityGroup(this, 'DbSg', {
+      vpc,
+      description: 'DB access',
+    });
+
+    const dbCluster = new rds.DatabaseCluster(this, 'Db', {
+      engine: rds.DatabaseClusterEngine.auroraPostgres({
+        version: rds.AuroraPostgresEngineVersion.VER_16_4,
+      }),
+      credentials: rds.Credentials.fromSecret(dbSecret),
+      defaultDatabaseName: 'platform',
+      writer: rds.ClusterInstance.serverlessV2('writer', {
+        scaleWithWriter: true,
+      }),
+      serverlessV2MinCapacity: 0.5,
+      serverlessV2MaxCapacity: 1,
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [dbSg],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const vectorTable = new dynamodb.Table(this, 'VectorTable', {
+      tableName: 'workday-ai-vectors',
+      partitionKey: { name: 'tenant_id', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'chunk_id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: false,
+    });
+
+    vectorTable.addGlobalSecondaryIndex({
+      indexName: 'doc_id-index',
+      partitionKey: { name: 'doc_id', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    const userPool = new cognito.UserPool(this, 'UserPool', {
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      customAttributes: {
+        tenant_id: new cognito.StringAttribute({ mutable: true }),
+        role: new cognito.StringAttribute({ mutable: true }),
+      },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const userPoolClient = userPool.addClient('WebClient', {
+      authFlows: { userSrp: true, userPassword: true },
+      generateSecret: false,
+      accessTokenValidity: cdk.Duration.hours(8),
+      idTokenValidity: cdk.Duration.hours(8),
+    });
+
+    const lambdaRole = new iam.Role(this, 'LambdaRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaVPCAccessExecutionRole'),
+      ],
+    });
+
+    // Grant Bedrock permissions for all Claude Sonnet and Titan models
+    lambdaRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+        resources: [
+          `arn:aws:bedrock:*::foundation-model/${EMBEDDING_MODEL_ID}`,
+          `arn:aws:bedrock:*::foundation-model/anthropic.claude-*`,
+          `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+        ],
+      })
+    );
+
+    vectorTable.grantReadWriteData(lambdaRole);
+    docsBucket.grantReadWrite(lambdaRole);
+    dbCluster.grantDataApiAccess(lambdaRole);
+    dbSecret.grantRead(lambdaRole);
+
+    const commonEnv: Record<string, string> = {
+      DOCS_BUCKET: docsBucket.bucketName,
+      DB_CLUSTER_ARN: dbCluster.clusterArn,
+      DB_SECRET_ARN: dbSecret.secretArn,
+      DB_NAME: 'platform',
+      VECTOR_TABLE_NAME: vectorTable.tableName,
+      GENERATION_MODEL_ID,
+      EMBEDDING_MODEL_ID,
+      EMBEDDING_DIM: String(EMBEDDING_DIM),
+      POWERTOOLS_SERVICE_NAME: 'workday-ai-platform',
+      LOG_LEVEL: 'INFO',
+    };
+
+    const lambdasRoot = path.join(__dirname, '..', '..', 'lambdas');
+
+    const makeFn = (name: string, handlerPath: string, timeoutSec = 30) =>
+      new lambda.Function(this, name, {
+        runtime: lambda.Runtime.PYTHON_3_12,
+        architecture: lambda.Architecture.ARM_64,
+        code: lambda.Code.fromAsset(lambdasRoot, {
+          bundling: {
+            image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+            command: [
+              'bash', '-c',
+              [
+                `pip install -r ${handlerPath}/requirements.txt -t /asset-output`,
+                `cp -au ${handlerPath}/. /asset-output/`,
+                `cp -au common /asset-output/common`,
+              ].join(' && '),
+            ],
+          },
+        }),
+        handler: 'handler.handler',
+        role: lambdaRole,
+        vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        timeout: cdk.Duration.seconds(timeoutSec),
+        memorySize: 1024,
+        environment: commonEnv,
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      });
+
+    const uploadUrlFn = makeFn('UploadUrlFn', 'upload_url', 15);
+    const ingestFn = makeFn('IngestFn', 'ingest', 120);
+    const analyzeFn = makeFn('AnalyzeFn', 'analyze', 90);
+    const chatFn = makeFn('ChatFn', 'chat', 60);
+
+    dbSg.addIngressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(5432),
+      'Lambda access'
+    );
+
+    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
+      corsPreflight: {
+        allowOrigins: ['*'],
+        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
+    });
+
+    const authorizer = new apigwv2_authorizers.HttpJwtAuthorizer(
+      'JwtAuthorizer',
+      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      {
+        jwtAudience: [userPoolClient.userPoolClientId],
+      }
+    );
+
+    httpApi.addRoutes({
+      path: '/upload-url',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('UploadUrlInt', uploadUrlFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/ingest',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('IngestInt', ingestFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/analyze',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AnalyzeInt', analyzeFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/chat',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('ChatInt', chatFn),
+      authorizer,
+    });
+
+    new cdk.CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
+    new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
+    new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, 'DocsBucketName', { value: docsBucket.bucketName });
+    new cdk.CfnOutput(this, 'VectorTableName', { value: vectorTable.tableName });
+    new cdk.CfnOutput(this, 'DbClusterArn', { value: dbCluster.clusterArn });
+    new cdk.CfnOutput(this, 'DbSecretArn', { value: dbSecret.secretArn });
+  }
+}
