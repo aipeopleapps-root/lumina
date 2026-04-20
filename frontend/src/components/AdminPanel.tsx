@@ -87,13 +87,13 @@ export function AdminPanel() {
         <div className="space-x-4">
           <button
             onClick={() => setShowCreateClient(true)}
-            className="bg-deloitte-green text-white px-4 py-2 rounded hover:bg-deloitte-dark-green"
+            className="bg-slate-900 text-white px-4 py-2 rounded hover:bg-slate-800"
           >
             + New Client
           </button>
           <button
             onClick={() => setShowCreateUser(true)}
-            className="bg-deloitte-green text-white px-4 py-2 rounded hover:bg-deloitte-dark-green"
+            className="bg-slate-900 text-white px-4 py-2 rounded hover:bg-slate-800"
           >
             + New User
           </button>
@@ -150,7 +150,7 @@ export function AdminPanel() {
                 />
               </div>
               <div className="flex space-x-3 pt-4">
-                <button type="submit" className="flex-1 bg-deloitte-green text-white py-2 rounded hover:bg-deloitte-dark-green">
+                <button type="submit" className="flex-1 bg-slate-900 text-white py-2 rounded hover:bg-slate-800">
                   Create Client
                 </button>
                 <button
@@ -223,7 +223,7 @@ export function AdminPanel() {
                 <p className="text-xs text-gray-500 mt-1">User must change on first login</p>
               </div>
               <div className="flex space-x-3 pt-4">
-                <button type="submit" className="flex-1 bg-deloitte-green text-white py-2 rounded hover:bg-deloitte-dark-green">
+                <button type="submit" className="flex-1 bg-slate-900 text-white py-2 rounded hover:bg-slate-800">
                   Create User
                 </button>
                 <button

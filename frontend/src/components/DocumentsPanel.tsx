@@ -94,7 +94,7 @@ export function DocumentsPanel() {
                 </div>
                 <button
                   onClick={() => handleDownload(doc)}
-                  className="ml-4 px-4 py-2 bg-deloitte-green text-white text-sm rounded hover:bg-deloitte-dark-green"
+                  className="ml-4 px-4 py-2 bg-slate-900 text-white text-sm rounded hover:bg-slate-800"
                 >
                   Download
                 </button>

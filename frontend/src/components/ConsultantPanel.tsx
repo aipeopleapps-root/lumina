@@ -114,7 +114,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         <button
           onClick={onRun}
           disabled={!file || uploading || analyzing}
-          className="px-4 py-2 bg-deloitte-green text-white rounded text-sm hover:bg-deloitte-dark-green disabled:opacity-50"
+          className="px-4 py-2 bg-slate-900 text-white rounded text-sm hover:bg-slate-800 disabled:opacity-50"
         >
           {uploading ? 'Uploading…' : analyzing ? 'Analyzing…' : 'Upload & analyze'}
         </button>

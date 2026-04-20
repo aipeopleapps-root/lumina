@@ -89,7 +89,7 @@ export default function App() {
           <button
             type="submit"
             disabled={signingIn}
-            className="w-full bg-deloitte-black text-white py-2 rounded hover:bg-gray-900 disabled:opacity-60"
+            className="w-full bg-slate-900 text-white py-2 rounded hover:bg-slate-800 disabled:opacity-60"
           >
             {signingIn ? 'Signing in…' : 'Sign in'}
           </button>
@@ -107,7 +107,7 @@ export default function App() {
       {/* Header — shows tenant + role, critical for the isolation story */}
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-deloitte-black rounded-md flex items-center justify-center text-white text-xs font-semibold">
+          <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-semibold">
             WD
           </div>
           <div>
