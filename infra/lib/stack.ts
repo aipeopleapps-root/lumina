@@ -248,7 +248,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     new cdk.CustomResource(this, 'Bootstrap', {
       serviceToken: bootstrapProvider.serviceToken,
       // Changing this string forces re-execution on next deploy
-      properties: { Version: '3' },
+      properties: { Version: '4' },
     });
 
     dbSg.addIngressRule(

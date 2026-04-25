@@ -61,6 +61,7 @@ def handler(event, context):
         return _respond(event, "SUCCESS", {})
 
     try:
+        _delete_stale_users()
         _ensure_tenants()
         subs = _ensure_users()
         _ensure_assignments(subs)
@@ -69,6 +70,22 @@ def handler(event, context):
     except Exception as exc:
         log.exception("Bootstrap failed")
         return _respond(event, "FAILED", {}, str(exc))
+
+
+def _delete_stale_users():
+    """Delete any Cognito user whose email is not in the canonical USERS list."""
+    canonical = {u["email"] for u in USERS}
+    paginator = _cognito.get_paginator("list_users")
+    for page in paginator.paginate(UserPoolId=USER_POOL_ID):
+        for u in page.get("Users", []):
+            attrs = {a["Name"]: a["Value"] for a in u.get("Attributes", [])}
+            email = attrs.get("email", u["Username"]).lower()
+            if email not in canonical:
+                try:
+                    _cognito.admin_delete_user(UserPoolId=USER_POOL_ID, Username=u["Username"])
+                    log.info("Deleted stale user %s", email)
+                except Exception as exc:
+                    log.warning("Could not delete %s: %s", email, exc)
 
 
 def _ensure_tenants():
