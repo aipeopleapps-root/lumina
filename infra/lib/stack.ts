@@ -156,6 +156,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
           'cognito-idp:AdminSetUserPassword',
           'cognito-idp:AdminGetUser',
           'cognito-idp:AdminDeleteUser',
+          'cognito-idp:AdminResetUserPassword',
+          'cognito-idp:ListUsers',
         ],
         resources: [userPool.userPoolArn],
       })
@@ -229,6 +231,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const tenantFolderStructureFn = makeFn('TenantFolderStructureFn', 'tenant_folder_structure', 15);
     const documentsDeleteFn = makeFn('DocumentsDeleteFn', 'documents_delete', 30);
     const documentsPublishFn = makeFn('DocumentsPublishFn', 'documents_publish', 30);
+    // Security & project admin functions
+    const consultantMyClientsFn = makeFn('ConsultantMyClientsFn', 'consultant_my_clients', 15);
+    const adminAssignConsultantFn = makeFn('AdminAssignConsultantFn', 'admin_assign_consultant', 15);
+    const adminListUsersFn = makeFn('AdminListUsersFn', 'admin_list_users', 30);
+    const adminResetPasswordFn = makeFn('AdminResetPasswordFn', 'admin_reset_password', 15);
+    const adminAuditLogFn = makeFn('AdminAuditLogFn', 'admin_audit_log', 30);
 
     dbSg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
@@ -240,7 +248,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       corsPreflight: {
         allowOrigins: ['*'],
         allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
-        allowHeaders: ['Content-Type', 'Authorization'],
+        allowHeaders: ['Content-Type', 'Authorization', 'X-Client-Tenant'],
       },
     });
 
@@ -332,6 +340,40 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       integration: new apigwv2_integrations.HttpLambdaIntegration('DocumentsPublishInt', documentsPublishFn),
       authorizer,
     });
+    // Consultant client-switcher
+    httpApi.addRoutes({
+      path: '/consultant/my-clients',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('ConsultantMyClientsInt', consultantMyClientsFn),
+      authorizer,
+    });
+    // Project admin routes
+    httpApi.addRoutes({
+      path: '/admin/assign-consultant',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminAssignConsultantInt', adminAssignConsultantFn),
+      authorizer,
+    });
+    // Security admin routes
+    httpApi.addRoutes({
+      path: '/admin/list-users',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminListUsersInt', adminListUsersFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/reset-password',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminResetPasswordInt', adminResetPasswordFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/audit-log',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminAuditLogInt', adminAuditLogFn),
+      authorizer,
+    });
+
     new cdk.CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });

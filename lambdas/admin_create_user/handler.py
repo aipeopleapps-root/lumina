@@ -37,7 +37,7 @@ def handler(event, context):
     # Verify admin role
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("admin")
+        ctx.require_role("admin", "security_admin", "project_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 
@@ -54,8 +54,8 @@ def handler(event, context):
     if not email or not tenant_id or not role:
         return http.bad_request("email, tenant_id, and role are required")
 
-    if role not in ("consultant", "client", "admin"):
-        return http.bad_request("role must be: consultant, client, or admin")
+    if role not in ("consultant", "client", "project_admin", "security_admin", "admin"):
+        return http.bad_request("role must be: consultant, client, project_admin, security_admin, or admin")
 
     try:
         # 1. Create Cognito user
