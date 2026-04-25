@@ -95,8 +95,8 @@ export default function App() {
           onSubmit={onSignIn}
           className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 w-96"
         >
-          <h1 className="text-xl font-semibold mb-1">Workday Insight Studio</h1>
-          <p className="text-sm text-slate-500 mb-6">AI-Powered Workday Advisory by Green Dot</p>
+          <h1 className="text-xl font-semibold mb-1">The Mitre</h1>
+          <p className="text-sm text-slate-500 mb-6">Workday Advisory Platform</p>
           <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
           <input
             type="email"
@@ -148,12 +148,12 @@ export default function App() {
     <div className="h-screen flex flex-col">
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-semibold">
-            WD
+          <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-semibold tracking-tight">
+            TM
           </div>
           <div>
-            <div className="text-sm font-medium">Workday Insight Studio</div>
-            <div className="text-xs text-slate-500">Powered by Green Dot</div>
+            <div className="text-sm font-medium">The Mitre</div>
+            <div className="text-xs text-slate-500">Workday Advisory Platform</div>
           </div>
         </div>
 

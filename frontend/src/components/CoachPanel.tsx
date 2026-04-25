@@ -48,7 +48,7 @@ export default function CoachPanel() {
       <div className="flex-1 overflow-y-auto space-y-3 mb-4">
         {history.length === 0 && (
           <div className="text-sm text-slate-400 text-center py-8">
-            Ask about this client's Workday configuration. Answers are grounded in uploaded documents.
+            Ask about this client's configuration. Answers are grounded in uploaded documents.
           </div>
         )}
         {history.map((turn, i) => (
@@ -61,7 +61,7 @@ export default function CoachPanel() {
             }
           >
             <div className="font-medium text-xs text-slate-500 mb-1">
-              {turn.role === 'user' ? 'You' : 'Ask Workday Expert'}
+              {turn.role === 'user' ? 'You' : 'The Mitre'}
             </div>
             <div className="whitespace-pre-wrap">{turn.content}</div>
             {turn.citations && turn.citations.length > 0 && (
