@@ -51,8 +51,8 @@ def handler(event, context):
                  len(all_items), ctx.tenant_id,
                  len(all_items) // 100 + 1)
 
-        # Clients only see published documents
-        is_client = ctx.role not in ("consultant", "admin")
+        # Only consultants and admins see unpublished documents
+        is_client = ctx.role not in ("consultant", "admin", "project_admin", "security_admin")
         if is_client:
             all_items = [i for i in all_items if i.get("published") is True]
 

@@ -145,7 +145,10 @@ export function ClientView() {
           {docsLoading ? (
             <p className="text-xs text-slate-400 px-4 py-4">Loading…</p>
           ) : dedupedDocs.length === 0 ? (
-            <p className="text-xs text-slate-400 px-4 py-4">No documents yet.</p>
+            <div className="px-4 py-6 space-y-2">
+              <p className="text-xs font-medium text-slate-500">No documents available yet.</p>
+              <p className="text-xs text-slate-400 leading-relaxed">Your consultant needs to upload and publish documents to your workspace before they appear here.</p>
+            </div>
           ) : (
             <div className="py-2">
               {[...docsByFolder.entries()].map(([folder, docs]) => (
