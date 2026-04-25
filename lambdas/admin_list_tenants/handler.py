@@ -38,7 +38,7 @@ def handler(event, context):
     # Verify admin role
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("admin")
+        ctx.require_role("admin", "project_admin", "security_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

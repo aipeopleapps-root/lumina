@@ -22,7 +22,7 @@ _cognito = boto3.client("cognito-idp")
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("security_admin", "admin")
+        ctx.require_role("security_admin", "project_admin", "admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

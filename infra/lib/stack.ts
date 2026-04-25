@@ -354,6 +354,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       integration: new apigwv2_integrations.HttpLambdaIntegration('AdminAssignConsultantInt', adminAssignConsultantFn),
       authorizer,
     });
+    httpApi.addRoutes({
+      path: '/admin/assignments',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminListAssignmentsInt', adminAssignConsultantFn),
+      authorizer,
+    });
     // Security admin routes
     httpApi.addRoutes({
       path: '/admin/list-users',

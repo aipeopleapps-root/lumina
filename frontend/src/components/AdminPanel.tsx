@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  listTenants, listUsers, createTenant, createUser,
+  listTenants, listUsers, listAssignments, createTenant, createUser,
   resetPassword, getAuditLog, assignConsultant,
   type AdminUser, type AuditEntry,
 } from '../lib/api';
@@ -244,11 +244,16 @@ function AssignmentsTab() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [c, u] = await Promise.all([listTenants(), listUsers()]);
+      const [c, u, existing] = await Promise.all([listTenants(), listUsers(), listAssignments()]);
       setClients(c);
       setConsultants(u.filter((x: AdminUser) => x.role === 'consultant'));
-      // Assignments start unchecked; state is authoritative as the admin toggles.
-      setAssignments({});
+      // Build assignments map from live DynamoDB state
+      const map: Record<string, Record<string, boolean>> = {};
+      for (const a of existing) {
+        if (!map[a.consultant_sub]) map[a.consultant_sub] = {};
+        map[a.consultant_sub][a.client_tenant_id] = true;
+      }
+      setAssignments(map);
     } finally { setLoading(false); }
   }
 

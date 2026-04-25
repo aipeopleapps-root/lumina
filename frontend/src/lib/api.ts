@@ -205,6 +205,18 @@ export async function getAuditLog(params: {
 }
 
 // Project Admin
+export interface Assignment {
+  consultant_sub: string;
+  consultant_email: string;
+  client_tenant_id: string;
+  client_name: string;
+}
+
+export async function listAssignments(): Promise<Assignment[]> {
+  const r = await api.get('/admin/assignments');
+  return r.assignments ?? [];
+}
+
 export async function assignConsultant(
   consultantSub: string,
   consultantEmail: string,

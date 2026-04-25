@@ -1,13 +1,8 @@
 """
-Project Admin: assign or unassign a consultant to/from a client tenant.
+Project Admin: assign/unassign a consultant to a client, or list all assignments.
 
-POST /admin/assign-consultant
-{
-  "consultant_sub": "cognito-sub-uuid",
-  "consultant_email": "alice@firm.com",
-  "client_tenant_id": "acme",
-  "action": "assign" | "unassign"
-}
+GET  /admin/assignments          → { assignments: [{consultant_sub, consultant_email, client_tenant_id}] }
+POST /admin/assign-consultant    → assign or unassign
 """
 
 from __future__ import annotations
@@ -17,6 +12,7 @@ import logging
 import os
 
 import boto3
+from boto3.dynamodb.conditions import Attr
 
 from common import tenant_from_event, TenantError, http
 
@@ -32,6 +28,11 @@ def handler(event, context):
         ctx.require_role("project_admin", "admin")
     except TenantError as e:
         return http.forbidden(str(e))
+
+    method = event.get("requestContext", {}).get("http", {}).get("method", "POST")
+
+    if method == "GET":
+        return _list_assignments()
 
     try:
         body = json.loads(event.get("body") or "{}")
@@ -51,7 +52,6 @@ def handler(event, context):
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(_CONFIG_TABLE)
 
-    # Fetch client name for denormalization
     client_name = client_tenant_id
     meta = table.get_item(Key={"pk": f"TENANT#{client_tenant_id}", "sk": "METADATA"})
     if "Item" in meta:
@@ -70,16 +70,41 @@ def handler(event, context):
             "client_name": client_name,
             "assigned_by": ctx.user_id,
         })
-        log.info(
-            "project_admin %s assigned consultant %s to tenant %s",
-            ctx.user_id, consultant_sub, client_tenant_id,
-        )
+        log.info("project_admin %s assigned %s → %s", ctx.user_id, consultant_sub, client_tenant_id)
         return http.ok({"message": f"Consultant assigned to {client_tenant_id}"})
 
-    else:  # unassign
+    else:
         table.delete_item(Key={"pk": pk, "sk": sk})
-        log.info(
-            "project_admin %s unassigned consultant %s from tenant %s",
-            ctx.user_id, consultant_sub, client_tenant_id,
-        )
+        log.info("project_admin %s unassigned %s from %s", ctx.user_id, consultant_sub, client_tenant_id)
         return http.ok({"message": f"Consultant unassigned from {client_tenant_id}"})
+
+
+def _list_assignments() -> dict:
+    """Scan config table for all ASSIGN# items and return flat list."""
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(_CONFIG_TABLE)
+
+    items = []
+    last_key = None
+    while True:
+        kwargs: dict = {
+            "FilterExpression": Attr("pk").begins_with("ASSIGN#") & Attr("sk").begins_with("CLIENT#"),
+        }
+        if last_key:
+            kwargs["ExclusiveStartKey"] = last_key
+        resp = table.scan(**kwargs)
+        items.extend(resp.get("Items", []))
+        last_key = resp.get("LastEvaluatedKey")
+        if not last_key:
+            break
+
+    assignments = [
+        {
+            "consultant_sub": item.get("consultant_sub", item["pk"].removeprefix("ASSIGN#")),
+            "consultant_email": item.get("consultant_email", ""),
+            "client_tenant_id": item.get("client_tenant_id", item["sk"].removeprefix("CLIENT#")),
+            "client_name": item.get("client_name", ""),
+        }
+        for item in items
+    ]
+    return http.ok({"assignments": assignments})
