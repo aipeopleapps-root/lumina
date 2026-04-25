@@ -3,6 +3,7 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
 import { FileExplorer } from './FileExplorer';
+import { PublishReviewModal } from './PublishReviewModal';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 interface Document {
@@ -44,6 +45,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [docsLoading, setDocsLoading] = useState(false);
   const [showUpload, setShowUpload] = useState(true);
   const [showResults, setShowResults] = useState(false);
+  const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
@@ -143,6 +145,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const hasResults = analyzing || !!result;
 
   return (
+    <>
     <div className="flex h-full min-h-0 overflow-hidden">
 
       {/* ── Panel 1: Upload (collapsible) ── */}
@@ -317,11 +320,14 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                 } catch { alert('Failed to delete document'); }
               }}
               onAnalyse={onAnalyse}
-              onPublish={async (doc, published) => {
-                try {
-                  await publishDoc(doc.doc_id, published);
-                  loadDocuments();
-                } catch { alert('Failed to update document visibility'); }
+              onPublish={(doc, published) => {
+                if (published) {
+                  // Show quality review modal before publishing
+                  setPendingPublishDoc(doc);
+                } else {
+                  // Unpublish directly — no review needed
+                  publishDoc(doc.doc_id, false).then(loadDocuments).catch(() => alert('Failed to unpublish document'));
+                }
               }}
             />
           ) : (
@@ -401,6 +407,24 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       )}
 
     </div>
+
+      {pendingPublishDoc && (
+        <PublishReviewModal
+          doc={pendingPublishDoc}
+          onConfirmPublish={async () => {
+            try {
+              await publishDoc(pendingPublishDoc!.doc_id, true);
+              loadDocuments();
+            } catch {
+              alert('Failed to publish document');
+            } finally {
+              setPendingPublishDoc(null);
+            }
+          }}
+          onCancel={() => setPendingPublishDoc(null)}
+        />
+      )}
+    </>
   );
 }
 

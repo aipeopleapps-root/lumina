@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 _GENERATION_MODEL_ID = os.environ["GENERATION_MODEL_ID"]
 _PROMPT_PATH = Path(__file__).parent / "prompt.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
+_DELIVERY_REVIEW_PROMPT_PATH = Path(__file__).parent / "prompt_delivery_review.md"
+_DELIVERY_REVIEW_PROMPT = _DELIVERY_REVIEW_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def handler(event, context):
@@ -43,11 +45,16 @@ def handler(event, context):
         return http.bad_request("invalid JSON body")
 
     doc_id = body.get("doc_id")
+    mode = body.get("mode", "standard")
     focus = body.get("focus") or "all"
     if not doc_id:
         return http.bad_request("doc_id is required")
-    if focus not in ("risks", "anti-patterns", "best-practices", "all"):
+    if mode not in ("standard", "delivery_review"):
+        return http.bad_request(f"invalid mode: {mode}")
+    if mode == "standard" and focus not in ("risks", "anti-patterns", "best-practices", "all"):
         return http.bad_request(f"invalid focus: {focus}")
+
+    system_prompt = _DELIVERY_REVIEW_PROMPT if mode == "delivery_review" else _SYSTEM_PROMPT
 
     doc_chunks = _load_doc_chunks(ctx, doc_id)
     if not doc_chunks:
@@ -77,7 +84,7 @@ def handler(event, context):
     with audit.Timer() as t:
         try:
             result = bedrock.generate_json(
-                _SYSTEM_PROMPT, user_prompt, max_tokens=3000, temperature=0.1
+                system_prompt, user_prompt, max_tokens=3000, temperature=0.1
             )
         except ValueError as e:
             log.exception("analyze model output was not valid JSON")

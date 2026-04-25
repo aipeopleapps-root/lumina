@@ -107,8 +107,23 @@ export async function ingestDoc(params: {
   return api.post('/ingest', params);
 }
 
-export async function analyzeDoc(docId: string, focus: string = 'all'): Promise<AnalyzeResponse> {
-  return api.post('/analyze', { doc_id: docId, focus });
+export async function analyzeDoc(docId: string, focus: string = 'all', mode?: string): Promise<AnalyzeResponse> {
+  return api.post('/analyze', { doc_id: docId, focus, ...(mode ? { mode } : {}) });
+}
+
+export interface DeliveryFinding {
+  traffic_light: 'red' | 'yellow' | 'green';
+  title: string;
+  detail: string;
+  evidence: string[];
+  recommendation: string;
+}
+
+export interface DeliveryReviewResponse {
+  summary: string;
+  findings: DeliveryFinding[];
+  doc_id: string;
+  model_id: string;
 }
 
 export async function deleteDoc(docId: string): Promise<void> {
