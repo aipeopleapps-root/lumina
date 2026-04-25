@@ -36,8 +36,10 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [statusStep, setStatusStep] = useState<'idle' | 'uploading' | 'indexing' | 'analyzing' | 'done' | 'error'>('idle');
+  const [analyzingDoc, setAnalyzingDoc] = useState<string | null>(null);
+  const [statusStep, setStatusStep] = useState<'idle' | 'uploading' | 'indexing' | 'done' | 'error'>('idle');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [resultDocName, setResultDocName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -74,6 +76,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     if (!file) return;
     setError(null);
     setResult(null);
+    setResultDocName(null);
 
     try {
       setUploading(true);
@@ -98,10 +101,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         folder_path: folderPath,
       });
 
-      setStatusStep('analyzing');
-      setAnalyzing(true);
-      const out = await analyzeDoc(docId, 'all');
-      setResult(out);
       setStatusStep('done');
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -111,7 +110,24 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setStatusStep('error');
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function onAnalyse(doc: Document) {
+    setError(null);
+    setResult(null);
+    setResultDocName(doc.source_name);
+    setAnalyzing(true);
+    setAnalyzingDoc(doc.doc_id);
+    try {
+      const out = await analyzeDoc(doc.doc_id, 'all');
+      setResult(out);
+    } catch (err: any) {
+      setError(err.message || String(err));
+      setResultDocName(null);
+    } finally {
       setAnalyzing(false);
+      setAnalyzingDoc(null);
     }
   }
 
@@ -123,15 +139,13 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     );
   }
 
-  const busy = uploading || analyzing;
-
   return (
     <div className="flex h-full min-h-0">
       {/* ── Left panel: Upload + Analysis ── */}
       <div className="w-[420px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto">
         <div className="p-6 border-b border-slate-100">
           <h2 className="text-base font-semibold text-slate-900 mb-0.5">Upload Document</h2>
-          <p className="text-xs text-slate-500">Supports .xlsx · .xlsm · .pdf · .docx</p>
+          <p className="text-xs text-slate-500">Supports .xlsx · .xlsm · .pdf · .docx — use <span className="font-medium text-indigo-600">Analyse</span> on a document to run AI analysis</p>
         </div>
 
         <div className="p-6 space-y-5">
@@ -198,34 +212,33 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           <div>
             <button
               onClick={onRun}
-              disabled={!file || busy}
+              disabled={!file || uploading}
               className="w-full py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {busy ? (
+              {uploading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {statusStep === 'uploading' ? 'Uploading…' : statusStep === 'indexing' ? 'Indexing…' : 'Analysing…'}
+                  {statusStep === 'uploading' ? 'Uploading…' : 'Indexing…'}
                 </span>
-              ) : 'Upload & Analyse'}
+              ) : 'Upload'}
             </button>
 
-            {busy && (
+            {uploading && (
               <div className="mt-3 flex items-center gap-2">
-                {(['uploading', 'indexing', 'analyzing'] as const).map((step, i) => {
-                  const stepOrder = { uploading: 0, indexing: 1, analyzing: 2 };
-                  const currentOrder = stepOrder[statusStep as keyof typeof stepOrder] ?? -1;
+                {(['uploading', 'indexing'] as const).map((step, i) => {
+                  const currentOrder = statusStep === 'uploading' ? 0 : 1;
                   const done = i < currentOrder;
                   const active = i === currentOrder;
                   return (
                     <div key={step} className="flex items-center gap-2 flex-1">
                       <div className={`flex-1 h-1 rounded-full transition-colors ${done ? 'bg-slate-900' : active ? 'bg-slate-400' : 'bg-slate-200'}`} />
-                      {i < 2 && <div className={`text-xs ${done ? 'text-slate-700' : 'text-slate-300'}`}>›</div>}
+                      {i < 1 && <div className={`text-xs ${done ? 'text-slate-700' : 'text-slate-300'}`}>›</div>}
                     </div>
                   );
                 })}
               </div>
             )}
-            {busy && (
+            {uploading && (
               <p className="text-xs text-slate-400 mt-1.5 text-center capitalize">{statusStep}…</p>
             )}
 
@@ -237,24 +250,35 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           </div>
         </div>
 
-        {/* Analysis results */}
-        {result && (
+        {/* Analysis panel */}
+        {(analyzing || result) && (
           <div className="border-t border-slate-100 px-6 py-5 space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-slate-900">Analysis Complete</h3>
-                <span className="text-xs text-slate-400">{result.findings.length} findings</span>
+            {analyzing ? (
+              <div className="flex items-center gap-3 py-4">
+                <span className="inline-block w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-slate-800">Analysing…</p>
+                  {resultDocName && <p className="text-xs text-slate-400 truncate">{resultDocName}</p>}
+                </div>
               </div>
-              <p className="text-sm text-slate-600 leading-relaxed">{result.summary}</p>
-            </div>
-
-            <div className="space-y-2">
-              {result.findings.map((f, i) => (
-                <FindingCard key={i} f={f} />
-              ))}
-            </div>
-
-            <p className="text-xs text-slate-300">Model: {result.model_id}</p>
+            ) : result && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-slate-900">Analysis Results</h3>
+                    <span className="text-xs text-slate-400">{result.findings.length} findings</span>
+                  </div>
+                  {resultDocName && <p className="text-xs text-indigo-600 mb-2 truncate">{resultDocName}</p>}
+                  <p className="text-sm text-slate-600 leading-relaxed">{result.summary}</p>
+                </div>
+                <div className="space-y-2">
+                  {result.findings.map((f, i) => (
+                    <FindingCard key={i} f={f} />
+                  ))}
+                </div>
+                <p className="text-xs text-slate-300">Model: {result.model_id}</p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -300,6 +324,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                   loadDocuments();
                 } catch { alert('Failed to delete document'); }
               }}
+              onAnalyse={onAnalyse}
             />
           ) : (
             <p className="text-xs text-slate-400">Loading folder structure…</p>

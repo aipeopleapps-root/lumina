@@ -17,6 +17,7 @@ interface Props {
   documents: Document[];
   onDownload: (doc: Document) => void;
   onDelete?: (doc: Document) => void;
+  onAnalyse?: (doc: Document) => void;
 }
 
 // Groups docs by folder_path, then within each folder groups versions by source_name
@@ -56,10 +57,12 @@ function DocGroup({
   versions,
   onDownload,
   onDelete,
+  onAnalyse,
 }: {
   versions: Document[];
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
+  onAnalyse?: (d: Document) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const current = versions[0];
@@ -87,6 +90,14 @@ function DocGroup({
           </div>
         </div>
         <div className="flex items-center gap-1.5 ml-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {onAnalyse && (
+            <button
+              onClick={() => onAnalyse(current)}
+              className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+            >
+              Analyse
+            </button>
+          )}
           <button
             onClick={() => onDownload(current)}
             className="px-2.5 py-1 text-xs bg-slate-900 text-white rounded hover:bg-slate-700"
@@ -137,10 +148,12 @@ function DocList({
   docs,
   onDownload,
   onDelete,
+  onAnalyse,
 }: {
   docs: Document[];
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
+  onAnalyse?: (d: Document) => void;
 }) {
   const groups = groupByName(docs);
   return (
@@ -151,6 +164,7 @@ function DocList({
           versions={versions}
           onDownload={onDownload}
           onDelete={onDelete}
+          onAnalyse={onAnalyse}
         />
       ))}
     </div>
@@ -166,7 +180,7 @@ function CountBadge({ count }: { count: number }) {
   );
 }
 
-export function FileExplorer({ template, documents, onDownload, onDelete }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse }: Props) {
   const docMap = buildDocMap(documents);
 
   const initialExpanded = new Set<string>();
@@ -209,7 +223,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete }: Prop
             <span className="font-medium text-slate-800 text-sm">Uncategorized</span>
             <CountBadge count={rootDocs.length} />
           </div>
-          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} />
+          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} />
         </div>
       )}
 
@@ -233,7 +247,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete }: Prop
             {isOpen && (
               <div className="divide-y divide-slate-100">
                 {directDocs.length > 0 && (
-                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} />
+                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} />
                 )}
 
                 {folder.subfolders.map((sub) => {
@@ -259,7 +273,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete }: Prop
                           {subDocs.length === 0 ? (
                             <p className="text-xs text-slate-400 px-3 py-2">No documents</p>
                           ) : (
-                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} />
+                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} />
                           )}
                         </div>
                       )}
