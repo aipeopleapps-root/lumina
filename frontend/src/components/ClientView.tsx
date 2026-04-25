@@ -54,6 +54,7 @@ function dedupeByName(docs: Document[]): Document[] {
 export function ClientView() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [docsError, setDocsError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [scopedDoc, setScopedDoc] = useState<Document | null>(null);
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
@@ -65,9 +66,14 @@ export function ClientView() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setDocsLoading(true);
+    setDocsError(null);
     api.get('/documents/list')
       .then(d => setDocuments(d.documents || []))
-      .catch(console.error)
+      .catch((err: any) => {
+        console.error('Failed to load documents:', err);
+        setDocsError(err.message || 'Failed to load documents');
+      })
       .finally(() => setDocsLoading(false));
   }, []);
 
@@ -143,7 +149,28 @@ export function ClientView() {
           </div>
 
           {docsLoading ? (
-            <p className="text-xs text-slate-400 px-4 py-4">Loading…</p>
+            <div className="flex items-center gap-2 px-4 py-4">
+              <div className="w-3 h-3 border border-slate-300 border-t-slate-600 rounded-full animate-spin flex-shrink-0" />
+              <p className="text-xs text-slate-400">Loading…</p>
+            </div>
+          ) : docsError ? (
+            <div className="px-4 py-4 space-y-1">
+              <p className="text-xs font-medium text-red-600">Could not load documents</p>
+              <p className="text-xs text-slate-400 leading-relaxed">{docsError}</p>
+              <button
+                onClick={() => {
+                  setDocsLoading(true);
+                  setDocsError(null);
+                  api.get('/documents/list')
+                    .then(d => setDocuments(d.documents || []))
+                    .catch((err: any) => setDocsError(err.message || 'Failed to load documents'))
+                    .finally(() => setDocsLoading(false));
+                }}
+                className="mt-2 text-xs text-slate-500 hover:text-slate-800 underline"
+              >
+                Retry
+              </button>
+            </div>
           ) : dedupedDocs.length === 0 ? (
             <div className="px-4 py-6 space-y-2">
               <p className="text-xs font-medium text-slate-500">No documents available yet.</p>

@@ -16,3 +16,6 @@ def forbidden(message: str):
 
 def error(message: str):
     return {"statusCode": 500, "headers": _HEADERS, "body": json.dumps({"message": message})}
+
+def server_error(message: str):
+    return {"statusCode": 500, "headers": _HEADERS, "body": json.dumps({"error": message})}

@@ -240,8 +240,10 @@ function AssignmentsTab() {
   const [consultants, setConsultants] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  // assignments[consultantSub][tenantId] = true
-  const [assignments, setAssignments] = useState<Record<string, Record<string, boolean>>>({});
+  // assignments[consultantSub] = Set of assigned client tenant_ids
+  const [assignments, setAssignments] = useState<Record<string, Set<string>>>({});
+  // which consultant's "add client" picker is open
+  const [addingFor, setAddingFor] = useState<string | null>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -251,30 +253,41 @@ function AssignmentsTab() {
       const [c, u, existing] = await Promise.all([listTenants(), listUsers(), listAssignments()]);
       setClients(c);
       setConsultants(u.filter((x: AdminUser) => x.role === 'consultant'));
-      // Build assignments map from live DynamoDB state
-      const map: Record<string, Record<string, boolean>> = {};
+      const map: Record<string, Set<string>> = {};
       for (const a of existing) {
-        if (!map[a.consultant_sub]) map[a.consultant_sub] = {};
-        map[a.consultant_sub][a.client_tenant_id] = true;
+        if (!map[a.consultant_sub]) map[a.consultant_sub] = new Set();
+        map[a.consultant_sub].add(a.client_tenant_id);
       }
       setAssignments(map);
     } finally { setLoading(false); }
   }
 
-  async function toggle(consultant: AdminUser, tenantId: string) {
+  async function assign(consultant: AdminUser, tenantId: string) {
+    const key = `${consultant.sub}+${tenantId}`;
+    setSaving(key);
+    setAddingFor(null);
+    try {
+      await assignConsultant(consultant.sub, consultant.email, tenantId, 'assign');
+      setAssignments(prev => {
+        const next = new Set(prev[consultant.sub] ?? []);
+        next.add(tenantId);
+        return { ...prev, [consultant.sub]: next };
+      });
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setSaving(null); }
+  }
+
+  async function unassign(consultant: AdminUser, tenantId: string) {
     const key = `${consultant.sub}-${tenantId}`;
     setSaving(key);
-    const current = assignments[consultant.sub]?.[tenantId] ?? false;
-    const action = current ? 'unassign' : 'assign';
     try {
-      await assignConsultant(consultant.sub, consultant.email, tenantId, action);
-      setAssignments(prev => ({
-        ...prev,
-        [consultant.sub]: {
-          ...(prev[consultant.sub] || {}),
-          [tenantId]: !current,
-        },
-      }));
+      await assignConsultant(consultant.sub, consultant.email, tenantId, 'unassign');
+      setAssignments(prev => {
+        const next = new Set(prev[consultant.sub] ?? []);
+        next.delete(tenantId);
+        return { ...prev, [consultant.sub]: next };
+      });
     } catch (err: any) {
       alert(`Failed: ${err.message}`);
     } finally { setSaving(null); }
@@ -285,64 +298,112 @@ function AssignmentsTab() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
+    <div className="p-6 max-w-4xl mx-auto space-y-5">
       <div>
         <h2 className="text-base font-semibold text-slate-900">Consultant Assignments</h2>
         <p className="text-xs text-slate-500 mt-0.5">
-          Toggle to assign or remove a consultant's access to a client. Changes take effect immediately.
+          Control which clients each consultant can access. Changes take effect immediately.
         </p>
       </div>
 
       {consultants.length === 0 && (
-        <div className="text-center py-12 text-slate-400 text-sm">No consultants found. Create consultant users first.</div>
+        <div className="bg-white rounded-xl border border-slate-200 py-12 text-center text-slate-400 text-sm">
+          No consultants found. Create a consultant user first.
+        </div>
       )}
 
-      {consultants.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
-          <table className="text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-56">Consultant</th>
-                {clients.map(c => (
-                  <th key={c.tenant_id} className="px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide text-center min-w-[120px]">
-                    <div>{c.name}</div>
-                    <div className="font-mono text-slate-400 normal-case font-normal">{c.tenant_id}</div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {consultants.map(u => (
-                <tr key={u.sub} className="hover:bg-slate-50">
-                  <td className="px-5 py-3">
-                    <div className="font-medium text-slate-800">{u.email}</div>
-                    <div className="text-xs text-slate-400 font-mono">{u.sub.slice(0, 8)}…</div>
-                  </td>
-                  {clients.map(c => {
-                    const key = `${u.sub}-${c.tenant_id}`;
-                    const isOn = assignments[u.sub]?.[c.tenant_id] ?? false;
-                    const isLoading = saving === key;
+      <div className="space-y-3">
+        {consultants.map(consultant => {
+          const assigned = assignments[consultant.sub] ?? new Set<string>();
+          const unassignedClients = clients.filter(c => !assigned.has(c.tenant_id));
+          const isAddingHere = addingFor === consultant.sub;
+
+          return (
+            <div key={consultant.sub} className="bg-white rounded-xl border border-slate-200 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+
+                {/* Consultant info */}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 truncate">{consultant.email}</div>
+                  <div className="text-xs text-slate-400 font-mono mt-0.5">{consultant.sub.slice(0, 12)}…</div>
+                </div>
+
+                {/* Assigned clients + add button */}
+                <div className="flex flex-wrap items-center gap-2 justify-end flex-1 min-w-0">
+                  {assigned.size === 0 && (
+                    <span className="text-xs text-slate-400 italic">No clients assigned</span>
+                  )}
+                  {[...assigned].map(tenantId => {
+                    const client = clients.find(c => c.tenant_id === tenantId);
+                    const isSaving = saving === `${consultant.sub}-${tenantId}`;
                     return (
-                      <td key={c.tenant_id} className="px-4 py-3 text-center">
+                      <span
+                        key={tenantId}
+                        className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs rounded-full px-3 py-1"
+                      >
+                        <span className="font-medium">{client?.name || tenantId}</span>
                         <button
-                          onClick={() => toggle(u, c.tenant_id)}
-                          disabled={isLoading}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
-                            isOn ? 'bg-green-500' : 'bg-slate-200'
-                          }`}
+                          onClick={() => unassign(consultant, tenantId)}
+                          disabled={!!saving}
+                          title={`Remove ${tenantId}`}
+                          className="text-indigo-400 hover:text-red-600 disabled:opacity-40 transition-colors leading-none font-semibold"
                         >
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                            isOn ? 'translate-x-6' : 'translate-x-1'
-                          }`} />
+                          {isSaving ? (
+                            <span className="inline-block w-2.5 h-2.5 border border-current border-t-transparent rounded-full animate-spin" />
+                          ) : '×'}
                         </button>
-                      </td>
+                      </span>
                     );
                   })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+                  {/* Add client picker */}
+                  {unassignedClients.length > 0 && (
+                    <div className="relative">
+                      {isAddingHere ? (
+                        <div className="absolute right-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-xl shadow-lg min-w-[180px] py-1">
+                          <div className="px-3 py-1.5 text-xs font-medium text-slate-400 uppercase tracking-wide border-b border-slate-100 mb-1">
+                            Add client
+                          </div>
+                          {unassignedClients.map(c => (
+                            <button
+                              key={c.tenant_id}
+                              onClick={() => assign(consultant, c.tenant_id)}
+                              disabled={!!saving}
+                              className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                            >
+                              <div className="font-medium">{c.name}</div>
+                              <div className="text-xs text-slate-400 font-mono">{c.tenant_id}</div>
+                            </button>
+                          ))}
+                          <div className="border-t border-slate-100 mt-1 pt-1">
+                            <button
+                              onClick={() => setAddingFor(null)}
+                              className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:text-slate-600"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      <button
+                        onClick={() => setAddingFor(isAddingHere ? null : consultant.sub)}
+                        disabled={!!saving}
+                        className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900 border border-dashed border-slate-300 hover:border-slate-500 rounded-full px-3 py-1 transition-colors disabled:opacity-40"
+                      >
+                        + Add client
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Click-outside to close picker */}
+      {addingFor && (
+        <div className="fixed inset-0 z-0" onClick={() => setAddingFor(null)} />
       )}
     </div>
   );

@@ -34,8 +34,8 @@ def handler(event, context):
         # to follow LastEvaluatedKey until exhausted.
         query_kwargs = dict(
             KeyConditionExpression=Key("tenant_id").eq(ctx.tenant_id),
-            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key,folder_path,published",
-            ExpressionAttributeNames={"#mod": "module"},
+            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key,folder_path,#pub",
+            ExpressionAttributeNames={"#mod": "module", "#pub": "published"},
         )
 
         all_items = []
