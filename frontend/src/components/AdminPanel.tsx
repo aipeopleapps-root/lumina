@@ -22,7 +22,7 @@ interface Props {
   role: string;
 }
 
-type Tab = 'clients' | 'assignments' | 'users' | 'audit';
+type Tab = 'clients' | 'assignments' | 'users' | 'audit' | 'credentials';
 
 const ROLE_LABELS: Record<string, string> = {
   client: 'Client',
@@ -63,6 +63,9 @@ export function AdminPanel({ role }: Props) {
             <TabBtn id="audit" label="Audit Log" active={tab} setTab={setTab} />
           </>
         )}
+        {role === 'admin' && (
+          <TabBtn id="credentials" label="Demo Credentials" active={tab} setTab={setTab} />
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -70,6 +73,7 @@ export function AdminPanel({ role }: Props) {
         {tab === 'assignments' && isProjectAdmin && <AssignmentsTab />}
         {tab === 'users' && isSecurityAdmin && <UsersTab />}
         {tab === 'audit' && isSecurityAdmin && <AuditTab />}
+        {tab === 'credentials' && role === 'admin' && <CredentialsTab />}
       </div>
     </div>
   );
@@ -609,6 +613,79 @@ function AuditTab() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Demo Credentials Tab ─────────────────────────────────────────────────────
+
+const DEMO_USERS = [
+  { email: 'admin@platform.com',          role: 'admin',          tenant: 'platform', note: 'Full access' },
+  { email: 'project-admin@platform.com',  role: 'project_admin',  tenant: 'platform', note: 'Clients + assignments' },
+  { email: 'security-admin@platform.com', role: 'security_admin', tenant: 'platform', note: 'Users + audit log' },
+  { email: 'consultant@platform.com',     role: 'consultant',     tenant: 'platform', note: 'Assigned to acme + globex' },
+  { email: 'client@acme.com',             role: 'client',         tenant: 'acme',     note: 'Acme client portal' },
+  { email: 'client@globex.com',           role: 'client',         tenant: 'globex',   note: 'Globex client portal' },
+];
+
+function CredentialsTab() {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copy(text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(text);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  return (
+    <div className="p-6 max-w-3xl mx-auto space-y-5">
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">Demo Credentials</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          All accounts use password <span className="font-mono font-semibold text-slate-700">Mitre2025!</span> — provisioned automatically on deploy.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50">
+              <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Email</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Role</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Access</th>
+              <th className="px-5 py-3" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {DEMO_USERS.map(u => (
+              <tr key={u.email} className="hover:bg-slate-50">
+                <td className="px-5 py-3 font-mono text-xs text-slate-800">{u.email}</td>
+                <td className="px-5 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_BADGE[u.role] || 'bg-slate-100 text-slate-600'}`}>
+                    {ROLE_LABELS[u.role] || u.role}
+                  </span>
+                </td>
+                <td className="px-5 py-3 text-xs text-slate-500">{u.note}</td>
+                <td className="px-5 py-3 text-right">
+                  <button
+                    onClick={() => copy(u.email)}
+                    className="text-xs text-slate-400 hover:text-slate-700 transition-colors"
+                  >
+                    {copied === u.email ? '✓ copied' : 'copy'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+        <p className="text-xs font-semibold text-amber-800 mb-1">Demo environment only</p>
+        <p className="text-xs text-amber-700">
+          These accounts are recreated on every deployment. Do not use for real client work.
+        </p>
+      </div>
     </div>
   );
 }

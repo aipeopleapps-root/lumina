@@ -12,6 +12,7 @@ import * as apigwv2_integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations
 import * as apigwv2_authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import * as path from 'path';
 
 const GENERATION_MODEL_ID = 'global.anthropic.claude-sonnet-4-20250514-v1:0';
@@ -157,6 +158,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
           'cognito-idp:AdminGetUser',
           'cognito-idp:AdminDeleteUser',
           'cognito-idp:AdminResetUserPassword',
+          'cognito-idp:AdminUpdateUserAttributes',
           'cognito-idp:ListUsers',
         ],
         resources: [userPool.userPoolArn],
@@ -237,6 +239,17 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminListUsersFn = makeFn('AdminListUsersFn', 'admin_list_users', 30);
     const adminResetPasswordFn = makeFn('AdminResetPasswordFn', 'admin_reset_password', 15);
     const adminAuditLogFn = makeFn('AdminAuditLogFn', 'admin_audit_log', 30);
+
+    // Bootstrap — runs on every deploy, idempotent
+    const bootstrapFn = makeFn('BootstrapFn', 'bootstrap', 120);
+    const bootstrapProvider = new cr.Provider(this, 'BootstrapProvider', {
+      onEventHandler: bootstrapFn,
+    });
+    new cdk.CustomResource(this, 'Bootstrap', {
+      serviceToken: bootstrapProvider.serviceToken,
+      // Changing this string forces re-execution on next deploy
+      properties: { Version: '3' },
+    });
 
     dbSg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
@@ -381,6 +394,15 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
+    new cdk.CfnOutput(this, 'DemoPassword', { value: 'Mitre2025!' });
+    new cdk.CfnOutput(this, 'DemoUsers', { value: [
+      'admin@platform.com          → admin',
+      'project-admin@platform.com  → project_admin',
+      'security-admin@platform.com → security_admin',
+      'consultant@platform.com     → consultant (assigned to acme + globex)',
+      'client@acme.com             → client (acme)',
+      'client@globex.com           → client (globex)',
+    ].join(' | ') });
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'DocsBucketName', { value: docsBucket.bucketName });
