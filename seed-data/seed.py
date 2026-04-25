@@ -79,43 +79,66 @@ def create_schemas():
     print("✅ Schemas created")
 
 
+def _create_cognito_user(email: str, role: str, tenant_id: str):
+    """Create a single Cognito user and set a permanent password."""
+    print(f"  Creating: {email} ({role})")
+    try:
+        _cognito.admin_create_user(
+            UserPoolId=USER_POOL_ID,
+            Username=email,
+            UserAttributes=[
+                {"Name": "email", "Value": email},
+                {"Name": "email_verified", "Value": "true"},
+                {"Name": "custom:tenant_id", "Value": tenant_id},
+                {"Name": "custom:role", "Value": role},
+            ],
+            TemporaryPassword=DEFAULT_PASSWORD,
+            MessageAction="SUPPRESS",
+        )
+        _cognito.admin_set_user_password(
+            UserPoolId=USER_POOL_ID,
+            Username=email,
+            Password=DEFAULT_PASSWORD,
+            Permanent=True,
+        )
+    except _cognito.exceptions.UsernameExistsException:
+        print(f"    (already exists)")
+
+
+def create_platform_tenant():
+    """Ensure a 'platform' tenant record exists for admin users."""
+    table = _dynamodb.Table(VECTOR_TABLE_NAME.replace("vectors", "config"))
+    try:
+        table.put_item(
+            Item={
+                "pk": "TENANT#platform",
+                "sk": "METADATA",
+                "tenant_id": "platform",
+                "name": "The Mitre (Platform)",
+                "status": "active",
+            },
+            ConditionExpression="attribute_not_exists(pk)",
+        )
+        print("  Created platform tenant record")
+    except Exception:
+        print("  Platform tenant already exists")
+
+
 def create_users():
-    """Create Cognito users."""
+    """Create Cognito users for all roles."""
     print("\n👥 Creating users...")
-    
+
+    # Per-tenant consultant + client users
     for t in TENANTS:
         tid = t["id"]
-        
-        users = [
-            {"email": f"consultant-{tid}@example.com", "role": "consultant"},
-            {"email": f"client-{tid}@example.com", "role": "client"},
-        ]
-        
-        for u in users:
-            print(f"  Creating: {u['email']}")
-            try:
-                _cognito.admin_create_user(
-                    UserPoolId=USER_POOL_ID,
-                    Username=u["email"],
-                    UserAttributes=[
-                        {"Name": "email", "Value": u["email"]},
-                        {"Name": "email_verified", "Value": "true"},
-                        {"Name": "custom:tenant_id", "Value": tid},
-                        {"Name": "custom:role", "Value": u["role"]},
-                    ],
-                    TemporaryPassword=DEFAULT_PASSWORD,
-                    MessageAction="SUPPRESS",
-                )
-                
-                _cognito.admin_set_user_password(
-                    UserPoolId=USER_POOL_ID,
-                    Username=u["email"],
-                    Password=DEFAULT_PASSWORD,
-                    Permanent=True,
-                )
-            except _cognito.exceptions.UsernameExistsException:
-                print(f"    (already exists)")
-    
+        _create_cognito_user(f"consultant-{tid}@example.com", "consultant", tid)
+        _create_cognito_user(f"client-{tid}@example.com", "client", tid)
+
+    # Platform-level admin users (tenant_id = "platform")
+    _create_cognito_user("project-admin@example.com", "project_admin", "platform")
+    _create_cognito_user("security-admin@example.com", "security_admin", "platform")
+    _create_cognito_user("admin@example.com", "admin", "platform")
+
     print("✅ Users created")
 
 
@@ -177,13 +200,19 @@ if __name__ == "__main__":
     
     try:
         create_schemas()
+        create_platform_tenant()
         create_users()
         seed_kb()
         
         print("\n✅ Seeding complete!")
-        print(f"\n📧 Login credentials:")
-        print(f"   Email: consultant-acme@example.com or client-acme@example.com")
-        print(f"   Password: {DEFAULT_PASSWORD}")
+        print(f"\n📧 Login credentials (all use password: {DEFAULT_PASSWORD})")
+        print(f"   admin@example.com              — Admin (full access)")
+        print(f"   project-admin@example.com      — Project Admin (clients + assignments)")
+        print(f"   security-admin@example.com     — Security Admin (users + audit log)")
+        print(f"   consultant-acme@example.com    — Consultant (acme)")
+        print(f"   consultant-globex@example.com  — Consultant (globex)")
+        print(f"   client-acme@example.com        — Client (acme)")
+        print(f"   client-globex@example.com      — Client (globex)")
         print(f"\n💡 Next steps:")
         print(f"   1. Go to ../frontend directory")
         print(f"   2. Copy .env.example to .env.local and fill in the values")
