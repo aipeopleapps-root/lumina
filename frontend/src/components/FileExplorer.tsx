@@ -16,8 +16,10 @@ interface Props {
   template: FolderTemplate;
   documents: Document[];
   onDownload: (doc: Document) => void;
+  onDelete?: (doc: Document) => void;
 }
 
+// Groups docs by folder_path, then within each folder groups versions by source_name
 function buildDocMap(documents: Document[]): Map<string, Document[]> {
   const map = new Map<string, Document[]>();
   for (const doc of documents) {
@@ -28,24 +30,129 @@ function buildDocMap(documents: Document[]): Map<string, Document[]> {
   return map;
 }
 
-function DocRow({ doc, onDownload }: { doc: Document; onDownload: (d: Document) => void }) {
+// Returns docs grouped by source_name (sorted newest-first within each group)
+function groupByName(docs: Document[]): Map<string, Document[]> {
+  const map = new Map<string, Document[]>();
+  for (const doc of docs) {
+    const key = doc.source_name;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(doc);
+  }
+  for (const [, versions] of map) {
+    versions.sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at));
+  }
+  return map;
+}
+
+function formatDate(iso: string) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function DocGroup({
+  versions,
+  onDownload,
+  onDelete,
+}: {
+  versions: Document[];
+  onDownload: (d: Document) => void;
+  onDelete?: (d: Document) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const current = versions[0];
+  const hasVersions = versions.length > 1;
+
   return (
-    <div className="flex items-center justify-between py-2 px-3 hover:bg-slate-50 rounded group">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-slate-400 text-xs">📄</span>
-        <div className="min-w-0">
-          <div className="text-sm text-slate-800 truncate">{doc.source_name}</div>
-          <div className="text-xs text-slate-400">
-            {new Date(doc.uploaded_at).toLocaleDateString()} · {doc.chunk_count} chunks
+    <div className="py-1.5 px-3 hover:bg-slate-50 rounded group">
+      {/* Current (newest) version row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-slate-400 text-xs">📄</span>
+          <div className="min-w-0">
+            <div className="text-sm text-slate-800 truncate">{current.source_name}</div>
+            <div className="text-xs text-slate-400 flex items-center gap-1.5">
+              <span>{formatDate(current.uploaded_at)}</span>
+              {hasVersions && (
+                <button
+                  onClick={() => setExpanded(v => !v)}
+                  className="text-slate-500 hover:text-slate-700 underline"
+                >
+                  {expanded ? 'hide' : `+${versions.length - 1} older`}
+                </button>
+              )}
+            </div>
           </div>
         </div>
+        <div className="flex items-center gap-1.5 ml-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <button
+            onClick={() => onDownload(current)}
+            className="px-2.5 py-1 text-xs bg-slate-900 text-white rounded hover:bg-slate-700"
+          >
+            Download
+          </button>
+          {onDelete && (
+            <button
+              onClick={() => onDelete(current)}
+              className="px-2.5 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+            >
+              Delete
+            </button>
+          )}
+        </div>
       </div>
-      <button
-        onClick={() => onDownload(doc)}
-        className="ml-3 px-3 py-1 text-xs bg-slate-900 text-white rounded hover:bg-slate-700 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-      >
-        Download
-      </button>
+
+      {/* Older versions */}
+      {expanded && versions.slice(1).map((doc, i) => (
+        <div key={doc.doc_id} className="flex items-center justify-between mt-1 pl-6 py-1 border-l-2 border-slate-200 group/ver">
+          <div className="text-xs text-slate-500 min-w-0">
+            <span className="text-slate-400">v{versions.length - 1 - i}</span>
+            <span className="ml-2">{formatDate(doc.uploaded_at)}</span>
+          </div>
+          <div className="flex items-center gap-1.5 ml-3 opacity-0 group-hover/ver:opacity-100 transition-opacity flex-shrink-0">
+            <button
+              onClick={() => onDownload(doc)}
+              className="px-2 py-0.5 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
+            >
+              Download
+            </button>
+            {onDelete && (
+              <button
+                onClick={() => onDelete(doc)}
+                className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DocList({
+  docs,
+  onDownload,
+  onDelete,
+}: {
+  docs: Document[];
+  onDownload: (d: Document) => void;
+  onDelete?: (d: Document) => void;
+}) {
+  const groups = groupByName(docs);
+  return (
+    <div className="px-1 py-1">
+      {[...groups.values()].map((versions) => (
+        <DocGroup
+          key={versions[0].doc_id}
+          versions={versions}
+          onDownload={onDownload}
+          onDelete={onDelete}
+        />
+      ))}
     </div>
   );
 }
@@ -59,10 +166,9 @@ function CountBadge({ count }: { count: number }) {
   );
 }
 
-export function FileExplorer({ template, documents, onDownload }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete }: Props) {
   const docMap = buildDocMap(documents);
 
-  // Pre-expand parent folders and any subfolders that already have documents
   const initialExpanded = new Set<string>();
   for (const folder of template.folders) {
     initialExpanded.add(folder.id);
@@ -83,22 +189,19 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
     });
   }
 
-  // Docs that didn't match any folder (folder_path = "/" or unrecognised)
   const rootDocs = docMap.get('/') || [];
 
-  // Count docs under a parent folder (direct + all subfolders)
   function countUnder(folderName: string, subfolders: { name: string }[]) {
-    const directPath = `/${folderName}`;
-    const direct = (docMap.get(directPath) || []).length;
-    const sub = subfolders.reduce((acc, s) => {
-      return acc + (docMap.get(`/${folderName}/${s.name}`) || []).length;
-    }, 0);
+    const direct = (docMap.get(`/${folderName}`) || []).length;
+    const sub = subfolders.reduce(
+      (acc, s) => acc + (docMap.get(`/${folderName}/${s.name}`) || []).length,
+      0
+    );
     return direct + sub;
   }
 
   return (
     <div className="space-y-1">
-      {/* Uncategorized first so pre-Phase-3 docs are immediately visible */}
       {rootDocs.length > 0 && (
         <div className="border border-slate-200 rounded-lg overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 bg-slate-50">
@@ -106,11 +209,7 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
             <span className="font-medium text-slate-800 text-sm">Uncategorized</span>
             <CountBadge count={rootDocs.length} />
           </div>
-          <div className="px-2 py-1">
-            {rootDocs.map((doc) => (
-              <DocRow key={doc.doc_id} doc={doc} onDownload={onDownload} />
-            ))}
-          </div>
+          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} />
         </div>
       )}
 
@@ -121,7 +220,6 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
 
         return (
           <div key={folder.id} className="border border-slate-200 rounded-lg overflow-hidden">
-            {/* Parent folder header */}
             <button
               onClick={() => toggle(folder.id)}
               className="w-full flex items-center gap-2 px-4 py-3 bg-slate-50 hover:bg-slate-100 text-left"
@@ -134,16 +232,10 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
 
             {isOpen && (
               <div className="divide-y divide-slate-100">
-                {/* Docs placed directly in this parent folder */}
                 {directDocs.length > 0 && (
-                  <div className="px-2 py-1">
-                    {directDocs.map((doc) => (
-                      <DocRow key={doc.doc_id} doc={doc} onDownload={onDownload} />
-                    ))}
-                  </div>
+                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} />
                 )}
 
-                {/* Subfolders */}
                 {folder.subfolders.map((sub) => {
                   const subPath = `/${folder.name}/${sub.name}`;
                   const subDocs = docMap.get(subPath) || [];
@@ -167,9 +259,7 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
                           {subDocs.length === 0 ? (
                             <p className="text-xs text-slate-400 px-3 py-2">No documents</p>
                           ) : (
-                            subDocs.map((doc) => (
-                              <DocRow key={doc.doc_id} doc={doc} onDownload={onDownload} />
-                            ))
+                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} />
                           )}
                         </div>
                       )}
@@ -181,7 +271,6 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
           </div>
         );
       })}
-
     </div>
   );
 }

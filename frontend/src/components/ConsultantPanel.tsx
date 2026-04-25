@@ -1,7 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+
+interface Document {
+  doc_id: string;
+  source_name: string;
+  doc_type: string;
+  module: string;
+  chunk_count: number;
+  uploaded_at: string;
+  s3_key: string;
+  folder_path: string;
+}
 import { fetchAuthSession } from 'aws-amplify/auth';
-import { ingestDoc, analyzeDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
+import { ingestDoc, analyzeDoc, deleteDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
+import { FileExplorer } from './FileExplorer';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 type Props = { role: string; tenantId: string };
@@ -25,14 +37,25 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
 
   const canIngest = role === 'consultant' || role === 'admin';
+
+  const loadDocuments = useCallback(() => {
+    setDocsLoading(true);
+    api.get('/documents/list')
+      .then((data) => setDocuments(data.documents || []))
+      .catch((err) => console.error('Failed to load documents:', err))
+      .finally(() => setDocsLoading(false));
+  }, []);
 
   useEffect(() => {
     api.get('/tenant/folder-structure')
       .then((data) => setFolderTemplate(data.template ?? null))
       .catch((err) => console.error('Failed to load folder structure:', err));
-  }, []);
+    loadDocuments();
+  }, [loadDocuments]);
 
   async function onRun() {
     if (!file) return;
@@ -68,6 +91,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       const out = await analyzeDoc(docId, 'all');
       setResult(out);
       setStatus(null);
+      loadDocuments();
     } catch (err: any) {
       setError(err.message || String(err));
       setStatus(null);
@@ -167,6 +191,43 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           </p>
         </div>
       )}
+
+      {/* Document library with delete */}
+      <div className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-sm">Document Library</h3>
+          <button
+            onClick={loadDocuments}
+            disabled={docsLoading}
+            className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50"
+          >
+            {docsLoading ? 'Loading…' : '↻ Refresh'}
+          </button>
+        </div>
+        {documents.length === 0 ? (
+          <p className="text-xs text-slate-400">No documents uploaded yet.</p>
+        ) : folderTemplate ? (
+          <FileExplorer
+            template={folderTemplate}
+            documents={documents}
+            onDownload={async (doc) => {
+              try {
+                const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
+                window.open(r.url, '_blank');
+              } catch { alert('Failed to download document'); }
+            }}
+            onDelete={async (doc) => {
+              if (!confirm(`Delete "${doc.source_name}"? This cannot be undone.`)) return;
+              try {
+                await deleteDoc(doc.doc_id);
+                loadDocuments();
+              } catch { alert('Failed to delete document'); }
+            }}
+          />
+        ) : (
+          <p className="text-xs text-slate-400">Loading folder structure…</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -106,3 +106,7 @@ export async function ingestDoc(params: {
 export async function analyzeDoc(docId: string, focus: string = 'all'): Promise<AnalyzeResponse> {
   return api.post('/analyze', { doc_id: docId, focus });
 }
+
+export async function deleteDoc(docId: string): Promise<void> {
+  await api.post('/documents/delete', { doc_id: docId });
+}
