@@ -56,9 +56,17 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       .then((data) => setDocuments(data.documents || []))
       .catch((err) => console.error('Failed to load documents:', err))
       .finally(() => setDocsLoading(false));
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
+    // Reset all per-client state when the active client changes
+    setDocuments([]);
+    setResult(null);
+    setResultDocName(null);
+    setError(null);
+    setFile(null);
+    setFolderPath('/');
+
     Promise.all([
       api.get('/tenant/folder-structure'),
       api.get('/documents/list'),
@@ -66,7 +74,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setFolderTemplate(structData.template ?? null);
       setDocuments(docsData.documents || []);
     }).catch(console.error).finally(() => setDocsLoading(false));
-  }, [loadDocuments]);
+  }, [tenantId]);
 
   function handleFileDrop(e: React.DragEvent) {
     e.preventDefault();
