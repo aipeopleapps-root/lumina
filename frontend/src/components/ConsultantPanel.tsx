@@ -36,13 +36,14 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzingDoc, setAnalyzingDoc] = useState<string | null>(null);
   const [statusStep, setStatusStep] = useState<'idle' | 'uploading' | 'indexing' | 'done' | 'error'>('idle');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [resultDocName, setResultDocName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [showUpload, setShowUpload] = useState(true);
+  const [showResults, setShowResults] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
@@ -118,7 +119,8 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     setResult(null);
     setResultDocName(doc.source_name);
     setAnalyzing(true);
-    setAnalyzingDoc(doc.doc_id);
+    setShowUpload(false);
+    setShowResults(true);
     try {
       const out = await analyzeDoc(doc.doc_id, 'all');
       setResult(out);
@@ -127,7 +129,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setResultDocName(null);
     } finally {
       setAnalyzing(false);
-      setAnalyzingDoc(null);
     }
   }
 
@@ -139,77 +140,83 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     );
   }
 
-  return (
-    <div className="flex h-full min-h-0">
-      {/* ── Left panel: Upload + Analysis ── */}
-      <div className="w-[420px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto">
-        <div className="p-6 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-900 mb-0.5">Upload Document</h2>
-          <p className="text-xs text-slate-500">Supports .xlsx · .xlsm · .pdf · .docx — use <span className="font-medium text-indigo-600">Analyse</span> on a document to run AI analysis</p>
-        </div>
+  const hasResults = analyzing || !!result;
 
-        <div className="p-6 space-y-5">
-          {/* Drop zone */}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleFileDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`
-              relative border-2 border-dashed rounded-xl px-6 py-8 text-center cursor-pointer transition-all
-              ${dragging ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}
-              ${file ? 'border-green-300 bg-green-50' : ''}
-            `}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xlsm,.pdf,.docx"
-              className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-            {file ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center text-lg">📄</div>
-                <div className="text-sm font-medium text-slate-800 break-all">{file.name}</div>
-                <div className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                  className="text-xs text-slate-400 hover:text-red-500 mt-1"
-                >
-                  Remove
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-xl">📁</div>
-                <div className="text-sm text-slate-600">
-                  <span className="font-medium text-slate-800">Drop a file here</span> or click to browse
-                </div>
-                <div className="text-xs text-slate-400">.xlsx · .xlsm · .pdf · .docx</div>
-              </div>
-            )}
+  return (
+    <div className="flex h-full min-h-0 overflow-hidden">
+
+      {/* ── Panel 1: Upload (collapsible) ── */}
+      {showUpload ? (
+        <div className="w-[360px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto transition-all">
+          {/* Header with collapse button */}
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Upload Document</h2>
+              <p className="text-xs text-slate-400 mt-0.5">.xlsx · .xlsm · .pdf · .docx</p>
+            </div>
+            <button
+              onClick={() => setShowUpload(false)}
+              title="Hide upload panel"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-sm"
+            >
+              ←
+            </button>
           </div>
 
-          {/* Folder picker */}
-          {folderTemplate && (
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-2">
-                Destination folder
-                {folderPath !== '/' && (
-                  <span className="ml-2 font-normal text-slate-400">{folderPath}</span>
-                )}
-              </label>
-              <FolderPicker
-                template={folderTemplate}
-                selected={folderPath}
-                onChange={setFolderPath}
+          <div className="p-5 space-y-4 flex-1">
+            {/* Drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={handleFileDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`
+                border-2 border-dashed rounded-xl px-5 py-7 text-center cursor-pointer transition-all
+                ${dragging ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}
+                ${file ? 'border-green-300 bg-green-50' : ''}
+              `}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xlsm,.pdf,.docx"
+                className="hidden"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
+              {file ? (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">📄</div>
+                  <div className="text-sm font-medium text-slate-800 break-all">{file.name}</div>
+                  <div className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    className="text-xs text-slate-400 hover:text-red-500"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center text-lg">📁</div>
+                  <div className="text-sm text-slate-600">
+                    <span className="font-medium text-slate-800">Drop a file</span> or click to browse
+                  </div>
+                </div>
+              )}
             </div>
-          )}
 
-          {/* Upload button + progress */}
-          <div>
+            {/* Folder picker */}
+            {folderTemplate && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                  Destination folder
+                  {folderPath !== '/' && <span className="ml-2 font-normal text-slate-400">{folderPath}</span>}
+                </label>
+                <FolderPicker template={folderTemplate} selected={folderPath} onChange={setFolderPath} />
+              </div>
+            )}
+
+            {/* Upload button */}
             <button
               onClick={onRun}
               disabled={!file || uploading}
@@ -224,86 +231,71 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
             </button>
 
             {uploading && (
-              <div className="mt-3 flex items-center gap-2">
+              <div className="flex gap-1.5">
                 {(['uploading', 'indexing'] as const).map((step, i) => {
-                  const currentOrder = statusStep === 'uploading' ? 0 : 1;
-                  const done = i < currentOrder;
-                  const active = i === currentOrder;
+                  const cur = statusStep === 'uploading' ? 0 : 1;
                   return (
-                    <div key={step} className="flex items-center gap-2 flex-1">
-                      <div className={`flex-1 h-1 rounded-full transition-colors ${done ? 'bg-slate-900' : active ? 'bg-slate-400' : 'bg-slate-200'}`} />
-                      {i < 1 && <div className={`text-xs ${done ? 'text-slate-700' : 'text-slate-300'}`}>›</div>}
+                    <div key={step} className="flex items-center gap-1.5 flex-1">
+                      <div className={`flex-1 h-1 rounded-full ${i < cur ? 'bg-slate-900' : i === cur ? 'bg-slate-400' : 'bg-slate-200'}`} />
+                      {i < 1 && <span className="text-xs text-slate-300">›</span>}
                     </div>
                   );
                 })}
               </div>
             )}
-            {uploading && (
-              <p className="text-xs text-slate-400 mt-1.5 text-center capitalize">{statusStep}…</p>
-            )}
 
-            {error && (
-              <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {error && !analyzing && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 <p className="text-xs text-red-700">{error}</p>
               </div>
             )}
           </div>
         </div>
+      ) : (
+        /* Collapsed upload — thin strip with expand button */
+        <div className="w-10 flex-shrink-0 flex flex-col items-center border-r border-slate-200 bg-white py-4 gap-3">
+          <button
+            onClick={() => setShowUpload(true)}
+            title="Show upload panel"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-sm"
+          >
+            →
+          </button>
+          <span className="text-xs text-slate-300 [writing-mode:vertical-rl] rotate-180 select-none tracking-wide mt-1">Upload</span>
+        </div>
+      )}
 
-        {/* Analysis panel */}
-        {(analyzing || result) && (
-          <div className="border-t border-slate-100 px-6 py-5 space-y-4">
-            {analyzing ? (
-              <div className="flex items-center gap-3 py-4">
-                <span className="inline-block w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-slate-800">Analysing…</p>
-                  {resultDocName && <p className="text-xs text-slate-400 truncate">{resultDocName}</p>}
-                </div>
-              </div>
-            ) : result && (
-              <>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-sm font-semibold text-slate-900">Analysis Results</h3>
-                    <span className="text-xs text-slate-400">{result.findings.length} findings</span>
-                  </div>
-                  {resultDocName && <p className="text-xs text-indigo-600 mb-2 truncate">{resultDocName}</p>}
-                  <p className="text-sm text-slate-600 leading-relaxed">{result.summary}</p>
-                </div>
-                <div className="space-y-2">
-                  {result.findings.map((f, i) => (
-                    <FindingCard key={i} f={f} />
-                  ))}
-                </div>
-                <p className="text-xs text-slate-300">Model: {result.model_id}</p>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Right panel: Document Library ── */}
+      {/* ── Panel 2: Document Library (always visible, fills space) ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
-        <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Document Library</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''} uploaded</p>
+        <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {!showUpload && (
+              <button
+                onClick={() => setShowUpload(true)}
+                className="text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-100 border border-slate-200 transition-colors"
+              >
+                ＋ Upload
+              </button>
+            )}
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Document Library</h2>
+              <p className="text-xs text-slate-400 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''}</p>
+            </div>
           </div>
           <button
             onClick={loadDocuments}
             disabled={docsLoading}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100"
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
             <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
             Refresh
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-5">
           {documents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl mb-3">📂</div>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl mb-3">📂</div>
               <p className="text-sm font-medium text-slate-600">No documents yet</p>
               <p className="text-xs text-slate-400 mt-1">Uploaded files will appear here</p>
             </div>
@@ -331,6 +323,77 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           )}
         </div>
       </div>
+
+      {/* ── Panel 3: Analysis Results (slides in from right) ── */}
+      {(hasResults || showResults) && (
+        <div className={`w-[400px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto transition-all ${showResults ? '' : 'hidden'}`}>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">AI Analysis</h2>
+              {resultDocName && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[280px]">{resultDocName}</p>}
+            </div>
+            <button
+              onClick={() => setShowResults(false)}
+              title="Hide results"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {analyzing ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-4">
+                <span className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-slate-700">Analysing document…</p>
+                  <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
+                </div>
+              </div>
+            ) : result ? (
+              <>
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Summary</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{result.summary}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                    Findings <span className="text-slate-400 normal-case">({result.findings.length})</span>
+                  </p>
+                  <div className="space-y-2">
+                    {result.findings.map((f, i) => (
+                      <FindingCard key={i} f={f} />
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-300 pt-2">Model: {result.model_id}</p>
+              </>
+            ) : error ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <p className="text-sm font-medium text-red-700 mb-1">Analysis failed</p>
+                <p className="text-xs text-red-600">{error}</p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Show results button when panel is hidden but results exist */}
+      {!showResults && hasResults && !analyzing && (
+        <div className="w-10 flex-shrink-0 flex flex-col items-center border-l border-slate-200 bg-white py-4 gap-3">
+          <button
+            onClick={() => setShowResults(true)}
+            title="Show analysis results"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-colors text-sm"
+          >
+            ←
+          </button>
+          <span className="text-xs text-slate-300 [writing-mode:vertical-rl] rotate-180 select-none tracking-wide mt-1">Analysis</span>
+        </div>
+      )}
+
     </div>
   );
 }
