@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
+import { FolderTemplateSelector, type FolderTemplate } from './FolderTemplateSelector';
 
 interface Client {
   tenant_id: string;
@@ -17,13 +18,15 @@ export function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [showCreateClient, setShowCreateClient] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
+  const [templates, setTemplates] = useState<FolderTemplate[]>([]);
 
   // Form states
   const [newClient, setNewClient] = useState({
     tenant_id: '',
     name: '',
     industry: '',
-    region: ''
+    region: '',
+    folder_structure_template: 'standard_workday',
   });
 
   const [newUser, setNewUser] = useState({
@@ -35,6 +38,9 @@ export function AdminPanel() {
 
   useEffect(() => {
     loadClients();
+    api.get('/admin/get-templates')
+      .then((data) => setTemplates(data.templates || []))
+      .catch((err) => console.error('Failed to load templates:', err));
   }, []);
 
   const loadClients = async () => {
@@ -55,7 +61,7 @@ export function AdminPanel() {
     try {
       await api.post('/admin/create-tenant', newClient);
       alert(`Client ${newClient.name} created successfully!`);
-      setNewClient({ tenant_id: '', name: '', industry: '', region: '' });
+      setNewClient({ tenant_id: '', name: '', industry: '', region: '', folder_structure_template: 'standard_workday' });
       setShowCreateClient(false);
       loadClients();
     } catch (error: any) {
@@ -102,8 +108,8 @@ export function AdminPanel() {
 
       {/* Create Client Modal */}
       {showCreateClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-lg max-w-md w-full">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Create New Client</h2>
             <form onSubmit={handleCreateClient} className="space-y-4">
               <div>
@@ -149,6 +155,16 @@ export function AdminPanel() {
                   className="w-full border rounded px-3 py-2"
                 />
               </div>
+              {templates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Folder Structure Template</label>
+                  <FolderTemplateSelector
+                    templates={templates}
+                    selected={newClient.folder_structure_template}
+                    onChange={(id) => setNewClient({ ...newClient, folder_structure_template: id })}
+                  />
+                </div>
+              )}
               <div className="flex space-x-3 pt-4">
                 <button type="submit" className="flex-1 bg-slate-900 text-white py-2 rounded hover:bg-slate-800">
                   Create Client
