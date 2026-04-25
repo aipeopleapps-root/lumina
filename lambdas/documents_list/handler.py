@@ -34,7 +34,7 @@ def handler(event, context):
         response = table.query(
             KeyConditionExpression="tenant_id = :tid",
             ExpressionAttributeValues={":tid": ctx.tenant_id},
-            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key",
+            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key,folder_path",
             ExpressionAttributeNames={"#mod": "module"}
         )
         
@@ -50,6 +50,7 @@ def handler(event, context):
                     "module": item.get("module", "unknown"),
                     "uploaded_at": str(item.get("created_at", "")),
                     "s3_key": item.get("s3_key", ""),
+                    "folder_path": item.get("folder_path", "/"),
                     "chunk_count": 0
                 }
         

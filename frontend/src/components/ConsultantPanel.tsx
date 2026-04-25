@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
-import { ingestDoc, analyzeDoc, type Finding, type AnalyzeResponse } from '../lib/api';
+import { ingestDoc, analyzeDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
+import { FolderPicker } from './FolderPicker';
+import type { FolderTemplate } from './FolderTemplateSelector';
 
 type Props = { role: string; tenantId: string };
 
@@ -16,6 +18,8 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState('config-workbook');
   const [module, setModule] = useState('Absence');
+  const [folderPath, setFolderPath] = useState('/');
+  const [folderTemplate, setFolderTemplate] = useState<FolderTemplate | null>(null);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -23,6 +27,12 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
+
+  useEffect(() => {
+    api.get('/tenant/folder-structure')
+      .then((data) => setFolderTemplate(data.template ?? null))
+      .catch((err) => console.error('Failed to load folder structure:', err));
+  }, []);
 
   async function onRun() {
     if (!file) return;
@@ -50,6 +60,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         doc_type: docType,
         source_name: file.name,
         module,
+        folder_path: folderPath,
       });
 
       setStatus('Running analysis…');
@@ -105,6 +116,21 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
             </select>
           </div>
         </div>
+        {folderTemplate && (
+          <div className="mb-3">
+            <label className="block text-xs text-slate-500 mb-1">
+              Destination folder
+              {folderPath !== '/' && (
+                <span className="ml-2 text-slate-700 font-medium">{folderPath}</span>
+              )}
+            </label>
+            <FolderPicker
+              template={folderTemplate}
+              selected={folderPath}
+              onChange={setFolderPath}
+            />
+          </div>
+        )}
         <input
           type="file"
           accept=".xlsx,.xlsm,.pdf,.docx"

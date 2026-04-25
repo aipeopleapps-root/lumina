@@ -54,6 +54,7 @@ def handler(event, context):
     doc_type = body.get("doc_type", "unknown")
     module = body.get("module")
     doc_id = body.get("doc_id")
+    folder_path = body.get("folder_path", "/")
     source_name = body.get("source_name") or s3_key.rsplit("/", 1)[-1]
     if not doc_id:
         return http.bad_request("doc_id is required")
@@ -88,6 +89,7 @@ def handler(event, context):
         c["doc_id"] = doc_id
         c["created_at"] = now_iso
         c["s3_key"] = s3_key
+        c["folder_path"] = folder_path
 
     indexed = vectors.index_chunks(ctx, chunks)
 
