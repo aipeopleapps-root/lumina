@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   listTenants, listUsers, listAssignments, createTenant, createUser,
   resetPassword, getAuditLog, assignConsultant, getCostSummary,
+  archiveClient, manageUser,
   type AdminUser, type AuditEntry, type CostSummary,
 } from '../lib/api';
 import { FolderTemplateSelector, type FolderTemplate } from './FolderTemplateSelector';
@@ -104,6 +105,9 @@ function ClientsTab() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState<Client | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
   const [templates, setTemplates] = useState<FolderTemplate[]>([]);
   const [form, setForm] = useState({
     tenant_id: '', name: '', industry: '', region: '',
@@ -113,9 +117,7 @@ function ClientsTab() {
 
   useEffect(() => {
     load();
-    api.get('/admin/get-templates')
-      .then(d => setTemplates(d.templates || []))
-      .catch(() => {});
+    api.get('/admin/get-templates').then(d => setTemplates(d.templates || [])).catch(() => {});
   }, []);
 
   async function load() {
@@ -137,19 +139,43 @@ function ClientsTab() {
     } finally { setSaving(false); }
   }
 
+  async function handleArchive(client: Client, action: 'archive' | 'restore') {
+    setActing(client.tenant_id);
+    setConfirmArchive(null);
+    try {
+      await archiveClient(client.tenant_id, action);
+      setClients(prev => prev.map(c =>
+        c.tenant_id === client.tenant_id ? { ...c, status: action === 'archive' ? 'archived' : 'active' } : c
+      ));
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setActing(null); }
+  }
+
+  const visible = clients.filter(c => showArchived ? true : c.status !== 'archived');
+  const archivedCount = clients.filter(c => c.status === 'archived').length;
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Clients</h2>
           <p className="text-xs text-slate-500 mt-0.5">All client tenants on the platform</p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors"
-        >
-          + New Client
-        </button>
+        <div className="flex items-center gap-3">
+          {archivedCount > 0 && (
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              className="text-xs text-slate-500 hover:text-slate-800 underline"
+            >
+              {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+            </button>
+          )}
+          <button onClick={() => setShowCreate(true)}
+            className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">
+            + New Client
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -167,32 +193,81 @@ function ClientsTab() {
                 <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Users</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Docs</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {clients.map(c => (
-                <tr key={c.tenant_id} className="hover:bg-slate-50">
-                  <td className="px-5 py-3">
-                    <div className="font-medium text-slate-900">{c.name}</div>
-                    <div className="text-xs text-slate-400 font-mono">{c.tenant_id}</div>
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">{c.industry || '—'}</td>
-                  <td className="px-5 py-3 text-slate-600">{c.region || '—'}</td>
-                  <td className="px-5 py-3 text-slate-700">{c.user_count}</td>
-                  <td className="px-5 py-3 text-slate-700">{c.document_count}</td>
-                  <td className="px-5 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                    }`}>{c.status}</span>
-                  </td>
-                </tr>
-              ))}
+              {visible.map(c => {
+                const isArchived = c.status === 'archived';
+                const isActing = acting === c.tenant_id;
+                return (
+                  <tr key={c.tenant_id} className={isArchived ? 'opacity-50 bg-slate-50' : 'hover:bg-slate-50'}>
+                    <td className="px-5 py-3">
+                      <div className={`font-medium ${isArchived ? 'text-slate-500' : 'text-slate-900'}`}>{c.name}</div>
+                      <div className="text-xs text-slate-400 font-mono">{c.tenant_id}</div>
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">{c.industry || '—'}</td>
+                    <td className="px-5 py-3 text-slate-600">{c.region || '—'}</td>
+                    <td className="px-5 py-3 text-slate-700">{c.user_count}</td>
+                    <td className="px-5 py-3 text-slate-700">{c.document_count}</td>
+                    <td className="px-5 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        isArchived ? 'bg-slate-100 text-slate-500' : 'bg-green-100 text-green-700'
+                      }`}>{isArchived ? 'Archived' : 'Active'}</span>
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {isActing ? (
+                        <span className="inline-block w-4 h-4 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+                      ) : isArchived ? (
+                        <button
+                          onClick={() => handleArchive(c, 'restore')}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-1 hover:border-indigo-400 transition-colors"
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmArchive(c)}
+                          className="text-xs text-slate-500 hover:text-amber-700 border border-slate-200 rounded px-2 py-1 hover:border-amber-300 transition-colors"
+                        >
+                          Archive
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          {clients.length === 0 && (
+          {visible.length === 0 && (
             <div className="text-center py-12 text-slate-400 text-sm">No clients yet</div>
           )}
         </div>
+      )}
+
+      {/* Archive confirmation */}
+      {confirmArchive && (
+        <Modal title="Archive Client" onClose={() => setConfirmArchive(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              Archive <span className="font-semibold">{confirmArchive.name}</span>?
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              The client's data and documents are preserved. Their users will no longer appear in assignments.
+              You can restore the client at any time.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setConfirmArchive(null)}
+                className="flex-1 px-4 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
+                Cancel
+              </button>
+              <button onClick={() => handleArchive(confirmArchive, 'archive')}
+                className="flex-1 px-4 py-2 text-sm rounded-lg font-medium text-white bg-amber-600 hover:bg-amber-700">
+                Archive Client
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showCreate && (
@@ -418,6 +493,8 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showReset, setShowReset] = useState<AdminUser | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<AdminUser | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [form, setForm] = useState({ email: '', tenant_id: '', role: 'consultant', temporary_password: 'TempPass123!' });
   const [saving, setSaving] = useState(false);
@@ -448,6 +525,23 @@ function UsersTab() {
     } finally { setSaving(false); }
   }
 
+  async function handleManageUser(user: AdminUser, action: 'disable' | 'enable' | 'delete') {
+    setActing(user.sub);
+    setConfirmDelete(null);
+    try {
+      await manageUser(user.email, action);
+      if (action === 'delete') {
+        setUsers(prev => prev.filter(u => u.sub !== user.sub));
+      } else {
+        setUsers(prev => prev.map(u =>
+          u.sub === user.sub ? { ...u, enabled: action === 'enable' } : u
+        ));
+      }
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setActing(null); }
+  }
+
   const filtered = users.filter(u =>
     !search || u.email.includes(search) || u.tenant_id.includes(search) || u.role.includes(search)
   );
@@ -457,14 +551,14 @@ function UsersTab() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Users</h2>
-          <p className="text-xs text-slate-500 mt-0.5">All platform users. Reset passwords or create new accounts.</p>
+          <p className="text-xs text-slate-500 mt-0.5">All platform users. Reset passwords, disable, or remove accounts.</p>
         </div>
         <div className="flex gap-2">
           <input
             placeholder="Search…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="input w-48"
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 w-48"
           />
           <button onClick={() => setShowCreate(true)}
             className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">
@@ -488,41 +582,97 @@ function UsersTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map(u => (
-                <tr key={u.sub} className="hover:bg-slate-50">
-                  <td className="px-5 py-3">
-                    <div className="font-medium text-slate-900">{u.email}</div>
-                    <div className="text-xs text-slate-400 font-mono">{u.sub.slice(0, 12)}…</div>
-                  </td>
-                  <td className="px-5 py-3 font-mono text-xs text-slate-600">{u.tenant_id || '—'}</td>
-                  <td className="px-5 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_BADGE[u.role] || 'bg-slate-100 text-slate-600'}`}>
-                      {ROLE_LABELS[u.role] || u.role}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      u.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}>
-                      {u.enabled ? u.status || 'Active' : 'Disabled'}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <button
-                      onClick={() => setShowReset(u)}
-                      className="text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-2 py-1 hover:border-slate-400 transition-colors"
-                    >
-                      Reset Password
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(u => {
+                const isActing = acting === u.sub;
+                const isDisabled = !u.enabled;
+                return (
+                  <tr key={u.sub} className={isDisabled ? 'opacity-60 bg-slate-50' : 'hover:bg-slate-50'}>
+                    <td className="px-5 py-3">
+                      <div className={`font-medium ${isDisabled ? 'text-slate-500' : 'text-slate-900'}`}>{u.email}</div>
+                      <div className="text-xs text-slate-400 font-mono">{u.sub.slice(0, 12)}…</div>
+                    </td>
+                    <td className="px-5 py-3 font-mono text-xs text-slate-600">{u.tenant_id || '—'}</td>
+                    <td className="px-5 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_BADGE[u.role] || 'bg-slate-100 text-slate-600'}`}>
+                        {ROLE_LABELS[u.role] || u.role}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        u.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {u.enabled ? u.status || 'Active' : 'Disabled'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      {isActing ? (
+                        <span className="inline-block w-4 h-4 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setShowReset(u)}
+                            className="text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-2 py-1 hover:border-slate-400 transition-colors"
+                          >
+                            Reset
+                          </button>
+                          {u.enabled ? (
+                            <button
+                              onClick={() => handleManageUser(u, 'disable')}
+                              className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded px-2 py-1 hover:border-amber-400 transition-colors"
+                            >
+                              Disable
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleManageUser(u, 'enable')}
+                              className="text-xs text-green-600 hover:text-green-800 border border-green-200 rounded px-2 py-1 hover:border-green-400 transition-colors"
+                            >
+                              Enable
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setConfirmDelete(u)}
+                            className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1 hover:border-red-400 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {filtered.length === 0 && (
             <div className="text-center py-12 text-slate-400 text-sm">No users found</div>
           )}
         </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <Modal title="Delete User" onClose={() => setConfirmDelete(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              Permanently delete <span className="font-semibold">{confirmDelete.email}</span>?
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              This removes the user from Cognito. Their uploaded documents and audit history are preserved.
+              This action cannot be undone.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setConfirmDelete(null)}
+                className="flex-1 px-4 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
+                Cancel
+              </button>
+              <button onClick={() => handleManageUser(confirmDelete, 'delete')}
+                className="flex-1 px-4 py-2 text-sm rounded-lg font-medium text-white bg-red-600 hover:bg-red-700">
+                Delete User
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showCreate && (

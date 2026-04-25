@@ -8,13 +8,18 @@ import {
 import ConsultantPanel from './components/ConsultantPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { ClientView } from './components/ClientView';
-import { getMyClients, setActiveClientTenant, type AssignedClient } from './lib/api';
+import { getMyClients, setActiveClientTenant, listTenants, type AssignedClient } from './lib/api';
 
 type Me = {
   email: string;
   tenantId: string;
   role: string;
 } | null;
+
+type PreviewMode =
+  | { view: 'admin' }
+  | { view: 'consultant'; tenant: AssignedClient }
+  | { view: 'client'; tenant: AssignedClient };
 
 const ADMIN_ROLES = new Set(['admin', 'project_admin', 'security_admin']);
 
@@ -28,6 +33,10 @@ export default function App() {
   // Consultant client-switcher
   const [myClients, setMyClients] = useState<AssignedClient[]>([]);
   const [activeClient, setActiveClient] = useState<AssignedClient | null>(null);
+
+  // Admin demo previewer
+  const [preview, setPreview] = useState<PreviewMode>({ view: 'admin' });
+  const [allClients, setAllClients] = useState<AssignedClient[]>([]);
 
   async function refreshMe() {
     try {
@@ -66,6 +75,30 @@ export default function App() {
 
   useEffect(() => { refreshMe(); }, []);
 
+  useEffect(() => {
+    if (me?.role === 'admin') {
+      listTenants()
+        .then(ts => setAllClients(ts
+          .filter((t: any) => t.status !== 'archived')
+          .map((t: any) => ({ tenant_id: t.tenant_id, name: t.name || t.tenant_id, industry: t.industry || '' }))
+        ))
+        .catch(() => {});
+    }
+  }, [me?.role]);
+
+  function switchPreview(value: string) {
+    if (value === 'admin') {
+      setActiveClientTenant(null);
+      setPreview({ view: 'admin' });
+    } else {
+      const [view, tenantId] = value.split(':') as ['consultant' | 'client', string];
+      const tenant = allClients.find(c => c.tenant_id === tenantId);
+      if (!tenant) return;
+      setActiveClientTenant(tenantId);
+      setPreview({ view, tenant });
+    }
+  }
+
   async function onSignIn(e: React.FormEvent) {
     e.preventDefault();
     setSigningIn(true);
@@ -86,6 +119,8 @@ export default function App() {
     setMe(null);
     setMyClients([]);
     setActiveClient(null);
+    setPreview({ view: 'admin' });
+    setAllClients([]);
   }
 
   if (!me) {
@@ -144,8 +179,33 @@ export default function App() {
     admin: 'Admin',
   };
 
+  const previewValue = preview.view === 'admin'
+    ? 'admin'
+    : `${preview.view}:${(preview as any).tenant.tenant_id}`;
+
+  const isPreviewing = me.role === 'admin' && preview.view !== 'admin';
+
   return (
     <div className="h-screen flex flex-col">
+      {/* Preview banner */}
+      {isPreviewing && (
+        <div className="bg-amber-400 text-amber-900 text-xs font-medium px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+          <span>
+            Demo preview — viewing as{' '}
+            <span className="font-semibold capitalize">{preview.view}</span>
+            {(preview.view === 'consultant' || preview.view === 'client') && (
+              <> · <span className="font-semibold">{preview.tenant.name}</span></>
+            )}
+          </span>
+          <button
+            onClick={() => switchPreview('admin')}
+            className="underline hover:no-underline ml-4"
+          >
+            Back to Admin Panel
+          </button>
+        </div>
+      )}
+
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-semibold tracking-tight">
@@ -183,6 +243,37 @@ export default function App() {
             </>
           )}
 
+          {/* Admin demo previewer */}
+          {me.role === 'admin' && allClients.length > 0 && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Preview as</span>
+                <select
+                  value={previewValue}
+                  onChange={e => switchPreview(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 text-slate-700 cursor-pointer"
+                >
+                  <option value="admin">Admin Panel</option>
+                  <optgroup label="── Consultant view ──">
+                    {allClients.map(c => (
+                      <option key={`consultant:${c.tenant_id}`} value={`consultant:${c.tenant_id}`}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="── Client view ──">
+                    {allClients.map(c => (
+                      <option key={`client:${c.tenant_id}`} value={`client:${c.tenant_id}`}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+              <div className="h-8 w-px bg-slate-200" />
+            </>
+          )}
+
           {/* Role badge */}
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleBadge[me.role] || 'bg-slate-100 text-slate-600'}`}>
             {roleLabel[me.role] || me.role}
@@ -205,7 +296,17 @@ export default function App() {
       </header>
 
       <main className="flex-1 bg-slate-50 overflow-hidden">
-        {isAdmin && <AdminPanel role={me.role} />}
+        {isAdmin && preview.view === 'admin' && <AdminPanel role={me.role} />}
+
+        {isAdmin && preview.view === 'consultant' && (
+          <ConsultantPanel role="consultant" tenantId={(preview as any).tenant.tenant_id} />
+        )}
+
+        {isAdmin && preview.view === 'client' && (
+          <div className="h-full overflow-hidden">
+            <ClientView />
+          </div>
+        )}
 
         {isConsultant && (
           activeClient ? (
