@@ -191,6 +191,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
         code: lambda.Code.fromAsset(lambdasRoot, {
           bundling: {
             image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+            platform: 'linux/arm64',
             command: [
               'bash', '-c',
               [
