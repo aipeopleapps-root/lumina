@@ -198,6 +198,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
                 `pip install -r ${handlerPath}/requirements.txt -t /asset-output`,
                 `cp -au ${handlerPath}/. /asset-output/`,
                 `cp -au common /asset-output/common`,
+                `mkdir -p /asset-output/config && cp -au config/. /asset-output/config/`,
               ].join(' && '),
             ],
           },
@@ -223,6 +224,9 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     // Document management functions
     const documentsListFn = makeFn('DocumentsListFn', 'documents_list', 30);
     const documentsDownloadUrlFn = makeFn('DocumentsDownloadUrlFn', 'documents_download_url', 15);
+    // Folder structure functions
+    const adminGetTemplatesFn = makeFn('AdminGetTemplatesFn', 'admin_get_templates', 15);
+    const tenantFolderStructureFn = makeFn('TenantFolderStructureFn', 'tenant_folder_structure', 15);
 
     dbSg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
@@ -287,6 +291,18 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/admin/list-tenants',
       methods: [apigwv2.HttpMethod.GET],
       integration: new apigwv2_integrations.HttpLambdaIntegration('AdminListTenantsInt', adminListTenantsFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/get-templates',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminGetTemplatesInt', adminGetTemplatesFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/tenant/folder-structure',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('TenantFolderStructureInt', tenantFolderStructureFn),
       authorizer,
     });
         // Document routes

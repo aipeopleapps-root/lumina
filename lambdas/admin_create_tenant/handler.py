@@ -51,6 +51,7 @@ def handler(event, context):
     name = (body.get("name") or "").strip()
     industry = body.get("industry")
     region = body.get("region")
+    folder_template = body.get("folder_structure_template", "standard_workday")
 
     if not tenant_id or not name:
         return http.bad_request("tenant_id and name are required")
@@ -100,14 +101,15 @@ def handler(event, context):
                 
                 # Insert into admin.tenants
                 cur.execute("""
-                    INSERT INTO admin.tenants (tenant_id, name, industry, region, status)
-                    VALUES (%s, %s, %s, %s, 'active')
+                    INSERT INTO admin.tenants (tenant_id, name, industry, region, status, folder_structure_template)
+                    VALUES (%s, %s, %s, %s, 'active', %s)
                     ON CONFLICT (tenant_id) DO UPDATE
                     SET name = EXCLUDED.name,
                         industry = EXCLUDED.industry,
                         region = EXCLUDED.region,
+                        folder_structure_template = EXCLUDED.folder_structure_template,
                         updated_at = NOW()
-                """, (tenant_id, name, industry, region))
+                """, (tenant_id, name, industry, region, folder_template))
                 
             conn.commit()
 
