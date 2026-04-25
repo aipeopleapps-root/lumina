@@ -125,38 +125,140 @@ export default function App() {
 
   if (!me) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <form
-          onSubmit={onSignIn}
-          className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 w-96"
-        >
-          <h1 className="text-xl font-semibold mb-1">The Mitre</h1>
-          <p className="text-sm text-slate-500 mb-6">Workday Advisory Platform</p>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 text-sm"
-            required
-          />
-          <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 text-sm"
-            required
-          />
-          {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
-          <button
-            type="submit"
-            disabled={signingIn}
-            className="w-full bg-slate-900 text-white py-2 rounded-lg hover:bg-slate-800 disabled:opacity-60 text-sm font-medium"
-          >
-            {signingIn ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+      <div className="min-h-screen flex">
+        {/* Left branding panel */}
+        <div className="hidden lg:flex lg:w-[58%] bg-slate-900 relative overflow-hidden flex-col justify-between p-14">
+          {/* Decorative background shapes */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute -top-32 -right-32 w-[480px] h-[480px] rounded-full bg-slate-800" />
+            <div className="absolute bottom-[-80px] left-[-60px] w-80 h-80 rounded-full bg-slate-800 opacity-60" />
+            <div className="absolute top-1/2 left-2/3 w-56 h-56 rounded-full bg-indigo-950 opacity-50" />
+            <div className="absolute top-[30%] left-[10%] w-1 h-24 bg-indigo-500 opacity-20 rotate-12" />
+            <div className="absolute top-[55%] left-[20%] w-1 h-16 bg-indigo-500 opacity-15 rotate-12" />
+          </div>
+
+          {/* Top: Logo */}
+          <div className="relative flex items-center gap-3">
+            <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-slate-900 text-xs font-bold tracking-tight shadow-lg">
+              TM
+            </div>
+            <span className="text-white text-base font-semibold tracking-tight">The Mitre</span>
+          </div>
+
+          {/* Middle: Headline + features */}
+          <div className="relative space-y-10">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-indigo-950 border border-indigo-800 rounded-full px-3 py-1 mb-5">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                <span className="text-indigo-300 text-xs font-medium">Workday Advisory Platform</span>
+              </div>
+              <h1 className="text-4xl font-bold text-white leading-tight tracking-tight">
+                AI-powered advisory<br />for every engagement
+              </h1>
+              <p className="text-slate-400 text-base leading-relaxed mt-4 max-w-sm">
+                From implementation to optimisation — give your consultants an AI co-pilot and your clients a premium experience.
+              </p>
+            </div>
+
+            <div className="space-y-5">
+              {[
+                {
+                  label: 'Document Intelligence',
+                  desc: 'Surface insights from SOWs, config guides, and tenant documents instantly.',
+                  colour: 'bg-indigo-500',
+                },
+                {
+                  label: 'AI Advisory Chat',
+                  desc: 'Answer complex Workday questions with citations from your knowledge base.',
+                  colour: 'bg-violet-500',
+                },
+                {
+                  label: 'Delivery Assurance',
+                  desc: 'Proactively identify project risks and keep every engagement on track.',
+                  colour: 'bg-blue-500',
+                },
+              ].map(f => (
+                <div key={f.label} className="flex items-start gap-4">
+                  <div className={`w-7 h-7 rounded-md ${f.colour} flex-shrink-0 flex items-center justify-center mt-0.5 opacity-90`}>
+                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="text-white text-sm font-semibold">{f.label}</div>
+                    <div className="text-slate-400 text-sm mt-0.5 leading-relaxed">{f.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom: footer */}
+          <div className="relative text-slate-600 text-xs">
+            © 2025 The Mitre · Enterprise Workday Advisory
+          </div>
+        </div>
+
+        {/* Right login panel */}
+        <div className="flex-1 flex items-center justify-center bg-white px-8 py-12">
+          <div className="w-full max-w-[360px]">
+            {/* Mobile logo */}
+            <div className="flex items-center gap-2 mb-10 lg:hidden">
+              <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-bold">TM</div>
+              <span className="font-semibold text-slate-900">The Mitre</span>
+            </div>
+
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
+              <p className="text-slate-500 text-sm mt-1">Sign in to your workspace</p>
+            </div>
+
+            <form onSubmit={onSignIn} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-300 transition-shadow"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-shadow"
+                  required
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 text-sm text-red-700 flex items-start gap-2">
+                  <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={signingIn}
+                className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors mt-1"
+              >
+                {signingIn ? 'Signing in…' : 'Sign in'}
+              </button>
+            </form>
+
+            <p className="text-xs text-slate-400 mt-8 text-center">
+              Need access? Contact your project administrator.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
