@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
 jobs:
   deploy-infrastructure:
     runs-on: ubuntu-latest
@@ -47,6 +51,26 @@ jobs:
           cd infra
           npx cdk diff
       
+      - name: Wait for CloudFormation stack to be stable
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "Waiting for stack to reach a stable state..."
+          aws cloudformation wait stack-exists --stack-name WorkdayAiPlatformStack 2>/dev/null || true
+          for i in {1..30}; do
+            STATUS=$(aws cloudformation describe-stacks \
+              --stack-name WorkdayAiPlatformStack \
+              --query 'Stacks[0].StackStatus' \
+              --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+            echo "Stack status: $STATUS"
+            if [[ "$STATUS" == *"IN_PROGRESS"* ]]; then
+              echo "Stack busy, waiting 30s..."
+              sleep 30
+            else
+              echo "Stack ready."
+              break
+            fi
+          done
+
       - name: CDK Deploy (Main Branch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
