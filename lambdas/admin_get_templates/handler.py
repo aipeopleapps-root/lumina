@@ -16,7 +16,7 @@ _TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "config", "folder-temp
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("admin")
+        ctx.require_role("admin", "project_admin", "security_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 
