@@ -54,7 +54,7 @@ def handler(event, context):
         # Only consultants and admins see unpublished documents
         is_client = ctx.role not in ("consultant", "admin", "project_admin", "security_admin")
         if is_client:
-            all_items = [i for i in all_items if i.get("published") is True]
+            all_items = [i for i in all_items if i.get("published")]
 
         # Deduplicate by doc_id (keep first chunk seen per doc)
         docs_map = {}

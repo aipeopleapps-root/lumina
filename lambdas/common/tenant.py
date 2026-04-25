@@ -91,15 +91,17 @@ def tenant_from_event(event: dict[str, Any]) -> TenantContext:
     if role not in VALID_ROLES:
         raise TenantError(f"invalid role claim: {role!r}")
 
-    # Consultants can switch to an assigned client tenant via header
-    if role == "consultant":
+    # Consultants and admins can switch to a client tenant via header.
+    # Consultants require an assignment check; admins have unrestricted access.
+    if role in ("consultant", "admin", "project_admin", "security_admin"):
         headers = event.get("headers") or {}
         # API GW lowercases header names
         target = (headers.get("x-client-tenant") or "").strip().lower()
         if target:
             if not _TENANT_ID_PATTERN.match(target):
                 raise TenantError("invalid x-client-tenant header value")
-            _verify_assignment(user_id, target)
+            if role == "consultant":
+                _verify_assignment(user_id, target)
             tenant_id = target
 
     return TenantContext(
