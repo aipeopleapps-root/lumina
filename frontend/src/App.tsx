@@ -6,9 +6,8 @@ import {
   fetchUserAttributes,
 } from 'aws-amplify/auth';
 import ConsultantPanel from './components/ConsultantPanel';
-import CoachPanel from './components/CoachPanel';
 import { AdminPanel } from './components/AdminPanel';
-import { DocumentsPanel } from './components/DocumentsPanel';
+import { ClientView } from './components/ClientView';
 
 type Me = {
   email: string;
@@ -150,21 +149,10 @@ export default function App() {
           </div>
         )}
         
-        {/* Client: Split view - Chat + Documents */}
+        {/* Client: Full-height chat with document sidebar */}
         {me.role === 'client' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 divide-x divide-slate-200 h-full">
-            <section className="flex flex-col overflow-hidden p-6 bg-white">
-              <div className="mb-4">
-                <h2 className="text-xl font-semibold mb-1">Ask Workday Expert</h2>
-                <p className="text-sm text-slate-500">
-                  Ask questions about your Workday configuration. Answers are grounded in your uploaded documents.
-                </p>
-              </div>
-              <CoachPanel />
-            </section>
-            <section className="overflow-y-auto">
-              <DocumentsPanel />
-            </section>
+          <div className="h-full overflow-hidden">
+            <ClientView />
           </div>
         )}
       </main>

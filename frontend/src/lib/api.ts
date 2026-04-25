@@ -88,8 +88,12 @@ export const api = {
 };
 
 // Specific API functions (for backward compatibility with existing components)
-export async function chat(message: string, history: any[] = []): Promise<ChatResponse> {
-  return api.post('/chat', { message, history });
+export async function chat(
+  message: string,
+  history: any[] = [],
+  options: { module?: string; doc_id?: string } = {}
+): Promise<ChatResponse> {
+  return api.post('/chat', { message, history, ...options });
 }
 
 export async function ingestDoc(params: {

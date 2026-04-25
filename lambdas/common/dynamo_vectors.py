@@ -65,6 +65,7 @@ def search(
     top_k: int = 6,
     doc_type: str | None = None,
     module: str | None = None,
+    doc_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Cosine similarity search over tenant's chunks.
@@ -82,6 +83,8 @@ def search(
         items = [i for i in items if i.get("doc_type") == doc_type]
     if module:
         items = [i for i in items if i.get("module") == module]
+    if doc_id:
+        items = [i for i in items if i.get("doc_id") == doc_id]
     
     # Calculate cosine similarity for each item
     scored = []

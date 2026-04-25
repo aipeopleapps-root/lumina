@@ -56,13 +56,14 @@ def handler(event, context):
     history = _sanitize_history(history)
 
     module_filter = body.get("module")
+    doc_id_filter = body.get("doc_id")
 
     retrieval_query = _build_retrieval_query(user_message, history)
 
     with audit.Timer() as t:
         query_vector = bedrock.embed(retrieval_query)
         hits = vectors.search(
-            ctx, query_vector, top_k=TOP_K, module=module_filter,
+            ctx, query_vector, top_k=TOP_K, module=module_filter, doc_id=doc_id_filter,
         )
 
         context_block = _render_context(hits)
