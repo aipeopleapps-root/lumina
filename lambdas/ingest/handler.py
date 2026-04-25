@@ -87,6 +87,7 @@ def handler(event, context):
         c["embedding"] = bedrock.embed(c["text"])
         c["doc_id"] = doc_id
         c["created_at"] = now_iso
+        c["s3_key"] = s3_key
 
     indexed = vectors.index_chunks(ctx, chunks)
 

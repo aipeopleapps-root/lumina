@@ -50,6 +50,7 @@ def index_chunks(ctx: TenantContext, chunks: list[dict[str, Any]]) -> int:
                 "text": c["text"],
                 "embedding": embedding_bytes,
                 "created_at": c.get("created_at"),
+                "s3_key": c.get("s3_key"),
             }
             batch.put_item(Item=item)
     

@@ -103,7 +103,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col">
       {/* Header — shows tenant + role, critical for the isolation story */}
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -159,7 +159,7 @@ export default function App() {
         {/* Client: Split view - Chat + Documents */}
         {me.role === 'client' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 divide-x divide-slate-200 h-full">
-            <section className="p-6 overflow-y-auto bg-white">
+            <section className="flex flex-col overflow-hidden p-6 bg-white">
               <div className="mb-4">
                 <h2 className="text-xl font-semibold mb-1">Ask Workday Expert</h2>
                 <p className="text-sm text-slate-500">

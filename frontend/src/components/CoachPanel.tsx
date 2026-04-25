@@ -43,7 +43,7 @@ export default function CoachPanel() {
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 200px)' }}>
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Message list */}
       <div className="flex-1 overflow-y-auto space-y-3 mb-4">
         {history.length === 0 && (
