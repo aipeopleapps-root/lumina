@@ -61,9 +61,19 @@ function CountBadge({ count }: { count: number }) {
 
 export function FileExplorer({ template, documents, onDownload }: Props) {
   const docMap = buildDocMap(documents);
-  const [expanded, setExpanded] = useState<Set<string>>(
-    new Set(template.folders.map((f) => f.id))
-  );
+
+  // Pre-expand parent folders and any subfolders that already have documents
+  const initialExpanded = new Set<string>();
+  for (const folder of template.folders) {
+    initialExpanded.add(folder.id);
+    for (const sub of folder.subfolders) {
+      const subPath = `/${folder.name}/${sub.name}`;
+      if (docMap.has(subPath)) {
+        initialExpanded.add(`${folder.id}__${sub.id}`);
+      }
+    }
+  }
+  const [expanded, setExpanded] = useState<Set<string>>(initialExpanded);
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -88,6 +98,22 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
 
   return (
     <div className="space-y-1">
+      {/* Uncategorized first so pre-Phase-3 docs are immediately visible */}
+      {rootDocs.length > 0 && (
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 bg-slate-50">
+            <span className="text-base">📁</span>
+            <span className="font-medium text-slate-800 text-sm">Uncategorized</span>
+            <CountBadge count={rootDocs.length} />
+          </div>
+          <div className="px-2 py-1">
+            {rootDocs.map((doc) => (
+              <DocRow key={doc.doc_id} doc={doc} onDownload={onDownload} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {template.folders.map((folder) => {
         const isOpen = expanded.has(folder.id);
         const total = countUnder(folder.name, folder.subfolders);
@@ -156,21 +182,6 @@ export function FileExplorer({ template, documents, onDownload }: Props) {
         );
       })}
 
-      {/* Root / uncategorized docs */}
-      {rootDocs.length > 0 && (
-        <div className="border border-slate-200 rounded-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 bg-slate-50">
-            <span className="text-base">📁</span>
-            <span className="font-medium text-slate-800 text-sm">Uncategorized</span>
-            <CountBadge count={rootDocs.length} />
-          </div>
-          <div className="px-2 py-1">
-            {rootDocs.map((doc) => (
-              <DocRow key={doc.doc_id} doc={doc} onDownload={onDownload} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
