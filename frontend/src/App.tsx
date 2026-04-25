@@ -139,19 +139,13 @@ export default function App() {
       </header>
 
 {/* Role-based main content */}
-<main className="flex-1 bg-slate-50 overflow-y-auto">
+<main className="flex-1 bg-slate-50 overflow-hidden">
         {/* Admin: Full-screen tenant/user management */}
         {me.role === 'admin' && <AdminPanel />}
         
-        {/* Consultant: Full-screen upload & analyze */}
+        {/* Consultant: Full-height split layout */}
         {me.role === 'consultant' && (
-          <div className="p-6 max-w-5xl mx-auto">
-            <div className="mb-6">
-              <h2 className="text-2xl font-semibold mb-2">Consultant Portal</h2>
-              <p className="text-slate-600">
-                Upload Workday configuration workbooks to analyze for risks, anti-patterns, and best-practice gaps.
-              </p>
-            </div>
+          <div className="h-full flex flex-col overflow-hidden">
             <ConsultantPanel role={me.role} tenantId={me.tenantId} />
           </div>
         )}

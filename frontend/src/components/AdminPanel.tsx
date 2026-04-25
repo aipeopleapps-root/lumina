@@ -87,7 +87,7 @@ export function AdminPanel() {
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto h-full overflow-y-auto">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Control Center</h1>
         <div className="space-x-4">
