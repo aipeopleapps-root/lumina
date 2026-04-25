@@ -4,12 +4,11 @@ List documents for a tenant
 Returns all documents uploaded by this tenant with metadata
 """
 
-import json
 import logging
 import os
-from collections import defaultdict
 
 import boto3
+from boto3.dynamodb.conditions import Key
 
 from common import tenant_from_event, TenantError, http
 
@@ -28,19 +27,33 @@ def handler(event, context):
 
     try:
         table = _dynamodb.Table(_VECTOR_TABLE)
-        
-        # Query all chunks for this tenant
-        # Use ExpressionAttributeNames because 'module' is a reserved keyword
-        response = table.query(
-            KeyConditionExpression="tenant_id = :tid",
-            ExpressionAttributeValues={":tid": ctx.tenant_id},
+
+        # Paginate through all chunks for this tenant.
+        # The 1MB DynamoDB read limit is applied before projection, so with
+        # 4KB embedding binaries per chunk we can hit it quickly and need
+        # to follow LastEvaluatedKey until exhausted.
+        query_kwargs = dict(
+            KeyConditionExpression=Key("tenant_id").eq(ctx.tenant_id),
             ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key,folder_path",
-            ExpressionAttributeNames={"#mod": "module"}
+            ExpressionAttributeNames={"#mod": "module"},
         )
-        
-        # Group by doc_id to get unique documents
+
+        all_items = []
+        while True:
+            response = table.query(**query_kwargs)
+            all_items.extend(response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            query_kwargs["ExclusiveStartKey"] = last_key
+
+        log.info("Fetched %d chunks for tenant=%s across %d pages",
+                 len(all_items), ctx.tenant_id,
+                 len(all_items) // 100 + 1)
+
+        # Deduplicate by doc_id (keep first chunk seen per doc)
         docs_map = {}
-        for item in response.get("Items", []):
+        for item in all_items:
             doc_id = item.get("doc_id")
             if doc_id and doc_id not in docs_map:
                 docs_map[doc_id] = {
@@ -51,24 +64,23 @@ def handler(event, context):
                     "uploaded_at": str(item.get("created_at", "")),
                     "s3_key": item.get("s3_key", ""),
                     "folder_path": item.get("folder_path", "/"),
-                    "chunk_count": 0
+                    "chunk_count": 0,
                 }
-        
+
         # Count chunks per document
-        for item in response.get("Items", []):
+        for item in all_items:
             doc_id = item.get("doc_id")
             if doc_id in docs_map:
                 docs_map[doc_id]["chunk_count"] += 1
-        
-        # Convert to list and sort by upload date (newest first)
+
         documents = sorted(
             docs_map.values(),
             key=lambda x: x.get("uploaded_at", ""),
-            reverse=True
+            reverse=True,
         )
-        
+
         return http.ok({"documents": documents})
-        
+
     except Exception as e:
         log.error("Failed to list documents: %s", e, exc_info=True)
         return http.error(f"Failed to list documents: {str(e)}")
