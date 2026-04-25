@@ -1,271 +1,263 @@
-# 🚀 Claude Code Handoff: Configurable Folder Structure Feature
+📍 Project Context
+Platform: Workday Insight Studio (AI-Powered Workday Advisory by Green Dot)
+Location: /Users/aashish/Downloads/workday-ai-platform
+GitHub: https://github.com/aipeopleapps-root/workday-consulting-ai-platform
+Live URL: https://main.d2jd92e8asbd1j.amplifyapp.com
+Tech Stack:
 
-## 📍 Project Context
+Frontend: React + TypeScript + Vite + Tailwind
+Backend: Python Lambdas on AWS
+Database: DynamoDB (vectors) + Aurora Postgres (metadata)
+AI: Claude Sonnet 4 via AWS Bedrock
 
-**Platform:** Workday Insight Studio (AI-Powered Workday Advisory by Green Dot)  
-**Location:** `/Users/aashish/Downloads/workday-ai-platform`  
-**GitHub:** https://github.com/aipeopleapps-root/workday-consulting-ai-platform  
-**Live URL:** https://main.d2jd92e8asbd1j.amplifyapp.com
 
-**Tech Stack:**
-- Frontend: React + TypeScript + Vite + Tailwind
-- Backend: Python Lambdas on AWS
-- Database: DynamoDB (vectors) + Aurora Postgres (metadata)
-- AI: Claude Sonnet 4 via AWS Bedrock
+✅ What's Already Working
+Three Role-Based Portals:
 
----
+Admin Portal (Control Center) - View clients, create clients/users, full tenant isolation
+Consultant Portal (Analysis Workbench) - Upload & analyze Workday files
+Client Portal - AI chat with citations, document library (currently flat list - needs folders!)
 
-## ✅ What's Already Working
+Infrastructure:
 
-### Three Role-Based Portals:
+✅ 10+ Lambda functions deployed
+✅ API Gateway with JWT auth
+✅ Cognito user pool
+✅ DynamoDB + Aurora Serverless v2
+✅ S3 for documents
+✅ GitHub Actions + Amplify CI/CD
 
-1. **Admin Portal (Control Center)**
-   - View all clients with stats
-   - Create new clients and users
-   - Full tenant isolation
+Test Credentials:
 
-2. **Consultant Portal (Analysis Workbench)**
-   - Upload Workday config files
-   - AI-powered analysis with findings
-   - Document ingestion and embedding
+Admin: admin@workday-ai.com / AdminPass789!
+Consultant: consultant-acme@example.com / TempPass123!
+Client: client-acme@example.com / TempPass123!
 
-3. **Client Portal**
-   - "Ask Workday Expert" - RAG chat with citations
-   - Document library (currently flat list - **needs folder structure**)
-   - Download documents
 
-### Infrastructure:
-- ✅ 10+ Lambda functions deployed
-- ✅ API Gateway with JWT auth
-- ✅ Cognito user pool
-- ✅ DynamoDB + Aurora Serverless v2
-- ✅ S3 for document storage
-- ✅ GitHub Actions + Amplify CI/CD
+🎯 Feature Goal: Configurable Folder Structure
+Transform flat document list into hierarchical folder explorer where:
 
-**Test Credentials:**
-- Admin: `admin@workday-ai.com` / `AdminPass789!`
-- Consultant: `consultant-acme@example.com` / `TempPass123!`
-- Client: `client-acme@example.com` / `TempPass123!`
+Admin chooses folder template when creating client (Standard/Minimal/Financial)
+Consultant uploads to specific folders within the structure
+Client browses documents in organized tree view (read-only)
 
----
+Why This Matters:
 
-## 🎯 Feature to Build: Configurable Folder Structure
+Professional UX (file explorer, not flat dump)
+Scalable (new templates via config file, no code changes)
+Industry-specific (different templates for HCM vs Financials)
 
-### Goal
-Transform the flat document list into a hierarchical folder explorer where:
-- **Admin** chooses folder template when creating client (Standard vs Custom)
-- **Consultant** uploads to specific folders within the structure
-- **Client** browses documents in organized folder tree (read-only)
 
-### Why This Matters
-- Professional UX (file explorer, not flat dump)
-- Scalable (new templates via config file, no code changes)
-- Flexible (clients can have standard or custom structures)
-- Industry-specific (different templates for HCM, Financials, Full Suite)
+📋 Implementation Overview
+Phase 1: Configuration System (30-45 min)
 
----
+Create config/folder-templates.json with 3 templates
+Add database columns for template storage
+Create Lambda to fetch available templates
+Update admin create-tenant Lambda to store template choice
+Update CDK to bundle config file with Lambdas
 
-## 📋 Implementation Phases
+Phase 2: Frontend Admin Portal (45-60 min)
 
-### Phase 1: Configuration System (30-45 min)
+Create FolderTemplateSelector component with preview
+Update AdminPanel to include template selector in create client modal
 
-#### 1.1 Create Folder Templates Config
+Phase 3: Document Storage with Folders (45-60 min)
 
-**File:** `config/folder-templates.json`
+Update ingest Lambda to store folder_path in DynamoDB
+Create FileExplorer component (expandable tree view)
+Create FolderPicker component (for upload destination selector)
+Update ConsultantPanel with folder picker
+Update DocumentsPanel to use FileExplorer instead of flat list
 
-```json
-{
-  "templates": {
-    "standard_workday": {
-      "id": "standard_workday",
-      "name": "Standard Workday Structure",
-      "description": "Recommended structure for full Workday implementations",
-      "folders": [
-        {
-          "id": "config-workbooks",
-          "name": "Configuration Workbooks",
-          "icon": "⚙️",
-          "subfolders": [
-            { "id": "hcm-core", "name": "HCM Core", "description": "Core HCM configuration" },
-            { "id": "absence", "name": "Absence Management", "description": "Leave and absence configs" },
-            { "id": "payroll", "name": "Payroll", "description": "Payroll configuration" },
-            { "id": "benefits", "name": "Benefits", "description": "Benefits enrollment and admin" },
-            { "id": "recruiting", "name": "Recruiting", "description": "Talent acquisition configs" },
-            { "id": "compensation", "name": "Compensation", "description": "Comp plans and structures" },
-            { "id": "time-tracking", "name": "Time Tracking", "description": "Time and attendance" },
-            { "id": "performance", "name": "Performance Management", "description": "Reviews and goals" }
-          ]
-        },
-        {
-          "id": "bp-workbooks",
-          "name": "Business Process Workbooks",
-          "icon": "🔄",
-          "subfolders": [
-            { "id": "change-job", "name": "Change Job BP", "description": "Job change processes" },
-            { "id": "hire", "name": "Hire BP", "description": "Hiring and onboarding" },
-            { "id": "terminate", "name": "Terminate BP", "description": "Termination processes" },
-            { "id": "comp-change", "name": "Request Compensation Change BP", "description": "Comp change requests" },
-            { "id": "time-off", "name": "Request Time Off BP", "description": "PTO request processes" },
-            { "id": "transfer", "name": "Transfer BP", "description": "Internal transfers" }
-          ]
-        },
-        {
-          "id": "integrations",
-          "name": "Integration Design",
-          "icon": "🔌",
-          "subfolders": [
-            { "id": "inbound", "name": "Inbound Integrations", "description": "Data coming into Workday" },
-            { "id": "outbound", "name": "Outbound Integrations", "description": "Data leaving Workday" },
-            { "id": "connectors", "name": "Core Connectors", "description": "Pre-built connectors" },
-            { "id": "reports", "name": "Custom Reports", "description": "RaaS and custom reporting" }
-          ]
-        },
-        {
-          "id": "security",
-          "name": "Security & Access",
-          "icon": "🔒",
-          "subfolders": [
-            { "id": "security-groups", "name": "Security Groups", "description": "Security group definitions" },
-            { "id": "domain-security", "name": "Domain Security", "description": "Domain security policies" },
-            { "id": "bp-security", "name": "Business Process Security", "description": "BP security configs" }
-          ]
-        }
-      ]
-    },
-    
-    "minimal_workday": {
-      "id": "minimal_workday",
-      "name": "Minimal Workday Structure",
-      "description": "Simplified structure for smaller implementations",
-      "folders": [
-        {
-          "id": "configuration",
-          "name": "Configuration",
-          "icon": "⚙️",
-          "subfolders": [
-            { "id": "hcm", "name": "HCM" },
-            { "id": "payroll", "name": "Payroll" },
-            { "id": "benefits", "name": "Benefits" }
-          ]
-        },
-        {
-          "id": "business-processes",
-          "name": "Business Processes",
-          "icon": "🔄",
-          "subfolders": [
-            { "id": "hire-terminate", "name": "Hire & Terminate" },
-            { "id": "job-changes", "name": "Job Changes" },
-            { "id": "compensation", "name": "Compensation" }
-          ]
-        },
-        {
-          "id": "integrations",
-          "name": "Integrations",
-          "icon": "🔌",
-          "subfolders": [
-            { "id": "inbound", "name": "Inbound" },
-            { "id": "outbound", "name": "Outbound" }
-          ]
-        }
-      ]
-    },
-    
-    "financial_focus": {
-      "id": "financial_focus",
-      "name": "Financials-Focused Structure",
-      "description": "For Workday Financial Management implementations",
-      "folders": [
-        {
-          "id": "coa",
-          "name": "Chart of Accounts",
-          "icon": "💰",
-          "subfolders": [
-            { "id": "coa-config", "name": "COA Configuration" },
-            { "id": "ledger", "name": "Ledger Setup" },
-            { "id": "worktags", "name": "Worktags" }
-          ]
-        },
-        {
-          "id": "business-processes",
-          "name": "Business Processes",
-          "icon": "🔄",
-          "subfolders": [
-            { "id": "p2p", "name": "Procure to Pay" },
-            { "id": "o2c", "name": "Order to Cash" },
-            { "id": "expense", "name": "Expense Management" }
-          ]
-        },
-        {
-          "id": "reporting",
-          "name": "Reporting",
-          "icon": "📊",
-          "subfolders": [
-            { "id": "financial-reports", "name": "Financial Reports" },
-            { "id": "custom-reports", "name": "Custom Reports" },
-            { "id": "dashboards", "name": "Dashboards" }
-          ]
-        }
-      ]
-    }
-  }
-}
-```
+Phase 4: Backend Folder Endpoints (30 min)
 
-#### 1.2 Database Migration
+Create Lambda to return tenant's folder structure
+Update documents list Lambda to include folder_path field
+Add routes to CDK stack
 
-**File:** `migrations/002_add_folder_structure.sql`
 
-```sql
--- Add folder structure columns to tenants table
+🎯 Quick Start Message for Claude Code
+Copy this into Claude Code when you start:
+Hi! I need to implement a configurable folder structure feature for my Workday AI platform.
+
+PROJECT: /Users/aashish/Downloads/workday-ai-platform
+
+CONTEXT:
+I have a working multi-tenant Workday consulting platform with admin/consultant/client portals.
+Documents are currently stored in a flat list. I want to add hierarchical folder structures.
+
+FEATURE SPEC:
+Please read docs/FOLDER_STRUCTURE_HANDOFF.md for complete details.
+
+IMPLEMENTATION PLAN:
+1. Create config/folder-templates.json with 3 folder templates
+2. Add database migration for folder_structure_template column
+3. Create backend Lambdas (admin_get_templates, tenant_folder_structure)
+4. Create frontend components (FolderTemplateSelector, FolderPicker, FileExplorer)
+5. Update existing components to use folders
+
+Let's start with Phase 1: creating the config file.
+Can you create config/folder-templates.json with the standard, minimal, and financial templates?
+
+📦 Key Files Summary
+New Files to Create:
+config/folder-templates.json
+migrations/002_add_folder_structure.sql
+lambdas/admin_get_templates/handler.py
+lambdas/admin_get_templates/requirements.txt
+lambdas/tenant_folder_structure/handler.py
+lambdas/tenant_folder_structure/requirements.txt
+frontend/src/components/FolderTemplateSelector.tsx
+frontend/src/components/FolderPicker.tsx
+frontend/src/components/FileExplorer.tsx
+Files to Modify:
+infra/lib/stack.ts (add 2 new Lambdas, 2 new routes, update bundling)
+lambdas/admin_create_tenant/handler.py (accept + store template choice)
+lambdas/ingest/handler.py (accept + store folder_path)
+lambdas/documents_list/handler.py (return folder_path in response)
+frontend/src/components/AdminPanel.tsx (add FolderTemplateSelector)
+frontend/src/components/ConsultantPanel.tsx (add FolderPicker for upload)
+frontend/src/components/DocumentsPanel.tsx (replace list with FileExplorer)
+
+🧪 Testing Checklist
+After implementation, test:
+
+ Admin can select template when creating client
+ Admin can preview folder structure before creating
+ Consultant sees folder tree when uploading
+ Consultant can select destination folder
+ Upload includes folder_path in DynamoDB
+ Client sees hierarchical folder tree (not flat list)
+ Client can expand/collapse folders
+ Documents appear in correct folders
+ Download works from folder view
+ Different clients can have different templates
+
+
+🚀 Deployment Commands
+bash# Run migration
+./run_migration.sh migrations/002_add_folder_structure.sql
+
+# Deploy backend
+cd infra
+npx cdk deploy --require-approval never
+cd ..
+
+# Test locally
+cd frontend
+npm run dev
+
+# Deploy to production
+git add .
+git commit -m "Add configurable folder structure feature"
+git push origin main
+
+💡 Key Design Decisions
+
+Templates in config file (not database) - Easy to add new templates without migrations
+Simple folder_path string - Store as "/Configuration Workbooks/HCM Core" in DynamoDB
+Template choice per tenant - Stored in Aurora admin.tenants table
+Frontend builds tree - No complex backend tree logic needed
+folder_path optional - Defaults to "/" for backward compatibility
+
+
+🗂️ Folder Template Examples
+Standard Workday Structure:
+📁 Configuration Workbooks
+  └─ HCM Core, Absence, Payroll, Benefits, Recruiting, Compensation, Time Tracking, Performance
+📁 Business Process Workbooks
+  └─ Change Job BP, Hire BP, Terminate BP, Comp Change BP, Time Off BP, Transfer BP
+📁 Integration Design
+  └─ Inbound, Outbound, Core Connectors, Custom Reports
+📁 Security & Access
+  └─ Security Groups, Domain Security, BP Security
+Minimal Workday Structure:
+📁 Configuration
+  └─ HCM, Payroll, Benefits
+📁 Business Processes
+  └─ Hire & Terminate, Job Changes, Compensation
+📁 Integrations
+  └─ Inbound, Outbound
+Financials-Focused Structure:
+📁 Chart of Accounts
+  └─ COA Configuration, Ledger Setup, Worktags
+📁 Business Processes
+  └─ Procure to Pay, Order to Cash, Expense Management
+📁 Reporting
+  └─ Financial Reports, Custom Reports, Dashboards
+
+📝 Database Schema Change
+sql-- Migration: migrations/002_add_folder_structure.sql
 ALTER TABLE admin.tenants 
 ADD COLUMN IF NOT EXISTS folder_structure_template VARCHAR(50) DEFAULT 'standard_workday',
 ADD COLUMN IF NOT EXISTS custom_folder_structure JSONB;
 
-COMMENT ON COLUMN admin.tenants.folder_structure_template IS 'Template ID from folder-templates.json, or "custom" for custom structure';
-COMMENT ON COLUMN admin.tenants.custom_folder_structure IS 'Custom folder definition if template is "custom"';
-```
+🔧 CDK Stack Updates Required
 
-**Run migration:**
-```bash
-./run_migration.sh migrations/002_add_folder_structure.sql
-```
+Add 2 new Lambda functions:
 
-#### 1.3 Admin Get Templates Lambda
+AdminGetTemplatesFn
+TenantFolderStructureFn
 
-**File:** `lambdas/admin_get_templates/handler.py`
 
-```python
-"""
-Admin: Get available folder structure templates
-"""
-import json
-import logging
-import os
+Add 2 new API routes:
 
-from common import tenant_from_event, TenantError, http
+GET /admin/get-templates (admin only)
+GET /tenant/folder-structure (all authenticated users)
 
-logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
-log = logging.getLogger(__name__)
 
-TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "config", "folder-templates.json")
+Update makeFn bundling command to include:
 
-def handler(event, context):
-    try:
-        ctx = tenant_from_event(event)
-        ctx.require_role("admin")
-    except TenantError as e:
-        return http.forbidden(str(e))
+typescript   `mkdir -p /asset-output/config && cp -au config/folder-templates.json /asset-output/config/`
 
-    try:
-        with open(TEMPLATES_PATH, "r") as f:
-            templates_data = json.load(f)
-        
-        templates = list(templates_data["templates"].values())
-        return http.ok({"templates": templates})
-        
-    except Exception as e:
-        log.error("Failed to load templates: %s", e, exc_info=True)
-        return http.error("Failed to load folder templates")
-```
+🐛 Debugging Tips
+If templates don't load:
+bashaws logs tail /aws/lambda/WorkdayAiPlatformStack-AdminGetTemplatesFn* --since 5m --follow
+If folder structure doesn't appear:
+bashaws logs tail /aws/lambda/WorkdayAiPlatformStack-TenantFolderStructureFn* --since 5m --follow
+If uploads don't include folder_path:
+bashaws logs tail /aws/lambda/WorkdayAiPlatformStack-IngestFn* --since 5m --follow
+Check DynamoDB item has folder_path:
+bashaws dynamodb scan --table-name workday-ai-vectors --limit 1
 
-**File:** `lambdas/admin_get_templates/requirements.txt`
+✨ Success Criteria
+Feature is complete when:
+
+✅ Admin sees template dropdown when creating client
+✅ Admin can preview folder structure
+✅ Consultant sees folder picker (tree view) when uploading
+✅ Documents are stored with folder_path in DynamoDB
+✅ Client sees FileExplorer (tree view) instead of flat list
+✅ Folders are expandable/collapsible
+✅ Documents appear under correct folders
+✅ Download works from folder view
+✅ Different clients see different structures based on template
+
+
+🎓 Learning Resources
+
+AWS Lambda with Python: Existing lambdas/chat, lambdas/ingest patterns
+React Components: Existing ConsultantPanel.tsx, DocumentsPanel.tsx patterns
+CDK Patterns: infra/lib/stack.ts for Lambda/route definitions
+Database Access: lambdas/common/db.py for RDS Data API examples
+
+
+💬 Communication Tips for Claude Code
+Good prompts:
+
+"Create config/folder-templates.json with the three templates"
+"Update AdminPanel.tsx to include the FolderTemplateSelector"
+"Show me what folder_path will look like in DynamoDB"
+
+Less helpful prompts:
+
+"Build everything" (too vague)
+"Make it work" (no specific direction)
+Just file names without context
+
+Best approach:
+
+Work phase by phase
+Test each phase before moving to next
+Ask Claude Code to explain changes if unclear
