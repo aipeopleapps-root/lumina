@@ -232,7 +232,7 @@ export function ClientView() {
                 </div>
               ) : (
                 <div className="text-center mb-8">
-                  <h1 className="text-2xl font-semibold text-slate-900 mb-2">Ask The Mitre</h1>
+                  <h1 className="text-2xl font-semibold text-slate-900 mb-2">Ask Meridian</h1>
                   <p className="text-sm text-slate-500">Ask about your configuration, or click a document to focus on it.</p>
                 </div>
               )}

@@ -61,7 +61,7 @@ export default function CoachPanel() {
             }
           >
             <div className="font-medium text-xs text-slate-500 mb-1">
-              {turn.role === 'user' ? 'You' : 'The Mitre'}
+              {turn.role === 'user' ? 'You' : 'Meridian'}
             </div>
             <div className="whitespace-pre-wrap">{turn.content}</div>
             {turn.citations && turn.citations.length > 0 && (

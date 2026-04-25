@@ -140,9 +140,9 @@ export default function App() {
           {/* Top: Logo */}
           <div className="relative flex items-center gap-3">
             <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-slate-900 text-xs font-bold tracking-tight shadow-lg">
-              TM
+              M
             </div>
-            <span className="text-white text-base font-semibold tracking-tight">The Mitre</span>
+            <span className="text-white text-base font-semibold tracking-tight">Meridian</span>
           </div>
 
           {/* Middle: Headline + features */}
@@ -195,7 +195,7 @@ export default function App() {
 
           {/* Bottom: footer */}
           <div className="relative text-slate-600 text-xs">
-            © 2025 The Mitre · Enterprise Workday Advisory
+            © 2025 Meridian · Enterprise Workday Advisory
           </div>
         </div>
 
@@ -204,8 +204,8 @@ export default function App() {
           <div className="w-full max-w-[360px]">
             {/* Mobile logo */}
             <div className="flex items-center gap-2 mb-10 lg:hidden">
-              <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-bold">TM</div>
-              <span className="font-semibold text-slate-900">The Mitre</span>
+              <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-bold">M</div>
+              <span className="font-semibold text-slate-900">Meridian</span>
             </div>
 
             <div className="mb-8">
@@ -311,10 +311,10 @@ export default function App() {
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-semibold tracking-tight">
-            TM
+            M
           </div>
           <div>
-            <div className="text-sm font-medium">The Mitre</div>
+            <div className="text-sm font-medium">Meridian</div>
             <div className="text-xs text-slate-500">Workday Advisory Platform</div>
           </div>
         </div>
