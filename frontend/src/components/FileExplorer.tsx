@@ -10,6 +10,7 @@ interface Document {
   uploaded_at: string;
   s3_key: string;
   folder_path: string;
+  published?: boolean;
 }
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   onDownload: (doc: Document) => void;
   onDelete?: (doc: Document) => void;
   onAnalyse?: (doc: Document) => void;
+  onPublish?: (doc: Document, published: boolean) => void;
 }
 
 // Groups docs by folder_path, then within each folder groups versions by source_name
@@ -58,15 +60,19 @@ function DocGroup({
   onDownload,
   onDelete,
   onAnalyse,
+  onPublish,
 }: {
   versions: Document[];
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
+  onPublish?: (d: Document, published: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const current = versions[0];
   const hasVersions = versions.length > 1;
+
+  const isPublished = current.published === true;
 
   return (
     <div className="py-1.5 px-3 hover:bg-slate-50 rounded group">
@@ -75,7 +81,18 @@ function DocGroup({
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-slate-400 text-xs">📄</span>
           <div className="min-w-0">
-            <div className="text-sm text-slate-800 truncate">{current.source_name}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-slate-800 truncate">{current.source_name}</div>
+              {onPublish && (
+                <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                  isPublished
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {isPublished ? 'Published' : 'Draft'}
+                </span>
+              )}
+            </div>
             <div className="text-xs text-slate-400 flex items-center gap-1.5">
               <span>{formatDate(current.uploaded_at)}</span>
               {hasVersions && (
@@ -90,6 +107,18 @@ function DocGroup({
           </div>
         </div>
         <div className="flex items-center gap-1.5 ml-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {onPublish && (
+            <button
+              onClick={() => onPublish(current, !isPublished)}
+              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                isPublished
+                  ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+            >
+              {isPublished ? 'Unpublish' : 'Publish'}
+            </button>
+          )}
           {onAnalyse && (
             <button
               onClick={() => onAnalyse(current)}
@@ -149,11 +178,13 @@ function DocList({
   onDownload,
   onDelete,
   onAnalyse,
+  onPublish,
 }: {
   docs: Document[];
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
+  onPublish?: (d: Document, published: boolean) => void;
 }) {
   const groups = groupByName(docs);
   return (
@@ -165,6 +196,7 @@ function DocList({
           onDownload={onDownload}
           onDelete={onDelete}
           onAnalyse={onAnalyse}
+          onPublish={onPublish}
         />
       ))}
     </div>
@@ -180,7 +212,7 @@ function CountBadge({ count }: { count: number }) {
   );
 }
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onPublish }: Props) {
   const docMap = buildDocMap(documents);
 
   const initialExpanded = new Set<string>();
@@ -223,7 +255,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
             <span className="font-medium text-slate-800 text-sm">Uncategorized</span>
             <CountBadge count={rootDocs.length} />
           </div>
-          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} />
+          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} />
         </div>
       )}
 
@@ -247,7 +279,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
             {isOpen && (
               <div className="divide-y divide-slate-100">
                 {directDocs.length > 0 && (
-                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} />
+                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} />
                 )}
 
                 {folder.subfolders.map((sub) => {
@@ -273,7 +305,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
                           {subDocs.length === 0 ? (
                             <p className="text-xs text-slate-400 px-3 py-2">No documents</p>
                           ) : (
-                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} />
+                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} />
                           )}
                         </div>
                       )}

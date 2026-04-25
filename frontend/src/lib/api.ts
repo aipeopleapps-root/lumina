@@ -114,3 +114,7 @@ export async function analyzeDoc(docId: string, focus: string = 'all'): Promise<
 export async function deleteDoc(docId: string): Promise<void> {
   await api.post('/documents/delete', { doc_id: docId });
 }
+
+export async function publishDoc(docId: string, published: boolean): Promise<void> {
+  await api.post('/documents/publish', { doc_id: docId, published });
+}

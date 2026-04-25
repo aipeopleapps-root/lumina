@@ -34,7 +34,7 @@ def handler(event, context):
         # to follow LastEvaluatedKey until exhausted.
         query_kwargs = dict(
             KeyConditionExpression=Key("tenant_id").eq(ctx.tenant_id),
-            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key,folder_path",
+            ProjectionExpression="doc_id,source_name,doc_type,#mod,created_at,s3_key,folder_path,published",
             ExpressionAttributeNames={"#mod": "module"},
         )
 
@@ -51,6 +51,11 @@ def handler(event, context):
                  len(all_items), ctx.tenant_id,
                  len(all_items) // 100 + 1)
 
+        # Clients only see published documents
+        is_client = ctx.role not in ("consultant", "admin")
+        if is_client:
+            all_items = [i for i in all_items if i.get("published") is True]
+
         # Deduplicate by doc_id (keep first chunk seen per doc)
         docs_map = {}
         for item in all_items:
@@ -65,6 +70,7 @@ def handler(event, context):
                     "s3_key": item.get("s3_key", ""),
                     "folder_path": item.get("folder_path", "/"),
                     "chunk_count": 0,
+                    "published": bool(item.get("published", False)),
                 }
 
         # Count chunks per document

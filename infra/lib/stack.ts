@@ -228,6 +228,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminGetTemplatesFn = makeFn('AdminGetTemplatesFn', 'admin_get_templates', 15);
     const tenantFolderStructureFn = makeFn('TenantFolderStructureFn', 'tenant_folder_structure', 15);
     const documentsDeleteFn = makeFn('DocumentsDeleteFn', 'documents_delete', 30);
+    const documentsPublishFn = makeFn('DocumentsPublishFn', 'documents_publish', 30);
 
     dbSg.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
@@ -323,6 +324,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/documents/delete',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('DocumentsDeleteInt', documentsDeleteFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/documents/publish',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('DocumentsPublishInt', documentsPublishFn),
       authorizer,
     });
     new cdk.CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });

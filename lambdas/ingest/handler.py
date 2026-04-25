@@ -90,6 +90,7 @@ def handler(event, context):
         c["created_at"] = now_iso
         c["s3_key"] = s3_key
         c["folder_path"] = folder_path
+        c["published"] = False
 
     indexed = vectors.index_chunks(ctx, chunks)
 

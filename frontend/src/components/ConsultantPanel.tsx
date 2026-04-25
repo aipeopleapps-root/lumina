@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
-import { ingestDoc, analyzeDoc, deleteDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
+import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
 import { FileExplorer } from './FileExplorer';
 import type { FolderTemplate } from './FolderTemplateSelector';
@@ -317,6 +317,12 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                 } catch { alert('Failed to delete document'); }
               }}
               onAnalyse={onAnalyse}
+              onPublish={async (doc, published) => {
+                try {
+                  await publishDoc(doc.doc_id, published);
+                  loadDocuments();
+                } catch { alert('Failed to update document visibility'); }
+              }}
             />
           ) : (
             <p className="text-xs text-slate-400">Loading folder structure…</p>
