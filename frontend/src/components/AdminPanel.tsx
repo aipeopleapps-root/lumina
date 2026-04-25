@@ -532,84 +532,188 @@ function ResetPasswordModal({ user, onClose }: { user: AdminUser; onClose: () =>
 
 // ─── Audit Log Tab ────────────────────────────────────────────────────────────
 
+const ACTION_BADGE: Record<string, string> = {
+  'document.upload':            'bg-green-100 text-green-700',
+  'document.publish':           'bg-teal-100 text-teal-700',
+  'document.unpublish':         'bg-yellow-100 text-yellow-700',
+  'document.delete':            'bg-red-100 text-red-700',
+  'ai.chat':                    'bg-blue-100 text-blue-700',
+  'ai.analyze':                 'bg-indigo-100 text-indigo-700',
+  'admin.user_create':          'bg-purple-100 text-purple-700',
+  'admin.tenant_create':        'bg-purple-100 text-purple-700',
+  'admin.password_reset':       'bg-orange-100 text-orange-700',
+  'admin.consultant_assign':    'bg-slate-100 text-slate-700',
+  'admin.consultant_unassign':  'bg-slate-100 text-slate-500',
+};
+
+const ACTION_GROUPS = [
+  { label: 'All', value: '' },
+  { label: 'Documents', value: 'document.' },
+  { label: 'AI', value: 'ai.' },
+  { label: 'Admin', value: 'admin.' },
+];
+
+function AuditRow({ entry }: { entry: AuditEntry }) {
+  const [open, setOpen] = useState(false);
+  const ts = entry.created_at ? new Date(entry.created_at) : null;
+  const badge = ACTION_BADGE[entry.action] ?? 'bg-slate-100 text-slate-600';
+  const resource = entry.resource_name || entry.resource_id || '—';
+
+  return (
+    <>
+      <tr
+        className="hover:bg-slate-50 cursor-pointer select-none"
+        onClick={() => setOpen(o => !o)}
+      >
+        <td className="px-4 py-3 whitespace-nowrap">
+          <div className="text-xs text-slate-800 font-mono">
+            {ts ? ts.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+          </div>
+          <div className="text-xs text-slate-400 font-mono">
+            {ts ? ts.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+          </div>
+        </td>
+        <td className="px-4 py-3">
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${badge}`}>
+            {entry.action}
+          </span>
+        </td>
+        <td className="px-4 py-3">
+          <div className="text-xs text-slate-800">{entry.user_email || entry.user_id.slice(0, 12) + '…'}</div>
+          <div className="text-xs text-slate-400">{entry.role}</div>
+        </td>
+        <td className="px-4 py-3 font-mono text-xs text-slate-600">{entry.tenant_id}</td>
+        <td className="px-4 py-3 text-xs text-slate-600 max-w-[180px] truncate" title={resource}>{resource}</td>
+        <td className="px-4 py-3 font-mono text-xs text-slate-400">{entry.ip_address}</td>
+        <td className="px-4 py-3 text-slate-400 text-xs text-center">{open ? '▲' : '▼'}</td>
+      </tr>
+      {open && (
+        <tr className="bg-slate-50">
+          <td colSpan={7} className="px-6 py-4">
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <div className="text-slate-400 mb-1 font-medium uppercase tracking-wide text-[10px]">Event</div>
+                <div className="font-mono text-slate-700">{entry.event_id}</div>
+                <div className="font-mono text-slate-500 mt-1">{entry.event_ts}</div>
+              </div>
+              <div>
+                <div className="text-slate-400 mb-1 font-medium uppercase tracking-wide text-[10px]">Resource</div>
+                <div className="text-slate-700">{entry.resource_type || '—'} / {entry.resource_id || '—'}</div>
+                {entry.resource_name && <div className="text-slate-500 mt-0.5">{entry.resource_name}</div>}
+              </div>
+              {Object.keys(entry.details ?? {}).length > 0 && (
+                <div className="col-span-2">
+                  <div className="text-slate-400 mb-1 font-medium uppercase tracking-wide text-[10px]">Details</div>
+                  <pre className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 font-mono whitespace-pre-wrap overflow-auto max-h-48">
+                    {JSON.stringify(entry.details, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function AuditTab() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterTenant, setFilterTenant] = useState('');
-  const [filterKind, setFilterKind] = useState('');
+  const [filterAction, setFilterAction] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => { load(); }, []);
 
   async function load() {
     setLoading(true);
+    setError('');
     try {
       setEntries(await getAuditLog({
-        limit: 100,
+        limit: 200,
         ...(filterTenant ? { tenant_id: filterTenant } : {}),
-        ...(filterKind ? { kind: filterKind } : {}),
+        ...(filterAction ? { action: filterAction } : {}),
       }));
     } catch (err: any) {
-      alert(`Failed to load audit log: ${err.message}`);
+      setError(err.message || 'Failed to load audit log');
     } finally { setLoading(false); }
   }
 
-  const KIND_BADGE: Record<string, string> = {
-    chat: 'bg-blue-100 text-blue-700',
-    analyze: 'bg-indigo-100 text-indigo-700',
-    ingest: 'bg-green-100 text-green-700',
-  };
-
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
+    <div className="p-6 max-w-7xl mx-auto space-y-5">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Audit Log</h2>
-          <p className="text-xs text-slate-500 mt-0.5">All AI interactions across tenants. Most recent first.</p>
+          <p className="text-xs text-slate-500 mt-0.5">All platform activity across tenants. Click any row to expand details.</p>
         </div>
-        <div className="flex gap-2 items-end">
+        <div className="flex gap-2 items-end flex-wrap">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500">Tenant</label>
-            <input placeholder="acme" value={filterTenant} onChange={e => setFilterTenant(e.target.value)} className="input w-32" />
+            <input
+              placeholder="acme"
+              value={filterTenant}
+              onChange={e => setFilterTenant(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && load()}
+              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 w-32"
+            />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500">Kind</label>
-            <select value={filterKind} onChange={e => setFilterKind(e.target.value)} className="input w-32">
-              <option value="">All</option>
-              <option value="chat">Chat</option>
-              <option value="analyze">Analyze</option>
-              <option value="ingest">Ingest</option>
+            <label className="text-xs text-slate-500">Category</label>
+            <select
+              value={filterAction}
+              onChange={e => setFilterAction(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 w-36"
+            >
+              {ACTION_GROUPS.map(g => (
+                <option key={g.value} value={g.value}>{g.label}</option>
+              ))}
             </select>
           </div>
-          <button onClick={load} className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors">
-            Apply
+          <button
+            onClick={load}
+            className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors self-end"
+          >
+            Refresh
           </button>
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+
       {loading ? (
-        <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-slate-200 border-t-slate-700 rounded-full animate-spin" /></div>
+        <div className="flex justify-center py-16">
+          <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-700 rounded-full animate-spin" />
+        </div>
       ) : (
-        <div className="space-y-2">
-          {entries.map((e, i) => (
-            <div key={i} className="bg-white rounded-xl border border-slate-200 px-5 py-4 space-y-2">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${KIND_BADGE[e.kind] || 'bg-slate-100 text-slate-600'}`}>
-                  {e.kind}
-                </span>
-                <span className="font-mono text-xs text-slate-500">{e.tenant_id}</span>
-                <span className="text-xs text-slate-400">{e.user_id.slice(0, 8)}…</span>
-                <span className="text-xs text-slate-400 ml-auto">{new Date(e.created_at).toLocaleString()}</span>
-                <span className="text-xs text-slate-400">{e.latency_ms}ms</span>
-              </div>
-              {e.prompt_preview && (
-                <p className="text-xs text-slate-600 bg-slate-50 rounded px-3 py-2 font-mono leading-relaxed truncate">
-                  {e.prompt_preview}
-                </p>
-              )}
-            </div>
-          ))}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Datetime</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Action</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">User</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Tenant</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Resource</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">IP Address</th>
+                <th className="px-4 py-3 w-8" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {entries.map(e => (
+                <AuditRow key={e.event_id || e.event_ts} entry={e} />
+              ))}
+            </tbody>
+          </table>
           {entries.length === 0 && (
             <div className="text-center py-12 text-slate-400 text-sm">No audit entries found</div>
+          )}
+          {entries.length > 0 && (
+            <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-400 text-right">
+              {entries.length} event{entries.length !== 1 ? 's' : ''}
+            </div>
           )}
         </div>
       )}

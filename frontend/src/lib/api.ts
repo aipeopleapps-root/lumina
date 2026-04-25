@@ -96,12 +96,17 @@ export interface AdminUser {
 
 export interface AuditEntry {
   tenant_id: string;
+  event_id: string;
+  event_ts: string;
+  action: string;
   user_id: string;
-  kind: string;
-  model_id: string;
-  latency_ms: number;
-  prompt_preview: string;
-  response_preview: string;
+  user_email: string;
+  role: string;
+  ip_address: string;
+  resource_type: string;
+  resource_id: string;
+  resource_name: string;
+  details: Record<string, unknown>;
   created_at: string;
 }
 
@@ -194,12 +199,12 @@ export async function resetPassword(email: string, temporaryPassword: string): P
 export async function getAuditLog(params: {
   limit?: number;
   tenant_id?: string;
-  kind?: string;
+  action?: string;
 } = {}): Promise<AuditEntry[]> {
   const qs = new URLSearchParams();
   if (params.limit) qs.set('limit', String(params.limit));
   if (params.tenant_id) qs.set('tenant_id', params.tenant_id);
-  if (params.kind) qs.set('kind', params.kind);
+  if (params.action) qs.set('action', params.action);
   const r = await api.get(`/admin/audit-log${qs.toString() ? '?' + qs : ''}`);
   return r.entries ?? [];
 }

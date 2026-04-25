@@ -14,7 +14,7 @@ import os
 
 import boto3
 
-from common import tenant_from_event, TenantError, http
+from common import tenant_from_event, TenantError, audit_events, http
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
@@ -49,6 +49,12 @@ def handler(event, context):
             Permanent=False,  # forces change on next login
         )
         log.info("security_admin %s reset password for %s", ctx.user_id, email)
+        audit_events.write(
+            ctx, "admin.password_reset",
+            ip=audit_events.get_ip(event),
+            resource_type="user",
+            resource_name=email,
+        )
         return http.ok({"message": f"Password reset for {email}. User must change on next login."})
     except _cognito.exceptions.UserNotFoundException:
         return http.bad_request(f"User {email} not found")

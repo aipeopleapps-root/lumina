@@ -16,6 +16,7 @@ from common import (
     bedrock,
     vectors,
     audit,
+    audit_events,
     http,
 )
 
@@ -103,7 +104,7 @@ def handler(event, context):
                 response=answer[:16000],
                 retrieved_chunks=[
                     {
-                        "doc_id": h["doc_id"], 
+                        "doc_id": h["doc_id"],
                         "chunk_index": int(h["chunk_index"]) if h.get("chunk_index") is not None else None,
                         "score": float(h.get("score")) if isinstance(h.get("score"), Decimal) else h.get("score")
                     }
@@ -115,6 +116,19 @@ def handler(event, context):
         )
     except Exception as e:
         log.error("failed to write audit log (non-fatal): %s", e)
+
+    audit_events.write(
+        ctx,
+        "ai.chat",
+        ip=audit_events.get_ip(event),
+        resource_type="chat",
+        details={
+            "model_id": _GENERATION_MODEL_ID,
+            "latency_ms": t.elapsed_ms,
+            "citations": len(citations),
+            "message_preview": user_message[:200],
+        },
+    )
 
     return http.ok({
         "answer": answer,

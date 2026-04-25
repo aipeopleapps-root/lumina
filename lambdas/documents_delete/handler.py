@@ -10,7 +10,7 @@ import os
 import boto3
 from boto3.dynamodb.conditions import Key
 
-from common import tenant_from_event, TenantError, http
+from common import tenant_from_event, TenantError, audit_events, http
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
@@ -85,5 +85,15 @@ def handler(event, context):
             log.info("Deleted S3 object %s", s3_key)
         except Exception as e:
             log.warning("S3 delete failed for %s: %s", s3_key, e)
+
+    audit_events.write(
+        ctx,
+        "document.delete",
+        ip=audit_events.get_ip(event),
+        resource_type="document",
+        resource_id=doc_id,
+        resource_name=s3_key.rsplit("/", 1)[-1] if s3_key else doc_id,
+        details={"chunks_removed": len(all_chunks), "s3_key": s3_key},
+    )
 
     return http.ok({"deleted": True, "chunks_removed": len(all_chunks)})

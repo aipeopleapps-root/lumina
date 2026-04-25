@@ -15,6 +15,7 @@ from common import (
     bedrock,
     vectors,
     audit,
+    audit_events,
     http,
 )
 
@@ -106,6 +107,20 @@ def handler(event, context):
             model_id=_GENERATION_MODEL_ID,
             latency_ms=t.elapsed_ms,
         ),
+    )
+
+    audit_events.write(
+        ctx,
+        "ai.analyze",
+        ip=audit_events.get_ip(event),
+        resource_type="document",
+        resource_id=doc_id,
+        details={
+            "model_id": _GENERATION_MODEL_ID,
+            "latency_ms": t.elapsed_ms,
+            "mode": mode,
+            "focus": focus,
+        },
     )
 
     return http.ok(result)

@@ -14,7 +14,7 @@ import os
 import boto3
 from boto3.dynamodb.conditions import Attr
 
-from common import tenant_from_event, TenantError, http
+from common import tenant_from_event, TenantError, audit_events, http
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
@@ -71,11 +71,27 @@ def handler(event, context):
             "assigned_by": ctx.user_id,
         })
         log.info("project_admin %s assigned %s → %s", ctx.user_id, consultant_sub, client_tenant_id)
+        audit_events.write(
+            ctx, "admin.consultant_assign",
+            ip=audit_events.get_ip(event),
+            resource_type="consultant",
+            resource_id=consultant_sub,
+            resource_name=consultant_email,
+            details={"client_tenant_id": client_tenant_id, "client_name": client_name},
+        )
         return http.ok({"message": f"Consultant assigned to {client_tenant_id}"})
 
     else:
         table.delete_item(Key={"pk": pk, "sk": sk})
         log.info("project_admin %s unassigned %s from %s", ctx.user_id, consultant_sub, client_tenant_id)
+        audit_events.write(
+            ctx, "admin.consultant_unassign",
+            ip=audit_events.get_ip(event),
+            resource_type="consultant",
+            resource_id=consultant_sub,
+            resource_name=consultant_email,
+            details={"client_tenant_id": client_tenant_id},
+        )
         return http.ok({"message": f"Consultant unassigned from {client_tenant_id}"})
 
 

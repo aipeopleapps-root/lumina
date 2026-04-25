@@ -17,6 +17,7 @@ from common import (
     bedrock,
     vectors,
     chunking,
+    audit_events,
     http,
 )
 
@@ -97,6 +98,16 @@ def handler(event, context):
     log.info(
         "ingested %d chunks for tenant=%s doc_id=%s source=%s",
         indexed, ctx.tenant_id, doc_id, source_name,
+    )
+
+    audit_events.write(
+        ctx,
+        "document.upload",
+        ip=audit_events.get_ip(event),
+        resource_type="document",
+        resource_id=doc_id,
+        resource_name=source_name,
+        details={"doc_type": doc_type, "module": module, "chunks_indexed": indexed, "folder_path": folder_path},
     )
 
     return http.ok({

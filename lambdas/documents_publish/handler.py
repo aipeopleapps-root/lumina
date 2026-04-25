@@ -10,7 +10,7 @@ import os
 import boto3
 from boto3.dynamodb.conditions import Key
 
-from common import tenant_from_event, TenantError, http
+from common import tenant_from_event, TenantError, audit_events, http
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
@@ -73,6 +73,16 @@ def handler(event, context):
     log.info(
         "doc_id=%s published=%s chunks_updated=%d tenant=%s",
         doc_id, published, len(all_chunks), ctx.tenant_id,
+    )
+
+    action = "document.publish" if published else "document.unpublish"
+    audit_events.write(
+        ctx,
+        action,
+        ip=audit_events.get_ip(event),
+        resource_type="document",
+        resource_id=doc_id,
+        details={"chunks_updated": len(all_chunks)},
     )
 
     return http.ok({"published": published, "chunks_updated": len(all_chunks)})

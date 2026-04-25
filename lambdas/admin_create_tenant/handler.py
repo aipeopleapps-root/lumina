@@ -1,41 +1,27 @@
 """
-Admin: Create new tenant
+Admin: Create new tenant (DynamoDB only — no Aurora dependency).
 
-Input:
-{
-  "tenant_id": "newcorp",
-  "name": "New Corporation",
-  "industry": "Healthcare",
-  "region": "North America"
-}
-
-Output:
-{
-  "tenant_id": "newcorp",
-  "message": "Tenant created successfully"
-}
+POST /admin/create-tenant
+{ "tenant_id": "newcorp", "name": "New Corp", "industry": "...", "region": "..." }
 """
 
 import json
 import logging
 import os
-import uuid
 
 import boto3
+from botocore.exceptions import ClientError
 
-from common import tenant_from_event, TenantError, http, db
+from common import tenant_from_event, TenantError, audit_events, http
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
 
 _dynamodb = boto3.resource("dynamodb")
-_cognito = boto3.client("cognito-idp")
 _CONFIG_TABLE = os.environ["CONFIG_TABLE_NAME"]
-_USER_POOL_ID = os.environ.get("USER_POOL_ID", "")
 
 
 def handler(event, context):
-    # Verify admin role
     try:
         ctx = tenant_from_event(event)
         ctx.require_role("admin", "project_admin")
@@ -49,84 +35,44 @@ def handler(event, context):
 
     tenant_id = (body.get("tenant_id") or "").strip().lower()
     name = (body.get("name") or "").strip()
-    industry = body.get("industry")
-    region = body.get("region")
-    folder_template = body.get("folder_structure_template", "standard_workday")
+    industry = body.get("industry") or ""
+    region = body.get("region") or ""
 
     if not tenant_id or not name:
         return http.bad_request("tenant_id and name are required")
-
-    # Validate tenant_id format (alphanumeric, dashes, underscores)
     if not tenant_id.replace("-", "").replace("_", "").isalnum():
         return http.bad_request("tenant_id must be alphanumeric (dashes/underscores allowed)")
 
+    table = _dynamodb.Table(_CONFIG_TABLE)
+
     try:
-        # 1. Create tenant record in DynamoDB config table
-        config_table = _dynamodb.Table(_CONFIG_TABLE)
-        config_table.put_item(
+        table.put_item(
             Item={
                 "pk": f"TENANT#{tenant_id}",
                 "sk": "METADATA",
                 "tenant_id": tenant_id,
                 "name": name,
-                "industry": industry or "",
-                "region": region or "",
+                "industry": industry,
+                "region": region,
                 "status": "active",
-                "created_at": context.aws_request_id,
+                "created_by": ctx.user_id,
             },
-            ConditionExpression="attribute_not_exists(pk)"
+            ConditionExpression="attribute_not_exists(pk)",
         )
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return http.bad_request(f"Tenant '{tenant_id}' already exists")
+        raise
 
-        # 2. Create tenant schema in Aurora
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                schema_name = f"t_{tenant_id}"
-                
-                # Create schema
-                cur.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
-                
-                # Create audit table in tenant schema
-                cur.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {schema_name}.audit (
-                        id SERIAL PRIMARY KEY,
-                        kind VARCHAR(50),
-                        prompt TEXT,
-                        response TEXT,
-                        model_id VARCHAR(100),
-                        latency_ms INTEGER,
-                        retrieved_chunks JSONB,
-                        created_at TIMESTAMP DEFAULT NOW()
-                    )
-                """)
-                
-                # Insert into admin.tenants
-                cur.execute("""
-                    INSERT INTO admin.tenants (tenant_id, name, industry, region, status, folder_structure_template)
-                    VALUES (%s, %s, %s, %s, 'active', %s)
-                    ON CONFLICT (tenant_id) DO UPDATE
-                    SET name = EXCLUDED.name,
-                        industry = EXCLUDED.industry,
-                        region = EXCLUDED.region,
-                        folder_structure_template = EXCLUDED.folder_structure_template,
-                        updated_at = NOW()
-                """, (tenant_id, name, industry, region, folder_template))
-                
-            conn.commit()
+    log.info("Admin %s created tenant %s (%s)", ctx.user_id, tenant_id, name)
 
-        # 3. Log admin action
-        log.info(
-            "Admin %s created tenant %s (%s)",
-            ctx.user_id,
-            tenant_id,
-            name
-        )
+    audit_events.write(
+        ctx, "admin.tenant_create",
+        ip=audit_events.get_ip(event),
+        resource_type="tenant",
+        resource_id=tenant_id,
+        resource_name=name,
+        details={"industry": industry, "region": region},
+    )
 
-        return http.ok({
-            "tenant_id": tenant_id,
-            "name": name,
-            "message": "Tenant created successfully"
-        })
-
-    except Exception as e:
-        log.error("Failed to create tenant: %s", e, exc_info=True)
-        return http.error(f"Failed to create tenant: {str(e)}")
+    return http.ok({"tenant_id": tenant_id, "name": name, "message": "Tenant created successfully"})

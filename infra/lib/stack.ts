@@ -104,6 +104,21 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       pointInTimeRecovery: false,
     });
 
+    const auditTable = new dynamodb.Table(this, 'AuditTable', {
+      tableName: 'workday-ai-audit',
+      partitionKey: { name: 'tenant_id', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'event_ts', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    auditTable.addGlobalSecondaryIndex({
+      indexName: 'action-index',
+      partitionKey: { name: 'action', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'event_ts', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     vectorTable.addGlobalSecondaryIndex({
       indexName: 'doc_id-index',
       partitionKey: { name: 'doc_id', type: dynamodb.AttributeType.STRING },
@@ -166,6 +181,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     );
     vectorTable.grantReadWriteData(lambdaRole);
     configTable.grantReadWriteData(lambdaRole);
+    auditTable.grantReadWriteData(lambdaRole);
     docsBucket.grantReadWrite(lambdaRole);
     dbCluster.grantDataApiAccess(lambdaRole);
     dbSecret.grantRead(lambdaRole);
@@ -181,7 +197,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       EMBEDDING_DIM: String(EMBEDDING_DIM),
       POWERTOOLS_SERVICE_NAME: 'workday-ai-platform',
       LOG_LEVEL: 'INFO',
-      CONFIG_TABLE_NAME: configTable.tableName, 
+      CONFIG_TABLE_NAME: configTable.tableName,
+      AUDIT_TABLE_NAME: auditTable.tableName,
       USER_POOL_ID: userPool.userPoolId,
       DOCS_BUCKET_NAME: docsBucket.bucketName,
     };
