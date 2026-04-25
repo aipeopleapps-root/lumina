@@ -259,3 +259,29 @@ export async function listTenants(): Promise<any[]> {
   const r = await api.get('/admin/list-tenants');
   return r.tenants ?? [];
 }
+
+// Cost summary
+export interface ServiceCost {
+  service: string;
+  service_raw: string;
+  cost_usd: number;
+  pct: number;
+}
+
+export interface CostSummary {
+  period: { start: string; end: string; days: number };
+  total_usd: number;
+  bedrock_usd: number;
+  currency: string;
+  services: ServiceCost[];
+  ai_usage: {
+    total_calls: number;
+    by_action: Record<string, number>;
+    by_tenant: { tenant_id: string; name: string; calls: number }[];
+  };
+  data_lag_note: string;
+}
+
+export async function getCostSummary(days = 30): Promise<CostSummary> {
+  return api.get(`/admin/costs?days=${days}`);
+}

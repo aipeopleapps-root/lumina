@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
   listTenants, listUsers, listAssignments, createTenant, createUser,
-  resetPassword, getAuditLog, assignConsultant,
-  type AdminUser, type AuditEntry,
+  resetPassword, getAuditLog, assignConsultant, getCostSummary,
+  type AdminUser, type AuditEntry, type CostSummary,
 } from '../lib/api';
 import { FolderTemplateSelector, type FolderTemplate } from './FolderTemplateSelector';
 import { api } from '../lib/api';
@@ -22,7 +22,7 @@ interface Props {
   role: string;
 }
 
-type Tab = 'clients' | 'assignments' | 'users' | 'audit' | 'credentials';
+type Tab = 'clients' | 'assignments' | 'users' | 'audit' | 'costs' | 'credentials';
 
 const ROLE_LABELS: Record<string, string> = {
   client: 'Client',
@@ -54,7 +54,8 @@ export function AdminPanel({ role }: Props) {
         {isProjectAdmin && (
           <>
             <TabBtn id="clients" label="Clients" active={tab} setTab={setTab} />
-            <TabBtn id="assignments" label="Consultant Assignments" active={tab} setTab={setTab} />
+            <TabBtn id="assignments" label="Assignments" active={tab} setTab={setTab} />
+            <TabBtn id="costs" label="Platform Costs" active={tab} setTab={setTab} />
           </>
         )}
         {isSecurityAdmin && (
@@ -73,6 +74,7 @@ export function AdminPanel({ role }: Props) {
         {tab === 'assignments' && isProjectAdmin && <AssignmentsTab />}
         {tab === 'users' && isSecurityAdmin && <UsersTab />}
         {tab === 'audit' && isSecurityAdmin && <AuditTab />}
+        {tab === 'costs' && isProjectAdmin && <CostsTab />}
         {tab === 'credentials' && role === 'admin' && <CredentialsTab />}
       </div>
     </div>
@@ -778,6 +780,252 @@ function AuditTab() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Platform Costs Tab ───────────────────────────────────────────────────────
+
+const SERVICE_COLOUR: Record<string, string> = {
+  'Bedrock (AI)':        'bg-purple-500',
+  'Lambda (Compute)':    'bg-orange-400',
+  'DynamoDB (Database)': 'bg-blue-500',
+  'S3 (Document Storage)': 'bg-green-500',
+  'API Gateway':         'bg-teal-500',
+  'Cognito (Auth)':      'bg-indigo-400',
+  'CloudWatch (Logs)':   'bg-slate-400',
+  'VPC / NAT Gateway':   'bg-yellow-500',
+};
+
+function fmt(usd: number) {
+  if (usd === 0) return '$0.00';
+  if (usd < 0.01) return '<$0.01';
+  return '$' + usd.toFixed(2);
+}
+
+function CostsTab() {
+  const [data, setData] = useState<CostSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [days, setDays] = useState(30);
+
+  useEffect(() => { load(days); }, [days]);
+
+  async function load(d: number) {
+    setLoading(true);
+    setError('');
+    try {
+      setData(await getCostSummary(d));
+    } catch (e: any) {
+      setError(e.message || 'Failed to load cost data');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const PERIODS = [
+    { label: '7 days',  value: 7 },
+    { label: '30 days', value: 30 },
+    { label: '90 days', value: 90 },
+  ];
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Platform Costs</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real AWS spend via Cost Explorer. Use this to size project budgets accurately.
+          </p>
+        </div>
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+          {PERIODS.map(p => (
+            <button
+              key={p.value}
+              onClick={() => setDays(p.value)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                days === p.value
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-700 rounded-full animate-spin" />
+        </div>
+      ) : data && (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-4">
+            <SummaryCard
+              label="Total AWS Spend"
+              value={fmt(data.total_usd)}
+              sub={`Last ${data.period.days} days`}
+              colour="text-slate-900"
+            />
+            <SummaryCard
+              label="AI Cost (Bedrock)"
+              value={fmt(data.bedrock_usd)}
+              sub={data.total_usd > 0 ? `${Math.round(data.bedrock_usd / data.total_usd * 100)}% of total` : '—'}
+              colour="text-purple-700"
+            />
+            <SummaryCard
+              label="AI Calls"
+              value={String(data.ai_usage.total_calls)}
+              sub={data.ai_usage.total_calls > 0 && data.bedrock_usd > 0
+                ? `≈ ${fmt(data.bedrock_usd / data.ai_usage.total_calls)} per call`
+                : 'from audit log'}
+              colour="text-blue-700"
+            />
+          </div>
+
+          {/* Service breakdown */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+              <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Cost by AWS Service</h3>
+            </div>
+            {data.services.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-8">
+                No cost data available yet — AWS Cost Explorer has a ~24 hr lag on new accounts.
+              </p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {data.services.map(s => (
+                  <div key={s.service} className="px-5 py-3 flex items-center gap-4">
+                    <div className="w-44 flex-shrink-0 text-sm text-slate-700 truncate" title={s.service}>
+                      {s.service}
+                    </div>
+                    <div className="flex-1 flex items-center gap-3">
+                      <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${SERVICE_COLOUR[s.service] ?? 'bg-slate-400'}`}
+                          style={{ width: `${Math.max(s.pct, 1)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-400 w-10 text-right">{s.pct}%</span>
+                    </div>
+                    <div className="w-20 text-right text-sm font-medium text-slate-800">{fmt(s.cost_usd)}</div>
+                  </div>
+                ))}
+                <div className="px-5 py-3 flex items-center justify-between bg-slate-50">
+                  <span className="text-sm font-semibold text-slate-700">Total</span>
+                  <span className="text-sm font-bold text-slate-900">{fmt(data.total_usd)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* AI usage breakdown */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* By action */}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">AI Calls by Type</h3>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {Object.entries(data.ai_usage.by_action).length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-6">No AI calls recorded yet</p>
+                ) : Object.entries(data.ai_usage.by_action)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([action, count]) => {
+                      const pct = data.ai_usage.total_calls > 0
+                        ? Math.round(count / data.ai_usage.total_calls * 100)
+                        : 0;
+                      const label = action === 'ai.chat' ? 'Chat' : action === 'ai.analyze' ? 'Analyze' : action;
+                      const colour = action === 'ai.chat' ? 'bg-blue-400' : 'bg-indigo-400';
+                      return (
+                        <div key={action} className="px-5 py-3 flex items-center gap-3">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${colour}`} />
+                          <span className="text-sm text-slate-700 flex-1">{label}</span>
+                          <span className="text-xs text-slate-400 w-8 text-right">{pct}%</span>
+                          <span className="text-sm font-medium text-slate-800 w-12 text-right">{count.toLocaleString()}</span>
+                        </div>
+                      );
+                    })
+                }
+              </div>
+            </div>
+
+            {/* By tenant */}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">AI Calls by Client</h3>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {data.ai_usage.by_tenant.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-6">No AI calls recorded yet</p>
+                ) : data.ai_usage.by_tenant.map(t => {
+                  const pct = data.ai_usage.total_calls > 0
+                    ? Math.round(t.calls / data.ai_usage.total_calls * 100)
+                    : 0;
+                  return (
+                    <div key={t.tenant_id} className="px-5 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-slate-700 truncate">{t.name}</div>
+                        <div className="text-xs text-slate-400 font-mono">{t.tenant_id}</div>
+                      </div>
+                      <span className="text-xs text-slate-400 w-8 text-right">{pct}%</span>
+                      <span className="text-sm font-medium text-slate-800 w-12 text-right">{t.calls.toLocaleString()}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Budget guidance */}
+          {data.total_usd > 0 && data.period.days > 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-5 py-4 space-y-2">
+              <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Budget Guidance</h3>
+              <div className="grid grid-cols-3 gap-6 text-sm">
+                <div>
+                  <div className="text-xs text-slate-500 mb-0.5">Daily run rate</div>
+                  <div className="font-semibold text-slate-900">
+                    {fmt(data.total_usd / data.period.days)} / day
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 mb-0.5">Est. monthly cost</div>
+                  <div className="font-semibold text-slate-900">
+                    {fmt(data.total_usd / data.period.days * 30)} / month
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 mb-0.5">6-month project budget</div>
+                  <div className="font-semibold text-slate-900">
+                    {fmt(data.total_usd / data.period.days * 180)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-400 text-right">{data.data_lag_note}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, sub, colour }: {
+  label: string; value: string; sub: string; colour: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      <div className={`text-2xl font-bold ${colour}`}>{value}</div>
+      <div className="text-xs text-slate-400 mt-0.5">{sub}</div>
     </div>
   );
 }

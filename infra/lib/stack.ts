@@ -152,6 +152,14 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
 
 
 
+    // Cost Explorer — always us-east-1, resource-level permissions not supported
+    lambdaRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['ce:GetCostAndUsage'],
+        resources: ['*'],
+      })
+    );
+
     // Grant Bedrock permissions for all Claude Sonnet and Titan models
     lambdaRole.addToPolicy(
       new iam.PolicyStatement({
@@ -256,6 +264,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminListUsersFn = makeFn('AdminListUsersFn', 'admin_list_users', 30);
     const adminResetPasswordFn = makeFn('AdminResetPasswordFn', 'admin_reset_password', 15);
     const adminAuditLogFn = makeFn('AdminAuditLogFn', 'admin_audit_log', 30);
+    const adminCostSummaryFn = makeFn('AdminCostSummaryFn', 'admin_cost_summary', 30);
 
     // Bootstrap — runs on every deploy, idempotent
     const bootstrapFn = makeFn('BootstrapFn', 'bootstrap', 120);
@@ -407,6 +416,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/admin/audit-log',
       methods: [apigwv2.HttpMethod.GET],
       integration: new apigwv2_integrations.HttpLambdaIntegration('AdminAuditLogInt', adminAuditLogFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/costs',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminCostSummaryInt', adminCostSummaryFn),
       authorizer,
     });
 
