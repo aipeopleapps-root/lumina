@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchAuthSession } from 'aws-amplify/auth';
 import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, validateSow, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
 import { FileExplorer } from './FileExplorer';
@@ -240,17 +239,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
               )}
             </div>
 
-            {/* Folder picker */}
-            {folderTemplate && (
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">
-                  Destination folder
-                  {folderPath !== '/' && <span className="ml-2 font-normal text-slate-400">{folderPath}</span>}
-                </label>
-                <FolderPicker template={folderTemplate} selected={folderPath} onChange={setFolderPath} />
-              </div>
-            )}
-
             {/* SOW toggle */}
             <label className="flex items-center gap-2.5 cursor-pointer select-none group">
               <div
@@ -296,6 +284,17 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
             {error && !analyzing && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 <p className="text-xs text-red-700">{error}</p>
+              </div>
+            )}
+
+            {/* Folder picker — secondary, below the action */}
+            {folderTemplate && (
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                  Destination folder
+                  {folderPath !== '/' && <span className="ml-2 font-normal text-slate-400">{folderPath}</span>}
+                </label>
+                <FolderPicker template={folderTemplate} selected={folderPath} onChange={setFolderPath} />
               </div>
             )}
           </div>
@@ -622,17 +621,5 @@ async function getPresignedUrl(
   filename: string,
   _tenantId: string
 ): Promise<{ url: string; key: string; content_type: string }> {
-  const session = await fetchAuthSession();
-  const token = session.tokens?.idToken?.toString();
-  const apiEndpoint = import.meta.env.VITE_API_ENDPOINT;
-  const r = await fetch(`${apiEndpoint}/upload-url`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ filename }),
-  });
-  if (!r.ok) throw new Error(`Upload URL request failed: ${r.status}`);
-  return r.json();
+  return api.post('/upload-url', { filename });
 }
