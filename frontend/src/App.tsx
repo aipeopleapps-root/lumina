@@ -8,6 +8,7 @@ import {
 import ConsultantPanel from './components/ConsultantPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { ClientView } from './components/ClientView';
+import { LuminaLogo } from './components/LuminaLogo';
 import { getMyClients, setActiveClientTenant, listTenants, type AssignedClient } from './lib/api';
 
 type Me = {
@@ -139,10 +140,10 @@ export default function App() {
 
           {/* Top: Logo */}
           <div className="relative flex items-center gap-3">
-            <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-slate-900 text-xs font-bold tracking-tight shadow-lg">
-              M
+            <div className="w-9 h-9 bg-slate-800 rounded-lg flex items-center justify-center shadow-lg">
+              <LuminaLogo size={26} dark />
             </div>
-            <span className="text-white text-base font-semibold tracking-tight">Meridian</span>
+            <span className="text-white text-base font-semibold tracking-tight">Lumina</span>
           </div>
 
           {/* Middle: Headline + features */}
@@ -150,10 +151,10 @@ export default function App() {
             <div>
               <div className="inline-flex items-center gap-2 bg-indigo-950 border border-indigo-800 rounded-full px-3 py-1 mb-5">
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-indigo-300 text-xs font-medium">Workday Advisory Platform</span>
+                <span className="text-indigo-300 text-xs font-medium">Illuminate Your Enterprise</span>
               </div>
               <h1 className="text-4xl font-bold text-white leading-tight tracking-tight">
-                AI-powered advisory<br />for every engagement
+                AI-powered intelligence<br />for every engagement
               </h1>
               <p className="text-slate-400 text-base leading-relaxed mt-4 max-w-sm">
                 From implementation to optimisation — give your consultants an AI co-pilot and your clients a premium experience.
@@ -195,7 +196,7 @@ export default function App() {
 
           {/* Bottom: footer */}
           <div className="relative text-slate-600 text-xs">
-            © 2025 Meridian · Enterprise Workday Advisory
+            © 2025 Lumina · Illuminate Your Enterprise
           </div>
         </div>
 
@@ -204,8 +205,10 @@ export default function App() {
           <div className="w-full max-w-[360px]">
             {/* Mobile logo */}
             <div className="flex items-center gap-2 mb-10 lg:hidden">
-              <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-bold">M</div>
-              <span className="font-semibold text-slate-900">Meridian</span>
+              <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center">
+                <LuminaLogo size={22} dark />
+              </div>
+              <span className="font-semibold text-slate-900">Lumina</span>
             </div>
 
             <div className="mb-8">
@@ -310,12 +313,12 @@ export default function App() {
 
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center text-white text-xs font-semibold tracking-tight">
-            M
+          <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center">
+            <LuminaLogo size={22} dark />
           </div>
           <div>
-            <div className="text-sm font-medium">Meridian</div>
-            <div className="text-xs text-slate-500">Workday Advisory Platform</div>
+            <div className="text-sm font-medium">Lumina</div>
+            <div className="text-xs text-slate-500">Illuminate Your Enterprise</div>
           </div>
         </div>
 

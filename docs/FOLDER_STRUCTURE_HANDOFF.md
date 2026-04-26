@@ -1,5 +1,5 @@
 📍 Project Context
-Platform: Workday Insight Studio (AI-Powered Workday Advisory by Green Dot)
+Platform: Lumina (Illuminate Your Enterprise)
 Location: /Users/aashish/Downloads/workday-ai-platform
 GitHub: https://github.com/aipeopleapps-root/workday-consulting-ai-platform
 Live URL: https://main.d2jd92e8asbd1j.amplifyapp.com

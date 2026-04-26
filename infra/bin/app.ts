@@ -11,5 +11,5 @@ new WorkdayAiPlatformStack(app, 'WorkdayAiPlatformStack', {
     // Claude Sonnet 4.6 and Titan Embeddings v2.
     region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
   },
-  description: 'Workday AI Platform — dual-persona RAG prototype',
+  description: 'Lumina — AI-powered configuration intelligence for enterprise systems',
 });

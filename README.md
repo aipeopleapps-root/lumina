@@ -1,6 +1,6 @@
-# Workday Insight Studio — Prototype
+# Lumina — Illuminate Your Enterprise
 
-Dual-persona demo of an AI-powered Workday delivery and support platform. Built for an internal leadership demo — proves the concept end-to-end on AWS with real Bedrock calls and tenant-scoped RAG.
+AI-powered configuration intelligence for enterprise systems. Multi-tenant SaaS platform built on AWS with real Bedrock calls and tenant-scoped RAG — giving consultants and clients a premium AI-powered advisory experience.
 
 ## What this demonstrates
 
