@@ -260,6 +260,14 @@ export async function listTenants(): Promise<any[]> {
   return r.tenants ?? [];
 }
 
+export async function archiveClient(tenantId: string, action: 'archive' | 'restore'): Promise<void> {
+  await api.post('/admin/archive-client', { tenant_id: tenantId, action });
+}
+
+export async function manageUser(email: string, action: 'disable' | 'enable' | 'delete'): Promise<void> {
+  await api.post('/admin/manage-user', { email, action });
+}
+
 // Cost summary
 export interface ServiceCost {
   service: string;

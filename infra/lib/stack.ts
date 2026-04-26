@@ -180,6 +180,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
           'cognito-idp:AdminSetUserPassword',
           'cognito-idp:AdminGetUser',
           'cognito-idp:AdminDeleteUser',
+          'cognito-idp:AdminDisableUser',
+          'cognito-idp:AdminEnableUser',
           'cognito-idp:AdminResetUserPassword',
           'cognito-idp:AdminUpdateUserAttributes',
           'cognito-idp:ListUsers',
@@ -265,6 +267,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminResetPasswordFn = makeFn('AdminResetPasswordFn', 'admin_reset_password', 15);
     const adminAuditLogFn = makeFn('AdminAuditLogFn', 'admin_audit_log', 30);
     const adminCostSummaryFn = makeFn('AdminCostSummaryFn', 'admin_cost_summary', 30);
+    const adminArchiveClientFn = makeFn('AdminArchiveClientFn', 'admin_archive_client', 15);
+    const adminManageUserFn = makeFn('AdminManageUserFn', 'admin_manage_user', 15);
 
     // Bootstrap — runs on every deploy, idempotent
     const bootstrapFn = makeFn('BootstrapFn', 'bootstrap', 120);
@@ -422,6 +426,18 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/admin/costs',
       methods: [apigwv2.HttpMethod.GET],
       integration: new apigwv2_integrations.HttpLambdaIntegration('AdminCostSummaryInt', adminCostSummaryFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/archive-client',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminArchiveClientInt', adminArchiveClientFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/admin/manage-user',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminManageUserInt', adminManageUserFn),
       authorizer,
     });
 
