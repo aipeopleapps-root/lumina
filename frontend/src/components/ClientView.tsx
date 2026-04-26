@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api, chat as chatApi, type Citation } from '../lib/api';
+import { api, chat as chatApi, assessChange, type Citation, type ChangeImpactResponse } from '../lib/api';
 
 interface Document {
   doc_id: string;
@@ -18,6 +18,7 @@ interface Turn {
   citations?: Citation[];
   scopedDoc?: string;
   focusLabel?: string;
+  impactResult?: ChangeImpactResponse;
 }
 
 const TOPICS = [
@@ -62,6 +63,7 @@ export function ClientView() {
   const [input, setInput] = useState('');
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [impactMode, setImpactMode] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -128,11 +130,33 @@ export function ClientView() {
     }
   }
 
+  async function sendImpact(description: string) {
+    if (!description.trim() || waiting) return;
+    setError(null);
+    setInput('');
+    setImpactMode(false);
+    setWaiting(true);
+    const userTurn: Turn = { role: 'user', content: description };
+    const newHistory = [...history, userTurn];
+    setHistory(newHistory);
+    try {
+      const result = await assessChange(description);
+      setHistory([...newHistory, { role: 'assistant', content: result.summary, impactResult: result }]);
+    } catch (err: any) {
+      setError(err.message || String(err));
+      setHistory(newHistory.slice(0, -1));
+    } finally {
+      setWaiting(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }
+
   function clearScope() {
     setScopedDoc(null);
     setActiveTopic(null);
     setHistory([]);
     setError(null);
+    setImpactMode(false);
   }
 
   const hasConversation = history.length > 0;
@@ -238,19 +262,64 @@ export function ClientView() {
               )}
 
               {/* Starter prompt cards */}
-              {!scopedDoc && (
-                <div className="grid grid-cols-2 gap-3 mb-8">
-                  {STARTERS.map(s => (
-                    <button
-                      key={s.label}
-                      onClick={() => sendMessage(s.prompt)}
-                      className="text-left p-4 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="text-xl mb-1.5">{s.emoji}</div>
-                      <div className="text-sm font-medium text-slate-800 mb-0.5">{s.label}</div>
-                      <div className="text-xs text-slate-400 line-clamp-2">{s.prompt}</div>
-                    </button>
-                  ))}
+              {!scopedDoc && !impactMode && (
+                <div className="space-y-3 mb-8">
+                  {/* Change Impact — featured card */}
+                  <button
+                    onClick={() => setImpactMode(true)}
+                    className="w-full text-left p-4 rounded-xl border-2 border-indigo-200 bg-indigo-50 hover:border-indigo-400 hover:bg-indigo-100 transition-colors group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-base">⚡</div>
+                        <div>
+                          <div className="text-sm font-semibold text-indigo-900">Assess a Change</div>
+                          <div className="text-xs text-indigo-500 mt-0.5">Get a structured impact analysis across all Workday modules</div>
+                        </div>
+                      </div>
+                      <span className="text-indigo-400 group-hover:text-indigo-600 text-lg transition-colors">→</span>
+                    </div>
+                  </button>
+                  {/* Regular starters */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {STARTERS.map(s => (
+                      <button
+                        key={s.label}
+                        onClick={() => sendMessage(s.prompt)}
+                        className="text-left p-4 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="text-xl mb-1.5">{s.emoji}</div>
+                        <div className="text-sm font-medium text-slate-800 mb-0.5">{s.label}</div>
+                        <div className="text-xs text-slate-400 line-clamp-2">{s.prompt}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Change impact input form */}
+              {impactMode && (
+                <div className="mb-8 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-sm">⚡</div>
+                    <span className="text-sm font-semibold text-slate-900">Assess a Change</span>
+                    <button onClick={() => setImpactMode(false)} className="ml-auto text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                  </div>
+                  <textarea
+                    autoFocus
+                    rows={4}
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder={`Describe the change you're considering…\n\nExamples:\n• Move from semi-monthly to bi-weekly payroll\n• Add a new legal entity in Canada\n• Change the benefits eligibility waiting period from 90 to 30 days`}
+                    className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 resize-none placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={() => sendImpact(input)}
+                    disabled={!input.trim() || waiting}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Analyse impact →
+                  </button>
                 </div>
               )}
             </div>
@@ -271,9 +340,11 @@ export function ClientView() {
                         </div>
                       )}
                     </div>
+                  ) : turn.impactResult ? (
+                    <ImpactCard result={turn.impactResult} />
                   ) : (
                     <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-                      <p className="text-xs font-semibold text-slate-400 mb-1.5">Workday Expert</p>
+                      <p className="text-xs font-semibold text-slate-400 mb-1.5">Lumina</p>
                       <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{turn.content}</p>
                       {turn.citations && turn.citations.length > 0 && (
                         <div className="mt-3 pt-2 border-t border-slate-100">
@@ -296,7 +367,7 @@ export function ClientView() {
             {waiting && (
               <div className="flex justify-start">
                 <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold text-slate-400 mb-1.5">Workday Expert</p>
+                  <p className="text-xs font-semibold text-slate-400 mb-1.5">Lumina</p>
                   <div className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0ms]" />
                     <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:150ms]" />
@@ -374,6 +445,84 @@ export function ClientView() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ImpactCard({ result }: { result: ChangeImpactResponse }) {
+  const sevColour: Record<string, string> = {
+    high:   'bg-red-100 text-red-700 border-red-200',
+    medium: 'bg-amber-100 text-amber-700 border-amber-200',
+    low:    'bg-slate-100 text-slate-600 border-slate-200',
+  };
+  const sevDot: Record<string, string> = {
+    high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-slate-400',
+  };
+
+  return (
+    <div className="w-full max-w-[92%] space-y-3">
+      {/* Header */}
+      <div className="bg-indigo-600 rounded-2xl rounded-tl-sm px-4 py-3 text-white">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm">⚡</span>
+          <span className="text-xs font-semibold uppercase tracking-wide opacity-80">Change Impact Assessment</span>
+        </div>
+        <p className="text-sm leading-relaxed">{result.summary}</p>
+      </div>
+
+      {/* Module impacts */}
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Impact by Module</span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {result.impacts.map((m, i) => (
+            <div key={i} className="px-4 py-3">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${sevDot[m.severity] ?? 'bg-slate-400'}`} />
+                <span className="text-xs font-semibold text-slate-800">{m.module}</span>
+                <span className={`ml-auto text-xs px-2 py-0.5 rounded-full border font-medium ${sevColour[m.severity] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                  {m.severity}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed mb-2">{m.impact}</p>
+              {m.actions.length > 0 && (
+                <ul className="space-y-1">
+                  {m.actions.map((a, j) => (
+                    <li key={j} className="flex items-start gap-1.5 text-xs text-slate-500">
+                      <span className="mt-1 w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0" />
+                      {a}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Risks */}
+      {result.risks.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+          <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Key Risks</p>
+          <ul className="space-y-1.5">
+            {result.risks.map((r, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-red-700">
+                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Recommendation */}
+      {result.recommendation && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Recommendation</p>
+          <p className="text-xs text-slate-700 leading-relaxed">{result.recommendation}</p>
+        </div>
+      )}
     </div>
   );
 }

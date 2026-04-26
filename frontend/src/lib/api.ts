@@ -315,3 +315,25 @@ export interface CostSummary {
 export async function getCostSummary(days = 30): Promise<CostSummary> {
   return api.get(`/admin/costs?days=${days}`);
 }
+
+// Change Impact Advisor
+export interface ImpactModule {
+  module: string;
+  severity: 'high' | 'medium' | 'low' | 'none';
+  impact: string;
+  actions: string[];
+}
+
+export interface ChangeImpactResponse {
+  change: string;
+  summary: string;
+  impacts: ImpactModule[];
+  risks: string[];
+  recommendation: string;
+  model_id: string;
+  latency_ms: number;
+}
+
+export async function assessChange(changeDescription: string): Promise<ChangeImpactResponse> {
+  return api.post('/change-impact', { change_description: changeDescription });
+}
