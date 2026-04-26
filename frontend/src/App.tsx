@@ -141,7 +141,7 @@ export default function App() {
           {/* Top: Logo */}
           <div className="relative flex items-center gap-3">
             <div className="w-9 h-9 bg-slate-800 rounded-lg flex items-center justify-center shadow-lg">
-              <LuminaLogo size={26} dark />
+              <LuminaLogo size={26} />
             </div>
             <span className="text-white text-base font-semibold tracking-tight">Lumina</span>
           </div>
@@ -206,7 +206,7 @@ export default function App() {
             {/* Mobile logo */}
             <div className="flex items-center gap-2 mb-10 lg:hidden">
               <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center">
-                <LuminaLogo size={22} dark />
+                <LuminaLogo size={22} />
               </div>
               <span className="font-semibold text-slate-900">Lumina</span>
             </div>
@@ -314,7 +314,7 @@ export default function App() {
       <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center">
-            <LuminaLogo size={22} dark />
+            <LuminaLogo size={22} />
           </div>
           <div>
             <div className="text-sm font-medium">Lumina</div>
@@ -419,19 +419,11 @@ export default function App() {
               <ConsultantPanel role={me.role} tenantId={activeClient.tenant_id} />
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center space-y-3">
-                <div className="text-4xl">👤</div>
-                <p className="text-base font-medium text-slate-700">
-                  {myClients.length === 0 ? 'No clients assigned yet' : 'Select a client to get started'}
-                </p>
-                <p className="text-sm text-slate-400">
-                  {myClients.length === 0
-                    ? 'Ask a Project Admin to assign you to a client.'
-                    : 'Use the client switcher in the header above.'}
-                </p>
-              </div>
-            </div>
+            <ConsultantHome
+              clients={myClients}
+              userEmail={me.email}
+              onSelectClient={switchClient}
+            />
           )
         )}
 
@@ -443,4 +435,127 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+function ConsultantHome({
+  clients,
+  userEmail,
+  onSelectClient,
+}: {
+  clients: AssignedClient[];
+  userEmail: string;
+  onSelectClient: (c: AssignedClient) => void;
+}) {
+  const firstName = userEmail.split('@')[0].split('.')[0];
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  const quickActions = [
+    {
+      icon: '📄',
+      title: 'Upload a document',
+      desc: 'Ingest a config workbook, BPD, or SOW into a client workspace.',
+    },
+    {
+      icon: '🔍',
+      title: 'Analyse a document',
+      desc: 'Surface risks, anti-patterns, and recommendations with AI.',
+    },
+    {
+      icon: '📋',
+      title: 'Validate a SOW',
+      desc: 'Cross-reference deliverables against project documents.',
+    },
+    {
+      icon: '💬',
+      title: 'Client AI Advisor',
+      desc: 'Preview how your client experiences the Lumina AI Advisor.',
+    },
+  ];
+
+  return (
+    <div className="h-full overflow-auto bg-slate-50">
+      <div className="max-w-3xl mx-auto px-8 py-10 space-y-10">
+
+        {/* Greeting */}
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            Good {getTimeOfDay()}, {cap(firstName)}
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Select a client workspace below to get started.
+          </p>
+        </div>
+
+        {/* Client cards */}
+        <div>
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+            Your clients
+          </h2>
+          {clients.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl px-6 py-10 text-center">
+              <div className="text-3xl mb-3">🗂️</div>
+              <p className="text-sm font-medium text-slate-600">No clients assigned yet</p>
+              <p className="text-xs text-slate-400 mt-1">Ask a Project Admin to assign you to a client engagement.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {clients.map(c => (
+                <button
+                  key={c.tenant_id}
+                  onClick={() => onSelectClient(c)}
+                  className="group bg-white border border-slate-200 hover:border-slate-400 hover:shadow-md rounded-xl px-5 py-4 text-left transition-all duration-150"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-slate-100 group-hover:bg-slate-900 flex items-center justify-center text-slate-600 group-hover:text-white text-sm font-semibold transition-colors flex-shrink-0">
+                      {c.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-slate-300 group-hover:text-slate-600 mt-1 transition-colors text-lg">→</span>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-sm font-semibold text-slate-900">{c.name}</div>
+                    {c.industry && (
+                      <div className="text-xs text-slate-400 mt-0.5">{c.industry}</div>
+                    )}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex gap-3 text-xs text-slate-400">
+                    <span>Documents</span>
+                    <span>·</span>
+                    <span>Analysis</span>
+                    <span>·</span>
+                    <span>SOW Validation</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* What you can do */}
+        <div>
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+            What you can do in a workspace
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {quickActions.map(a => (
+              <div key={a.title} className="bg-white border border-slate-200 rounded-xl px-4 py-4 flex gap-3">
+                <span className="text-xl flex-shrink-0 mt-0.5">{a.icon}</span>
+                <div>
+                  <div className="text-sm font-medium text-slate-800">{a.title}</div>
+                  <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">{a.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function getTimeOfDay(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
 }
