@@ -8,33 +8,33 @@ on:
 
 concurrency:
   group: deploy-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy-infrastructure:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-      
+          node-version: '20'
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-      
+
       - name: Set up QEMU (ARM64 emulation for Lambda bundling)
         uses: docker/setup-qemu-action@v3
         with:
@@ -44,32 +44,42 @@ jobs:
         run: |
           cd infra
           npm install
-      
+
       - name: CDK Diff (Pull Request)
         if: github.event_name == 'pull_request'
         run: |
           cd infra
           npx cdk diff
-      
+
       - name: Wait for CloudFormation stack to be stable
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          echo "Waiting for stack to reach a stable state..."
-          aws cloudformation wait stack-exists --stack-name WorkdayAiPlatformStack 2>/dev/null || true
-          for i in {1..30}; do
-            STATUS=$(aws cloudformation describe-stacks \
-              --stack-name WorkdayAiPlatformStack \
-              --query 'Stacks[0].StackStatus' \
-              --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-            echo "Stack status: $STATUS"
-            if [[ "$STATUS" == *"IN_PROGRESS"* ]]; then
-              echo "Stack busy, waiting 30s..."
-              sleep 30
-            else
-              echo "Stack ready."
-              break
-            fi
-          done
+          echo "Waiting for CloudFormation stack to reach a stable state..."
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name WorkdayAiPlatformStack \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+          echo "Current stack status: $STATUS"
+
+          if [[ "$STATUS" == "UPDATE_IN_PROGRESS" || "$STATUS" == "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS" ]]; then
+            echo "Stack is updating — waiting for completion (up to 30 min)..."
+            aws cloudformation wait stack-update-complete \
+              --stack-name WorkdayAiPlatformStack || true
+          elif [[ "$STATUS" == "CREATE_IN_PROGRESS" ]]; then
+            echo "Stack is creating — waiting for completion (up to 30 min)..."
+            aws cloudformation wait stack-create-complete \
+              --stack-name WorkdayAiPlatformStack || true
+          elif [[ "$STATUS" == *"ROLLBACK"* ]]; then
+            echo "Stack is in rollback — waiting for rollback to complete..."
+            aws cloudformation wait stack-rollback-complete \
+              --stack-name WorkdayAiPlatformStack || true
+          fi
+
+          FINAL=$(aws cloudformation describe-stacks \
+            --stack-name WorkdayAiPlatformStack \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+          echo "Stack ready: $FINAL"
 
       - name: CDK Deploy (Main Branch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
