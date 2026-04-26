@@ -129,13 +129,27 @@ export default function App() {
       <div className="min-h-screen flex">
         {/* Left branding panel */}
         <div className="hidden lg:flex lg:w-[58%] bg-slate-900 relative overflow-hidden flex-col justify-between p-14">
-          {/* Decorative background shapes */}
+
+          {/* Radiant light burst — decorative */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-32 -right-32 w-[480px] h-[480px] rounded-full bg-slate-800" />
-            <div className="absolute bottom-[-80px] left-[-60px] w-80 h-80 rounded-full bg-slate-800 opacity-60" />
-            <div className="absolute top-1/2 left-2/3 w-56 h-56 rounded-full bg-indigo-950 opacity-50" />
-            <div className="absolute top-[30%] left-[10%] w-1 h-24 bg-indigo-500 opacity-20 rotate-12" />
-            <div className="absolute top-[55%] left-[20%] w-1 h-16 bg-indigo-500 opacity-15 rotate-12" />
+            {/* Central glow origin */}
+            <div className="absolute top-[38%] left-[44%] w-72 h-72 rounded-full bg-indigo-500 opacity-[0.07] blur-3xl" />
+            {/* Ray lines fanning out from center-right */}
+            {[
+              'top-[37%] left-[46%] w-[420px] h-px rotate-[0deg]',
+              'top-[37%] left-[46%] w-[380px] h-px rotate-[18deg]',
+              'top-[37%] left-[46%] w-[320px] h-px rotate-[36deg]',
+              'top-[37%] left-[46%] w-[260px] h-px rotate-[54deg]',
+              'top-[37%] left-[46%] w-[200px] h-px rotate-[72deg]',
+              'top-[37%] left-[46%] w-[380px] h-px rotate-[-18deg]',
+              'top-[37%] left-[46%] w-[300px] h-px rotate-[-36deg]',
+              'top-[37%] left-[46%] w-[220px] h-px rotate-[-54deg]',
+            ].map((cls, i) => (
+              <div key={i} className={`absolute ${cls} bg-white opacity-[0.04] origin-left`} />
+            ))}
+            {/* Corner accent circles */}
+            <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-slate-800" />
+            <div className="absolute -bottom-16 -left-16 w-64 h-64 rounded-full bg-slate-800 opacity-70" />
           </div>
 
           {/* Top: Logo */}
@@ -146,51 +160,72 @@ export default function App() {
             <span className="text-white text-base font-semibold tracking-tight">Lumina</span>
           </div>
 
-          {/* Middle: Headline + features */}
+          {/* Middle: Headline + two-persona breakdown */}
           <div className="relative space-y-10">
             <div>
-              <div className="inline-flex items-center gap-2 bg-indigo-950 border border-indigo-800 rounded-full px-3 py-1 mb-5">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-indigo-300 text-xs font-medium">Illuminate Your Enterprise</span>
+              <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1 mb-6">
+                <LuminaLogo size={13} />
+                <span className="text-white/60 text-xs font-medium tracking-wide">Illuminate Your Enterprise</span>
               </div>
               <h1 className="text-4xl font-bold text-white leading-tight tracking-tight">
-                AI-powered intelligence<br />for every engagement
+                AI intelligence,<br />built for enterprise.
               </h1>
-              <p className="text-slate-400 text-base leading-relaxed mt-4 max-w-sm">
-                From implementation to optimisation — give your consultants an AI co-pilot and your clients a premium experience.
+              <p className="text-slate-400 text-sm leading-relaxed mt-4 max-w-xs">
+                One platform. Two powerful experiences — for the consultants who deliver, and the clients they serve.
               </p>
             </div>
 
-            <div className="space-y-5">
-              {[
-                {
-                  label: 'Document Intelligence',
-                  desc: 'Surface insights from SOWs, config guides, and tenant documents instantly.',
-                  colour: 'bg-indigo-500',
-                },
-                {
-                  label: 'AI Advisory Chat',
-                  desc: 'Answer complex Workday questions with citations from your knowledge base.',
-                  colour: 'bg-violet-500',
-                },
-                {
-                  label: 'Delivery Assurance',
-                  desc: 'Proactively identify project risks and keep every engagement on track.',
-                  colour: 'bg-blue-500',
-                },
-              ].map(f => (
-                <div key={f.label} className="flex items-start gap-4">
-                  <div className={`w-7 h-7 rounded-md ${f.colour} flex-shrink-0 flex items-center justify-center mt-0.5 opacity-90`}>
-                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            {/* Persona cards */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Consultant */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-indigo-500/20 flex items-center justify-center">
+                    <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
-                  <div>
-                    <div className="text-white text-sm font-semibold">{f.label}</div>
-                    <div className="text-slate-400 text-sm mt-0.5 leading-relaxed">{f.desc}</div>
-                  </div>
+                  <span className="text-white text-xs font-semibold tracking-wide uppercase">Consultant</span>
                 </div>
-              ))}
+                <ul className="space-y-2">
+                  {[
+                    'Upload & index project docs',
+                    'AI risk & gap analysis',
+                    'SOW deliverable validation',
+                    'Publish docs to clients',
+                  ].map(item => (
+                    <li key={item} className="flex items-start gap-2">
+                      <span className="mt-1 w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0" />
+                      <span className="text-slate-400 text-xs leading-relaxed">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Client */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-teal-500/20 flex items-center justify-center">
+                    <svg className="w-3.5 h-3.5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-3 3v-3z" />
+                    </svg>
+                  </div>
+                  <span className="text-white text-xs font-semibold tracking-wide uppercase">Client</span>
+                </div>
+                <ul className="space-y-2">
+                  {[
+                    'Ask Lumina — AI chat advisor',
+                    'Browse shared documents',
+                    'Cite sources from knowledge base',
+                    'Instant answers, anytime',
+                  ].map(item => (
+                    <li key={item} className="flex items-start gap-2">
+                      <span className="mt-1 w-1 h-1 rounded-full bg-teal-400 flex-shrink-0" />
+                      <span className="text-slate-400 text-xs leading-relaxed">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </div>
 
