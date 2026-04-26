@@ -268,6 +268,28 @@ export async function manageUser(email: string, action: 'disable' | 'enable' | '
   await api.post('/admin/manage-user', { email, action });
 }
 
+// SOW Validator
+export interface SowFinding {
+  traffic_light: 'red' | 'yellow' | 'green';
+  deliverable: string;
+  detail: string;
+  evidence: string[];
+  recommendation: string;
+}
+
+export interface SowValidateResponse {
+  sow_name: string;
+  sow_doc_id: string;
+  findings: SowFinding[];
+  summary: string;
+  model_id: string;
+  latency_ms: number;
+}
+
+export async function validateSow(sowDocId: string): Promise<SowValidateResponse> {
+  return api.post('/sow/validate', { sow_doc_id: sowDocId });
+}
+
 // Cost summary
 export interface ServiceCost {
   service: string;

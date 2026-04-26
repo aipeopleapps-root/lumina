@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
-import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, api, type Finding, type AnalyzeResponse } from '../lib/api';
+import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, validateSow, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
 import { FileExplorer } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
@@ -45,6 +45,9 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [docsLoading, setDocsLoading] = useState(false);
   const [showUpload, setShowUpload] = useState(true);
   const [showResults, setShowResults] = useState(false);
+  const [isSowUpload, setIsSowUpload] = useState(false);
+  const [sowResult, setSowResult] = useState<SowValidateResponse | null>(null);
+  const [validatingSow, setValidatingSow] = useState(false);
   const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -106,7 +109,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       await ingestDoc({
         s3_key: uploadUrl.key,
         doc_id: docId,
-        doc_type: docTypeFromFile(file.name),
+        doc_type: isSowUpload ? 'sow' : docTypeFromFile(file.name),
         source_name: file.name,
         module: moduleFromPath(folderPath),
         folder_path: folderPath,
@@ -114,6 +117,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
 
       setStatusStep('done');
       setFile(null);
+      setIsSowUpload(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
       loadDocuments();
     } catch (err: any) {
@@ -127,6 +131,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   async function onAnalyse(doc: Document) {
     setError(null);
     setResult(null);
+    setSowResult(null);
     setResultDocName(doc.source_name);
     setAnalyzing(true);
     setShowUpload(false);
@@ -139,6 +144,25 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setResultDocName(null);
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  async function onValidateSow(doc: Document) {
+    setError(null);
+    setResult(null);
+    setSowResult(null);
+    setResultDocName(doc.source_name);
+    setValidatingSow(true);
+    setShowUpload(false);
+    setShowResults(true);
+    try {
+      const out = await validateSow(doc.doc_id);
+      setSowResult(out);
+    } catch (err: any) {
+      setError(err.message || String(err));
+      setResultDocName(null);
+    } finally {
+      setValidatingSow(false);
     }
   }
 
@@ -227,6 +251,20 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
               </div>
             )}
 
+            {/* SOW toggle */}
+            <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+              <div
+                onClick={() => setIsSowUpload(v => !v)}
+                className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${isSowUpload ? 'bg-indigo-600' : 'bg-slate-200'}`}
+              >
+                <div className={`w-4 h-4 bg-white rounded-full shadow-sm mt-0.5 transition-transform ${isSowUpload ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-slate-700">Statement of Work</div>
+                <div className="text-xs text-slate-400">Enables SOW validation against project docs</div>
+              </div>
+            </label>
+
             {/* Upload button */}
             <button
               onClick={onRun}
@@ -304,6 +342,29 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         </div>
 
         <div className="p-5">
+          {/* SOW documents banner */}
+          {documents.filter(d => d.doc_type === 'sow').length > 0 && (
+            <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-indigo-600 text-sm">📋</span>
+                <span className="text-xs font-semibold text-indigo-800 uppercase tracking-wide">Statement of Work</span>
+              </div>
+              <div className="space-y-2">
+                {documents.filter(d => d.doc_type === 'sow').map(doc => (
+                  <div key={doc.doc_id} className="flex items-center justify-between gap-3 bg-white rounded-lg border border-indigo-100 px-3 py-2">
+                    <span className="text-xs text-slate-700 font-medium truncate flex-1">{doc.source_name}</span>
+                    <button
+                      onClick={() => onValidateSow(doc)}
+                      className="flex-shrink-0 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-3 py-1.5 transition-colors"
+                    >
+                      Validate SOW
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {documents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl mb-3">📂</div>
@@ -344,16 +405,18 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         </div>
       </div>
 
-      {/* ── Panel 3: Analysis Results (slides in from right) ── */}
-      {(hasResults || showResults) && (
-        <div className={`w-[400px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto transition-all ${showResults ? '' : 'hidden'}`}>
+      {/* ── Panel 3: Results (analysis or SOW validation) ── */}
+      {(hasResults || showResults || validatingSow || sowResult) && (
+        <div className={`w-[420px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto transition-all ${showResults ? '' : 'hidden'}`}>
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">AI Analysis</h2>
+              <h2 className="text-sm font-semibold text-slate-900">
+                {sowResult || validatingSow ? 'SOW Validation' : 'AI Analysis'}
+              </h2>
               {resultDocName && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[280px]">{resultDocName}</p>}
             </div>
             <button
-              onClick={() => setShowResults(false)}
+              onClick={() => { setShowResults(false); setSowResult(null); }}
               title="Hide results"
               className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
             >
@@ -362,21 +425,50 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           </div>
 
           <div className="p-5 space-y-4">
-            {analyzing ? (
+            {(analyzing || validatingSow) ? (
               <div className="flex flex-col items-center justify-center py-16 gap-4">
                 <span className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
                 <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700">Analysing document…</p>
+                  <p className="text-sm font-medium text-slate-700">
+                    {validatingSow ? 'Validating against SOW…' : 'Analysing document…'}
+                  </p>
                   <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
                 </div>
               </div>
+            ) : sowResult ? (
+              <>
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                  <p className="text-xs font-medium text-indigo-600 uppercase tracking-wide mb-2">Executive Summary</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{sowResult.summary}</p>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  {(['green', 'yellow', 'red'] as const).map(tl => {
+                    const count = sowResult.findings.filter(f => f.traffic_light === tl).length;
+                    const colours = { green: 'bg-green-100 text-green-700', yellow: 'bg-amber-100 text-amber-700', red: 'bg-red-100 text-red-700' };
+                    const labels = { green: 'Evidenced', yellow: 'Partial', red: 'Gap' };
+                    return (
+                      <span key={tl} className={`px-2.5 py-1 rounded-full font-medium ${colours[tl]}`}>
+                        {count} {labels[tl]}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                    Deliverables <span className="text-slate-400 normal-case">({sowResult.findings.length})</span>
+                  </p>
+                  <div className="space-y-2">
+                    {sowResult.findings.map((f, i) => <SowFindingCard key={i} f={f} />)}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-300 pt-2">Model: {sowResult.model_id}</p>
+              </>
             ) : result ? (
               <>
                 <div className="bg-slate-50 rounded-xl p-4">
                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Summary</p>
                   <p className="text-sm text-slate-700 leading-relaxed">{result.summary}</p>
                 </div>
-
                 <div>
                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
                     Findings <span className="text-slate-400 normal-case">({result.findings.length})</span>
@@ -387,7 +479,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                     ))}
                   </div>
                 </div>
-
                 <p className="text-xs text-slate-300 pt-2">Model: {result.model_id}</p>
               </>
             ) : error ? (
@@ -458,6 +549,55 @@ function FindingCard({ f }: { f: Finding }) {
         </span>
         <span className="text-xs font-medium text-slate-800 flex-1 leading-snug">{f.title}</span>
         <span className={`text-xs flex-shrink-0 mt-0.5 ${catClass}`}>{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-slate-100">
+          <p className="text-xs text-slate-600 pt-2 leading-relaxed">{f.detail}</p>
+          {f.evidence && f.evidence.length > 0 && (
+            <div className="bg-slate-50 border-l-2 border-slate-300 pl-2.5 py-1.5 rounded-r">
+              {f.evidence.map((e, i) => (
+                <p key={i} className="text-xs text-slate-500 font-mono whitespace-pre-wrap">{e}</p>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-slate-700">
+            <span className="font-medium">Recommendation: </span>{f.recommendation}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SowFindingCard({ f }: { f: SowFinding }) {
+  const [open, setOpen] = useState(false);
+  const tlDot: Record<string, string> = {
+    green: 'bg-green-500',
+    yellow: 'bg-amber-400',
+    red: 'bg-red-500',
+  };
+  const tlLabel: Record<string, string> = {
+    green: 'Evidenced',
+    yellow: 'Partial',
+    red: 'Gap',
+  };
+  const tlText: Record<string, string> = {
+    green: 'text-green-700',
+    yellow: 'text-amber-700',
+    red: 'text-red-700',
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors"
+      >
+        <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0 ${tlDot[f.traffic_light] ?? 'bg-slate-400'}`} />
+        <span className="text-xs font-medium text-slate-800 flex-1 leading-snug">{f.deliverable}</span>
+        <span className={`text-xs flex-shrink-0 mt-0.5 font-medium ${tlText[f.traffic_light] ?? 'text-slate-500'}`}>
+          {tlLabel[f.traffic_light]} {open ? '▴' : '▾'}
+        </span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-slate-100">

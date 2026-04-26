@@ -269,6 +269,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminCostSummaryFn = makeFn('AdminCostSummaryFn', 'admin_cost_summary', 30);
     const adminArchiveClientFn = makeFn('AdminArchiveClientFn', 'admin_archive_client', 15);
     const adminManageUserFn = makeFn('AdminManageUserFn', 'admin_manage_user', 15);
+    const sowValidateFn = makeFn('SowValidateFn', 'sow_validate', 90);
 
     // Bootstrap — runs on every deploy, idempotent
     const bootstrapFn = makeFn('BootstrapFn', 'bootstrap', 120);
@@ -438,6 +439,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/admin/manage-user',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('AdminManageUserInt', adminManageUserFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/sow/validate',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('SowValidateInt', sowValidateFn),
       authorizer,
     });
 
