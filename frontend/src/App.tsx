@@ -394,20 +394,12 @@ export default function App() {
                   className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 text-slate-700 cursor-pointer"
                 >
                   <option value="admin">Admin Panel</option>
-                  <optgroup label="── Consultant view ──">
-                    {allClients.map(c => (
-                      <option key={`consultant:${c.tenant_id}`} value={`consultant:${c.tenant_id}`}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="── Client view ──">
-                    {allClients.map(c => (
-                      <option key={`client:${c.tenant_id}`} value={`client:${c.tenant_id}`}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </optgroup>
+                  <option value={`consultant:${allClients[0].tenant_id}`}>
+                    Consultant — {allClients[0].name}
+                  </option>
+                  <option value={`client:${allClients[0].tenant_id}`}>
+                    Client — {allClients[0].name}
+                  </option>
                 </select>
               </div>
               <div className="h-8 w-px bg-slate-200" />
