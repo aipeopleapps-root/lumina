@@ -21,6 +21,8 @@ type Me = {
   email: string;
   tenantId: string;
   role: string;
+  firstName: string;
+  lastName: string;
 } | null;
 
 type PreviewMode =
@@ -64,6 +66,8 @@ export default function App() {
         email: attrs.email ?? '',
         tenantId: attrs['custom:tenant_id'] ?? '(none)',
         role,
+        firstName: attrs.given_name ?? '',
+        lastName: attrs.family_name ?? '',
       });
       if (role === 'consultant') {
         loadMyClients();
@@ -639,8 +643,17 @@ export default function App() {
           <div className="h-8 w-px bg-slate-200" />
 
           <div className="text-right">
-            <div className="text-xs text-slate-500">Signed in as</div>
-            <div className="text-sm text-slate-800">{me.email}</div>
+            {me.firstName ? (
+              <>
+                <div className="text-sm font-medium text-slate-800">{me.firstName} {me.lastName}</div>
+                <div className="text-xs text-slate-400">{me.email}</div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs text-slate-500">Signed in as</div>
+                <div className="text-sm text-slate-800">{me.email}</div>
+              </>
+            )}
           </div>
 
           <button
@@ -674,6 +687,7 @@ export default function App() {
             <ConsultantHome
               clients={myClients}
               userEmail={me.email}
+              firstName={me.firstName}
               onSelectClient={switchClient}
             />
           )
@@ -692,14 +706,16 @@ export default function App() {
 function ConsultantHome({
   clients,
   userEmail,
+  firstName: propFirstName,
   onSelectClient,
 }: {
   clients: AssignedClient[];
   userEmail: string;
+  firstName?: string;
   onSelectClient: (c: AssignedClient) => void;
 }) {
-  const firstName = userEmail.split('@')[0].split('.')[0];
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const firstName = propFirstName || cap(userEmail.split('@')[0].split('.')[0]);
 
   const quickActions = [
     {
@@ -731,7 +747,7 @@ function ConsultantHome({
         {/* Greeting */}
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
-            Good {getTimeOfDay()}, {cap(firstName)}
+            Good {getTimeOfDay()}, {firstName}
           </h1>
           <p className="text-slate-500 text-sm mt-1">
             Select a client workspace below to get started.

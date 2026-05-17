@@ -401,8 +401,14 @@ function AssignmentsTab() {
 
                 {/* Consultant info */}
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-slate-900 truncate">{consultant.email}</div>
-                  <div className="text-xs text-slate-400 font-mono mt-0.5">{consultant.sub.slice(0, 12)}…</div>
+                  {(consultant.given_name || consultant.family_name) && (
+                    <div className="text-sm font-medium text-slate-900 truncate">
+                      {consultant.given_name} {consultant.family_name}
+                    </div>
+                  )}
+                  <div className={`truncate ${(consultant.given_name || consultant.family_name) ? 'text-xs text-slate-500' : 'text-sm font-medium text-slate-900'}`}>
+                    {consultant.email}
+                  </div>
                 </div>
 
                 {/* Assigned clients + add button */}
@@ -496,7 +502,7 @@ function UsersTab() {
   const [confirmDelete, setConfirmDelete] = useState<AdminUser | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  const [form, setForm] = useState({ email: '', tenant_id: '', role: 'consultant', temporary_password: 'TempPass123!' });
+  const [form, setForm] = useState({ email: '', given_name: '', family_name: '', tenant_id: '', role: 'consultant', temporary_password: 'TempPass123!' });
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -518,7 +524,7 @@ function UsersTab() {
       const r = await createUser(form);
       alert(`User created!\n\nEmail: ${r.email}\nTemp password: ${r.temporary_password}\n\nUser must change password on first login.`);
       setShowCreate(false);
-      setForm({ email: '', tenant_id: '', role: 'consultant', temporary_password: 'TempPass123!' });
+      setForm({ email: '', given_name: '', family_name: '', tenant_id: '', role: 'consultant', temporary_password: 'TempPass123!' });
       load();
     } catch (err: any) {
       alert(`Failed: ${err.message}`);
@@ -588,7 +594,12 @@ function UsersTab() {
                 return (
                   <tr key={u.sub} className={isDisabled ? 'opacity-60 bg-slate-50' : 'hover:bg-slate-50'}>
                     <td className="px-5 py-3">
-                      <div className={`font-medium ${isDisabled ? 'text-slate-500' : 'text-slate-900'}`}>{u.email}</div>
+                      {(u.given_name || u.family_name) && (
+                        <div className={`font-medium ${isDisabled ? 'text-slate-500' : 'text-slate-900'}`}>
+                          {u.given_name} {u.family_name}
+                        </div>
+                      )}
+                      <div className={`text-sm ${(u.given_name || u.family_name) ? 'text-slate-500' : `font-medium ${isDisabled ? 'text-slate-500' : 'text-slate-900'}`}`}>{u.email}</div>
                       <div className="text-xs text-slate-400 font-mono">{u.sub.slice(0, 12)}…</div>
                     </td>
                     <td className="px-5 py-3 font-mono text-xs text-slate-600">{u.tenant_id || '—'}</td>
@@ -678,16 +689,22 @@ function UsersTab() {
       {showCreate && (
         <Modal title="New User" onClose={() => setShowCreate(false)}>
           <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="First Name *">
+                <input required placeholder="Jane" value={form.given_name}
+                  onChange={e => setForm({ ...form, given_name: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+              </Field>
+              <Field label="Last Name *">
+                <input required placeholder="Smith" value={form.family_name}
+                  onChange={e => setForm({ ...form, family_name: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+              </Field>
+            </div>
             <Field label="Email *">
               <input required type="email" placeholder="user@example.com" value={form.email}
                 onChange={e => setForm({ ...form, email: e.target.value.toLowerCase() })}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
-            </Field>
-            <Field label="Client">
-              <select value={form.tenant_id} onChange={e => setForm({ ...form, tenant_id: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
-                <option value="">Platform-level (no tenant)</option>
-                {clients.map(c => <option key={c.tenant_id} value={c.tenant_id}>{c.name} ({c.tenant_id})</option>)}
-              </select>
             </Field>
             <Field label="Role *">
               <select required value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
@@ -696,6 +713,12 @@ function UsersTab() {
                 <option value="project_admin">Project Admin</option>
                 <option value="security_admin">Security Admin</option>
                 <option value="admin">Admin</option>
+              </select>
+            </Field>
+            <Field label="Client">
+              <select value={form.tenant_id} onChange={e => setForm({ ...form, tenant_id: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                <option value="">Platform-level (no tenant)</option>
+                {clients.map(c => <option key={c.tenant_id} value={c.tenant_id}>{c.name} ({c.tenant_id})</option>)}
               </select>
             </Field>
             <Field label="Temporary Password" hint="User must change on first login">

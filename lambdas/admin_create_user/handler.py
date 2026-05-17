@@ -2,7 +2,14 @@
 Admin: Create new Cognito user.
 
 POST /admin/create-user
-{ "email": "user@example.com", "tenant_id": "acme", "role": "consultant", "temporary_password": "TempPass123!" }
+{
+  "email": "user@example.com",
+  "given_name": "Jane",
+  "family_name": "Smith",
+  "tenant_id": "acme",
+  "role": "consultant",
+  "temporary_password": "TempPass123!"
+}
 """
 
 import json
@@ -34,13 +41,17 @@ def handler(event, context):
     except json.JSONDecodeError:
         return http.bad_request("invalid JSON body")
 
-    email = (body.get("email") or "").strip().lower()
-    tenant_id = (body.get("tenant_id") or "").strip().lower()
-    role = (body.get("role") or "").strip().lower()
+    email       = (body.get("email") or "").strip().lower()
+    given_name  = (body.get("given_name") or "").strip()
+    family_name = (body.get("family_name") or "").strip()
+    tenant_id   = (body.get("tenant_id") or "").strip().lower()
+    role        = (body.get("role") or "").strip().lower()
     temp_password = body.get("temporary_password") or "TempPass123!"
 
     if not email or not role:
         return http.bad_request("email and role are required")
+    if not given_name or not family_name:
+        return http.bad_request("given_name and family_name are required")
     if role not in _VALID_ROLES:
         return http.bad_request(f"role must be one of: {', '.join(sorted(_VALID_ROLES))}")
 
@@ -49,17 +60,18 @@ def handler(event, context):
             UserPoolId=_USER_POOL_ID,
             Username=email,
             UserAttributes=[
-                {"Name": "email", "Value": email},
-                {"Name": "email_verified", "Value": "true"},
+                {"Name": "email",            "Value": email},
+                {"Name": "email_verified",   "Value": "true"},
+                {"Name": "given_name",       "Value": given_name},
+                {"Name": "family_name",      "Value": family_name},
                 {"Name": "custom:tenant_id", "Value": tenant_id},
-                {"Name": "custom:role", "Value": role},
+                {"Name": "custom:role",      "Value": role},
             ],
             TemporaryPassword=temp_password,
             MessageAction="SUPPRESS",
         )
 
         log.info("Admin %s created user %s (tenant=%s, role=%s)", ctx.user_id, email, tenant_id, role)
-
         audit_events.write(
             ctx, "admin.user_create",
             ip=audit_events.get_ip(event),
@@ -70,6 +82,8 @@ def handler(event, context):
 
         return http.ok({
             "email": email,
+            "given_name": given_name,
+            "family_name": family_name,
             "tenant_id": tenant_id,
             "role": role,
             "temporary_password": temp_password,

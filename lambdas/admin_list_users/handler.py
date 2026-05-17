@@ -32,13 +32,15 @@ def handler(event, context):
         for u in page.get("Users", []):
             attrs = {a["Name"]: a["Value"] for a in u.get("Attributes", [])}
             users.append({
-                "sub": attrs.get("sub", ""),
-                "email": attrs.get("email", u["Username"]),
-                "tenant_id": attrs.get("custom:tenant_id", ""),
-                "role": attrs.get("custom:role", "client"),
-                "status": u.get("UserStatus", ""),
-                "enabled": u.get("Enabled", True),
-                "created_at": u["UserCreateDate"].isoformat() if u.get("UserCreateDate") else "",
+                "sub":         attrs.get("sub", ""),
+                "email":       attrs.get("email", u["Username"]),
+                "given_name":  attrs.get("given_name", ""),
+                "family_name": attrs.get("family_name", ""),
+                "tenant_id":   attrs.get("custom:tenant_id", ""),
+                "role":        attrs.get("custom:role", "client"),
+                "status":      u.get("UserStatus", ""),
+                "enabled":     u.get("Enabled", True),
+                "created_at":  u["UserCreateDate"].isoformat() if u.get("UserCreateDate") else "",
             })
 
     return http.ok({"users": users})

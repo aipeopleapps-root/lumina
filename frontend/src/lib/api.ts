@@ -87,6 +87,8 @@ export interface AssignedClient {
 export interface AdminUser {
   sub: string;
   email: string;
+  given_name: string;
+  family_name: string;
   tenant_id: string;
   role: string;
   status: string;
@@ -238,10 +240,12 @@ export async function assignConsultant(
 
 export async function createUser(params: {
   email: string;
+  given_name: string;
+  family_name: string;
   tenant_id: string;
   role: string;
   temporary_password?: string;
-}): Promise<{ email: string; temporary_password: string }> {
+}): Promise<{ email: string; given_name: string; family_name: string; temporary_password: string }> {
   return api.post('/admin/create-user', params);
 }
 
