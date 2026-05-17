@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
-import { FileExplorer } from './FileExplorer';
+import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
@@ -14,6 +14,7 @@ interface Document {
   uploaded_at: string;
   s3_key: string;
   folder_path: string;
+  published?: boolean;
 }
 
 type Props = { role: string; tenantId: string };
@@ -49,6 +50,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [validatingSow, setValidatingSow] = useState(false);
   const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
   const [generateTestsDoc, setGenerateTestsDoc] = useState<Document | null>(null);
+  const [batchGenerateDocs, setBatchGenerateDocs] = useState<Document[]>([]);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +186,74 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setError(err.message || String(err));
     } finally {
       setGeneratingReport(false);
+    }
+  }
+
+  async function handleBulkAction(action: BulkAction, docs: Document[]) {
+    switch (action) {
+      case 'download':
+        for (const doc of docs) {
+          try {
+            const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
+            window.open(r.url, '_blank');
+          } catch { /* skip failed */ }
+        }
+        break;
+
+      case 'delete': {
+        const names = docs.map(d => d.source_name).join('\n  • ');
+        if (!confirm(`Delete ${docs.length} document${docs.length > 1 ? 's' : ''}?\n\n  • ${names}\n\nThis cannot be undone.`)) return;
+        for (const doc of docs) {
+          try { await deleteDoc(doc.doc_id); } catch { /* skip failed */ }
+        }
+        loadDocuments();
+        break;
+      }
+
+      case 'publish':
+        for (const doc of docs.filter(d => !d.published)) {
+          // Bulk publish skips the review modal — goes direct
+          try { await publishDoc(doc.doc_id, true); } catch { /* skip failed */ }
+        }
+        loadDocuments();
+        break;
+
+      case 'unpublish':
+        for (const doc of docs.filter(d => d.published)) {
+          try { await publishDoc(doc.doc_id, false); } catch { /* skip failed */ }
+        }
+        loadDocuments();
+        break;
+
+      case 'analyse':
+        // Run analysis sequentially; each result replaces the previous in the panel
+        setShowResults(true);
+        setShowUpload(false);
+        for (const doc of docs) {
+          setError(null);
+          setResult(null);
+          setSowResult(null);
+          setResultDocName(doc.source_name);
+          setAnalyzing(true);
+          try {
+            const out = await analyzeDoc(doc.doc_id, 'all');
+            setResult(out);
+          } catch (err: any) {
+            setError(err.message || String(err));
+            setResultDocName(null);
+          } finally {
+            setAnalyzing(false);
+          }
+        }
+        break;
+
+      case 'generateTests': {
+        const eligible = docs.filter(d => d.doc_type !== 'sow');
+        if (eligible.length > 0) setGenerateTestsDoc(eligible[0]);
+        // For multi-doc batch, we pass the full list via a separate state
+        if (eligible.length > 1) setBatchGenerateDocs(eligible);
+        break;
+      }
     }
   }
 
@@ -422,6 +492,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
               }}
               onAnalyse={onAnalyse}
               onGenerateTests={(doc) => setGenerateTestsDoc(doc)}
+              onBulkAction={handleBulkAction}
               onPublish={(doc, published) => {
                 if (published) {
                   setPendingPublishDoc(doc);
@@ -547,9 +618,9 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
 
       {generateTestsDoc && (
         <GenerateTestsModal
-          doc={generateTestsDoc}
-          onClose={() => setGenerateTestsDoc(null)}
-          onGenerated={() => { setGenerateTestsDoc(null); loadDocuments(); }}
+          docs={batchGenerateDocs.length > 1 ? batchGenerateDocs : [generateTestsDoc]}
+          onClose={() => { setGenerateTestsDoc(null); setBatchGenerateDocs([]); }}
+          onGenerated={() => { setGenerateTestsDoc(null); setBatchGenerateDocs([]); loadDocuments(); }}
         />
       )}
 
@@ -574,43 +645,55 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
 }
 
 function GenerateTestsModal({
-  doc,
+  docs,
   onClose,
   onGenerated,
 }: {
-  doc: { doc_id: string; source_name: string };
+  docs: { doc_id: string; source_name: string }[];
   onClose: () => void;
   onGenerated: () => void;
 }) {
   const [testType, setTestType] = useState<'sit' | 'uat' | 'both'>('both');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ name: string; count: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; results: { name: string; count: number }[] } | null>(null);
+
+  const isBatch = docs.length > 1;
 
   async function onGenerate() {
     setError(null);
     setGenerating(true);
-    try {
-      const result = await generateTestScripts(doc.doc_id, testType);
-      setSuccess({ name: result.source_name, count: result.test_count });
-    } catch (err: any) {
-      setError(err.message || String(err));
-    } finally {
-      setGenerating(false);
+    setProgress({ done: 0, total: docs.length, results: [] });
+    const results: { name: string; count: number }[] = [];
+    for (const doc of docs) {
+      try {
+        const r = await generateTestScripts(doc.doc_id, testType);
+        results.push({ name: r.source_name, count: r.test_count });
+      } catch (err: any) {
+        results.push({ name: doc.source_name, count: -1 });
+        setError(err.message || String(err));
+      }
+      setProgress({ done: results.length, total: docs.length, results: [...results] });
     }
+    setGenerating(false);
   }
+
+  const isDone = progress !== null && progress.done === progress.total;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100">
           <h2 className="text-base font-semibold text-slate-900">Generate Test Scripts</h2>
-          <p className="text-xs text-slate-500 mt-1 truncate">{doc.source_name}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {isBatch ? `${docs.length} documents` : docs[0]?.source_name}
+          </p>
         </div>
 
         <div className="px-6 py-5 space-y-5">
-          {!success ? (
+          {!isDone ? (
             <>
+              {/* Type selector */}
               <div>
                 <p className="text-xs font-medium text-slate-600 mb-3">Script type to generate</p>
                 <div className="space-y-2">
@@ -626,6 +709,7 @@ function GenerateTestsModal({
                         value={opt.value}
                         checked={testType === opt.value}
                         onChange={() => setTestType(opt.value)}
+                        disabled={generating}
                         className="mt-0.5 accent-teal-600"
                       />
                       <div>
@@ -637,42 +721,96 @@ function GenerateTestsModal({
                 </div>
               </div>
 
-              <div className="bg-slate-50 rounded-xl px-4 py-3 text-xs text-slate-500 space-y-1">
-                <p className="font-medium text-slate-700">What happens next</p>
-                <p>• AI generates 8–15 test cases from your document</p>
-                <p>• Test script is saved to the document library as a <span className="font-medium text-amber-600">Draft</span></p>
-                <p>• Review it, then publish to make it client-visible</p>
-              </div>
+              {/* Batch doc list */}
+              {isBatch && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1 max-h-32 overflow-y-auto">
+                  <p className="text-xs font-medium text-slate-600 mb-1">Documents</p>
+                  {docs.map((doc, i) => {
+                    const result = progress?.results[i];
+                    return (
+                      <div key={doc.doc_id} className="flex items-center gap-2 text-xs">
+                        {!progress ? (
+                          <span className="text-slate-400">·</span>
+                        ) : result ? (
+                          <span className={result.count >= 0 ? 'text-green-500' : 'text-red-400'}>
+                            {result.count >= 0 ? '✓' : '✗'}
+                          </span>
+                        ) : progress.done === i ? (
+                          <span className="w-3 h-3 border border-teal-400 border-t-teal-600 rounded-full animate-spin inline-block" />
+                        ) : (
+                          <span className="text-slate-300">·</span>
+                        )}
+                        <span className={`truncate ${result ? (result.count >= 0 ? 'text-slate-600' : 'text-red-500') : 'text-slate-500'}`}>
+                          {doc.source_name}
+                          {result && result.count >= 0 && <span className="text-slate-400 ml-1">({result.count} cases)</span>}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Single doc info */}
+              {!isBatch && !generating && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3 text-xs text-slate-500 space-y-1">
+                  <p className="font-medium text-slate-700">What happens next</p>
+                  <p>• AI generates 8–15 test cases from your document</p>
+                  <p>• Test script is saved to the document library as a <span className="font-medium text-amber-600">Draft</span></p>
+                  <p>• Review it, then publish to make it client-visible</p>
+                </div>
+              )}
+
+              {/* Progress bar for batch */}
+              {generating && isBatch && progress && (
+                <div>
+                  <div className="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>Generating…</span>
+                    <span>{progress.done}/{progress.total}</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-teal-500 rounded-full transition-all duration-300"
+                      style={{ width: `${(progress.done / progress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
             </>
           ) : (
+            // Done state
             <div className="text-center py-4 space-y-3">
               <div className="w-12 h-12 bg-teal-100 rounded-full flex items-center justify-center mx-auto text-2xl">✓</div>
               <div>
-                <p className="text-sm font-semibold text-slate-900">{success.count} test cases generated</p>
-                <p className="text-xs text-slate-500 mt-1">Saved as draft — find it in the document library</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {isBatch
+                    ? `${progress.results.filter(r => r.count >= 0).length} of ${progress.total} scripts generated`
+                    : `${progress.results[0]?.count ?? 0} test cases generated`}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">Saved as drafts — find them in the document library</p>
               </div>
-              <p className="text-xs text-slate-400 break-all">{success.name}</p>
+              {!isBatch && <p className="text-xs text-slate-400 break-all">{progress.results[0]?.name}</p>}
             </div>
           )}
         </div>
 
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
           <button
-            onClick={success ? onGenerated : onClose}
-            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+            onClick={isDone ? onGenerated : onClose}
+            disabled={generating}
+            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 disabled:opacity-40 transition-colors"
           >
-            {success ? 'Close' : 'Cancel'}
+            {isDone ? 'Done' : 'Cancel'}
           </button>
-          {!success && (
+          {!isDone && (
             <button
               onClick={onGenerate}
               disabled={generating}
               className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
             >
               {generating && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              {generating ? 'Generating…' : 'Generate'}
+              {generating ? 'Generating…' : isBatch ? `Generate (${docs.length})` : 'Generate'}
             </button>
           )}
         </div>
