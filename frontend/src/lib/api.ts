@@ -337,3 +337,19 @@ export interface ChangeImpactResponse {
 export async function assessChange(changeDescription: string): Promise<ChangeImpactResponse> {
   return api.post('/change-impact', { change_description: changeDescription });
 }
+
+// Test Script Generator
+export interface GenerateTestsResponse {
+  doc_id: string;
+  source_name: string;
+  test_count: number;
+  test_type: string;
+  latency_ms: number;
+}
+
+export async function generateTestScripts(
+  sourceDocId: string,
+  testType: 'sit' | 'uat' | 'both'
+): Promise<GenerateTestsResponse> {
+  return api.post('/test-scripts/generate', { source_doc_id: sourceDocId, test_type: testType });
+}

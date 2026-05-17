@@ -20,6 +20,7 @@ interface Props {
   onDelete?: (doc: Document) => void;
   onAnalyse?: (doc: Document) => void;
   onPublish?: (doc: Document, published: boolean) => void;
+  onGenerateTests?: (doc: Document) => void;
 }
 
 // Groups docs by folder_path, then within each folder groups versions by source_name
@@ -61,12 +62,14 @@ function DocGroup({
   onDelete,
   onAnalyse,
   onPublish,
+  onGenerateTests,
 }: {
   versions: Document[];
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
+  onGenerateTests?: (d: Document) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const current = versions[0];
@@ -117,6 +120,14 @@ function DocGroup({
               }`}
             >
               {isPublished ? 'Unpublish' : 'Publish'}
+            </button>
+          )}
+          {onGenerateTests && (
+            <button
+              onClick={() => onGenerateTests(current)}
+              className="px-2.5 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+            >
+              Generate Tests
             </button>
           )}
           {onAnalyse && (
@@ -179,12 +190,14 @@ function DocList({
   onDelete,
   onAnalyse,
   onPublish,
+  onGenerateTests,
 }: {
   docs: Document[];
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
+  onGenerateTests?: (d: Document) => void;
 }) {
   const groups = groupByName(docs);
   return (
@@ -197,6 +210,7 @@ function DocList({
           onDelete={onDelete}
           onAnalyse={onAnalyse}
           onPublish={onPublish}
+          onGenerateTests={onGenerateTests}
         />
       ))}
     </div>
@@ -212,7 +226,7 @@ function CountBadge({ count }: { count: number }) {
   );
 }
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onPublish }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onPublish, onGenerateTests }: Props) {
   const docMap = buildDocMap(documents);
 
   const initialExpanded = new Set<string>();
@@ -255,7 +269,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
             <span className="font-medium text-slate-800 text-sm">Uncategorized</span>
             <CountBadge count={rootDocs.length} />
           </div>
-          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} />
+          <DocList docs={rootDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} onGenerateTests={onGenerateTests} />
         </div>
       )}
 
@@ -279,7 +293,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
             {isOpen && (
               <div className="divide-y divide-slate-100">
                 {directDocs.length > 0 && (
-                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} />
+                  <DocList docs={directDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} onGenerateTests={onGenerateTests} />
                 )}
 
                 {folder.subfolders.map((sub) => {
@@ -305,7 +319,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
                           {subDocs.length === 0 ? (
                             <p className="text-xs text-slate-400 px-3 py-2">No documents</p>
                           ) : (
-                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} />
+                            <DocList docs={subDocs} onDownload={onDownload} onDelete={onDelete} onAnalyse={onAnalyse} onPublish={onPublish} onGenerateTests={onGenerateTests} />
                           )}
                         </div>
                       )}

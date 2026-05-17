@@ -271,6 +271,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminManageUserFn = makeFn('AdminManageUserFn', 'admin_manage_user', 15);
     const sowValidateFn = makeFn('SowValidateFn', 'sow_validate', 90);
     const changeImpactFn = makeFn('ChangeImpactFn', 'change_impact', 60);
+    const generateTestsFn = makeFn('GenerateTestsFn', 'generate_tests', 120);
 
     // Bootstrap — runs on every deploy, idempotent
     const bootstrapFn = makeFn('BootstrapFn', 'bootstrap', 120);
@@ -452,6 +453,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/change-impact',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('ChangeImpactInt', changeImpactFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/test-scripts/generate',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('GenerateTestsInt', generateTestsFn),
       authorizer,
     });
 
