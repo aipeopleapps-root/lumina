@@ -26,6 +26,7 @@ const ADMIN_ROLES = new Set(['admin', 'project_admin', 'security_admin']);
 
 export default function App() {
   const [me, setMe] = useState<Me>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,6 +55,8 @@ export default function App() {
       }
     } catch {
       setMe(null);
+    } finally {
+      setAuthReady(true);
     }
   }
 
@@ -122,6 +125,20 @@ export default function App() {
     setActiveClient(null);
     setPreview({ view: 'admin' });
     setAllClients([]);
+  }
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <svg width="40" height="40" viewBox="0 0 36 36" fill="none">
+            <path d="M18 2 C17.4 11.6 12.6 16.6 2 18 C12.6 19.4 17.4 24.4 18 34 C18.6 24.4 23.4 19.4 34 18 C23.4 16.6 18.6 11.6 18 2Z" fill="white" opacity="0.9"/>
+            <circle cx="27" cy="9" r="2.4" fill="white" opacity="0.45" />
+          </svg>
+          <div className="w-5 h-5 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+        </div>
+      </div>
+    );
   }
 
   if (!me) {
