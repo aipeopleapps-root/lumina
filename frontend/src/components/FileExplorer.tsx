@@ -16,7 +16,7 @@ interface Document {
 export type BulkAction = 'publish' | 'unpublish' | 'delete' | 'download' | 'analyse' | 'generateTests';
 
 interface Props {
-  template?: FolderTemplate;
+  template: FolderTemplate;
   documents: Document[];
   onDownload: (doc: Document) => void;
   onDelete?: (doc: Document) => void;
@@ -27,22 +27,6 @@ interface Props {
 }
 
 type StatusFilter = 'all' | 'draft' | 'published';
-
-// ── Category config (order matters) ──────────────────────────────────────────
-
-const CATEGORIES = [
-  { id: 'sow',             label: 'Statement of Work', icon: '📋' },
-  { id: 'config-workbook', label: 'Configuration',     icon: '📊' },
-  { id: 'document',        label: 'Documents',         icon: '📄' },
-  { id: 'test-script',     label: 'Test Scripts',      icon: '🧪' },
-  { id: 'status-report',   label: 'Status Reports',    icon: '📈' },
-] as const;
-
-const KNOWN_TYPES = new Set(CATEGORIES.map(c => c.id));
-
-function categoryFor(docType: string) {
-  return KNOWN_TYPES.has(docType as any) ? docType : 'document';
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -288,7 +272,7 @@ function CategorySection({
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function FileExplorer({ documents, onDownload, onDelete, onAnalyse, onPublish, onGenerateTests, onBulkAction }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onPublish, onGenerateTests, onBulkAction }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -301,20 +285,24 @@ export function FileExplorer({ documents, onDownload, onDelete, onAnalyse, onPub
     return allRows;
   }, [allRows, statusFilter]);
 
-  // Group by category
+  // Group by template folder using folder_path
   const grouped = useMemo(() => {
-    const map = new Map<string, { doc: Document; versionCount: number }[]>();
-    for (const row of filtered) {
-      const cat = categoryFor(row.doc.doc_type);
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(row);
-    }
-    // Sort within each group: newest first
-    for (const rows of map.values()) {
-      rows.sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at));
-    }
-    return map;
-  }, [filtered]);
+    const sections = template.folders.map(folder => {
+      const prefix = `/${folder.name}`;
+      const rows = filtered
+        .filter(r => {
+          const fp = r.doc.folder_path || '/';
+          return fp === prefix || fp.startsWith(`${prefix}/`);
+        })
+        .sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at));
+      return { folder, rows };
+    });
+    const assignedIds = new Set(sections.flatMap(s => s.rows.map(r => r.doc.doc_id)));
+    const uncategorized = filtered
+      .filter(r => !assignedIds.has(r.doc.doc_id))
+      .sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at));
+    return { sections, uncategorized };
+  }, [filtered, template]);
 
   // Tab counts
   const counts = {
@@ -401,14 +389,13 @@ export function FileExplorer({ documents, onDownload, onDelete, onAnalyse, onPub
         </div>
       ) : (
         <div className="space-y-3">
-          {CATEGORIES.map(cat => {
-            const rows = grouped.get(cat.id);
-            if (!rows || rows.length === 0) return null;
+          {grouped.sections.map(({ folder, rows }) => {
+            if (rows.length === 0) return null;
             return (
               <CategorySection
-                key={cat.id}
-                icon={cat.icon}
-                label={cat.label}
+                key={folder.id}
+                icon={folder.icon}
+                label={folder.name}
                 rows={rows}
                 selectedIds={selectedIds}
                 anySelected={anySelected}
@@ -421,6 +408,21 @@ export function FileExplorer({ documents, onDownload, onDelete, onAnalyse, onPub
               />
             );
           })}
+          {grouped.uncategorized.length > 0 && (
+            <CategorySection
+              icon="📁"
+              label="Other Documents"
+              rows={grouped.uncategorized}
+              selectedIds={selectedIds}
+              anySelected={anySelected}
+              onToggle={toggleSelect}
+              onDownload={onDownload}
+              onDelete={onDelete}
+              onAnalyse={onAnalyse}
+              onPublish={onPublish}
+              onGenerateTests={onGenerateTests}
+            />
+          )}
         </div>
       )}
     </div>

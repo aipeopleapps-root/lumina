@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream } from '../lib/api';
-import { FolderPicker } from './FolderPicker';
+import { useState, useEffect, useCallback } from 'react';
+import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream } from '../lib/api';
 import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
+import { UploadModal } from './UploadModal';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 interface Document {
@@ -19,33 +19,16 @@ interface Document {
 
 type Props = { role: string; tenantId: string };
 
-function moduleFromPath(path: string): string {
-  if (!path || path === '/') return 'unknown';
-  return path.split('/').filter(Boolean)[0] || 'unknown';
-}
-
-function docTypeFromFile(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  if (ext === 'xlsx' || ext === 'xlsm') return 'config-workbook';
-  return 'document';
-}
-
 export default function ConsultantPanel({ role, tenantId }: Props) {
-  const [file, setFile] = useState<File | null>(null);
-  const [folderPath, setFolderPath] = useState('/');
   const [folderTemplate, setFolderTemplate] = useState<FolderTemplate | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [statusStep, setStatusStep] = useState<'idle' | 'uploading' | 'indexing' | 'done' | 'error'>('idle');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [resultDocName, setResultDocName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
-  const [showUpload, setShowUpload] = useState(true);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [isSowUpload, setIsSowUpload] = useState(false);
   const [sowResult, setSowResult] = useState<SowValidateResponse | null>(null);
   const [validatingSow, setValidatingSow] = useState(false);
   const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
@@ -53,7 +36,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [batchGenerateDocs, setBatchGenerateDocs] = useState<Document[]>([]);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
 
@@ -71,8 +53,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     setResult(null);
     setResultDocName(null);
     setError(null);
-    setFile(null);
-    setFolderPath('/');
+    setShowUploadModal(false);
 
     Promise.all([
       api.get('/tenant/folder-structure'),
@@ -83,62 +64,12 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     }).catch(console.error).finally(() => setDocsLoading(false));
   }, [tenantId]);
 
-  function handleFileDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragging(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped) setFile(dropped);
-  }
-
-  async function onRun() {
-    if (!file) return;
-    setError(null);
-    setResult(null);
-    setResultDocName(null);
-
-    try {
-      setUploading(true);
-      setStatusStep('uploading');
-      const uploadUrl = await getPresignedUrl(file.name, tenantId);
-      const putResp = await fetch(uploadUrl.url, {
-        method: 'PUT',
-        headers: { 'Content-Type': uploadUrl.content_type },
-        body: file,
-      });
-      if (!putResp.ok) throw new Error(`S3 upload failed: ${putResp.status}`);
-
-      setUploading(false);
-      setStatusStep('indexing');
-      const docId = crypto.randomUUID();
-      await ingestDoc({
-        s3_key: uploadUrl.key,
-        doc_id: docId,
-        doc_type: isSowUpload ? 'sow' : docTypeFromFile(file.name),
-        source_name: file.name,
-        module: moduleFromPath(folderPath),
-        folder_path: folderPath,
-      });
-
-      setStatusStep('done');
-      setFile(null);
-      setIsSowUpload(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      loadDocuments();
-    } catch (err: any) {
-      setError(err.message || String(err));
-      setStatusStep('error');
-    } finally {
-      setUploading(false);
-    }
-  }
-
   async function onAnalyse(doc: Document) {
     setError(null);
     setResult(null);
     setSowResult(null);
     setResultDocName(doc.source_name);
     setAnalyzing(true);
-    setShowUpload(false);
     setShowResults(true);
     try {
       const out = await analyzeDoc(doc.doc_id, 'all');
@@ -157,7 +88,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     setSowResult(null);
     setResultDocName(doc.source_name);
     setValidatingSow(true);
-    setShowUpload(false);
     setShowResults(true);
     try {
       const out = await validateSow(doc.doc_id);
@@ -177,7 +107,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     setStatusReport(null);
     setGeneratingReport(true);
     setShowResults(true);
-    setShowUpload(false);
     try {
       const out = await generateStatusReport();
       setStatusReport(out);
@@ -228,7 +157,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       case 'analyse':
         // Run analysis sequentially; each result replaces the previous in the panel
         setShowResults(true);
-        setShowUpload(false);
         for (const doc of docs) {
           setError(null);
           setResult(null);
@@ -271,156 +199,22 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
     <>
     <div className="flex h-full min-h-0 overflow-hidden">
 
-      {/* ── Panel 1: Upload (collapsible) ── */}
-      {showUpload ? (
-        <div className="w-[360px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto transition-all">
-          {/* Header with collapse button */}
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">Upload Document</h2>
-              <p className="text-xs text-slate-400 mt-0.5">.xlsx · .xlsm · .pdf · .docx</p>
-            </div>
-            <button
-              onClick={() => setShowUpload(false)}
-              title="Hide upload panel"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-sm"
-            >
-              ←
-            </button>
-          </div>
-
-          <div className="p-5 space-y-4 flex-1">
-            {/* Drop zone */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleFileDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`
-                border-2 border-dashed rounded-xl px-5 py-7 text-center cursor-pointer transition-all
-                ${dragging ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}
-                ${file ? 'border-green-300 bg-green-50' : ''}
-              `}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xlsm,.pdf,.docx"
-                className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              {file ? (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">📄</div>
-                  <div className="text-sm font-medium text-slate-800 break-all">{file.name}</div>
-                  <div className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                    className="text-xs text-slate-400 hover:text-red-500"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center text-lg">📁</div>
-                  <div className="text-sm text-slate-600">
-                    <span className="font-medium text-slate-800">Drop a file</span> or click to browse
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* SOW toggle */}
-            <label className="flex items-center gap-2.5 cursor-pointer select-none group">
-              <div
-                onClick={() => setIsSowUpload(v => !v)}
-                className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${isSowUpload ? 'bg-indigo-600' : 'bg-slate-200'}`}
-              >
-                <div className={`w-4 h-4 bg-white rounded-full shadow-sm mt-0.5 transition-transform ${isSowUpload ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
-              </div>
-              <div>
-                <div className="text-xs font-medium text-slate-700">Statement of Work</div>
-                <div className="text-xs text-slate-400">Enables SOW validation against project docs</div>
-              </div>
-            </label>
-
-            {/* Upload button */}
-            <button
-              onClick={onRun}
-              disabled={!file || uploading}
-              className="w-full py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {uploading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {statusStep === 'uploading' ? 'Uploading…' : 'Indexing…'}
-                </span>
-              ) : 'Upload'}
-            </button>
-
-            {uploading && (
-              <div className="flex gap-1.5">
-                {(['uploading', 'indexing'] as const).map((step, i) => {
-                  const cur = statusStep === 'uploading' ? 0 : 1;
-                  return (
-                    <div key={step} className="flex items-center gap-1.5 flex-1">
-                      <div className={`flex-1 h-1 rounded-full ${i < cur ? 'bg-slate-900' : i === cur ? 'bg-slate-400' : 'bg-slate-200'}`} />
-                      {i < 1 && <span className="text-xs text-slate-300">›</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {error && !analyzing && (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                <p className="text-xs text-red-700">{error}</p>
-              </div>
-            )}
-
-            {/* Folder picker — secondary, below the action */}
-            {folderTemplate && (
-              <div className="pt-2 border-t border-slate-100">
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">
-                  Destination folder
-                  {folderPath !== '/' && <span className="ml-2 font-normal text-slate-400">{folderPath}</span>}
-                </label>
-                <FolderPicker template={folderTemplate} selected={folderPath} onChange={setFolderPath} />
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* Collapsed upload — thin strip with expand button */
-        <div className="w-10 flex-shrink-0 flex flex-col items-center border-r border-slate-200 bg-white py-4 gap-3">
-          <button
-            onClick={() => setShowUpload(true)}
-            title="Show upload panel"
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-sm"
-          >
-            →
-          </button>
-          <span className="text-xs text-slate-300 [writing-mode:vertical-rl] rotate-180 select-none tracking-wide mt-1">Upload</span>
-        </div>
-      )}
-
-      {/* ── Panel 2: Document Library (always visible, fills space) ── */}
+      {/* ── Document Library (fills available space) ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
         <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {!showUpload && (
-              <button
-                onClick={() => setShowUpload(true)}
-                className="text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-100 border border-slate-200 transition-colors"
-              >
-                ＋ Upload
-              </button>
-            )}
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Document Library</h2>
               <p className="text-xs text-slate-400 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''}</p>
             </div>
+            {canIngest && folderTemplate && (
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="flex items-center gap-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                ↑ Upload
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -615,6 +409,14 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       )}
 
     </div>
+
+      {showUploadModal && folderTemplate && (
+        <UploadModal
+          template={folderTemplate}
+          onClose={() => setShowUploadModal(false)}
+          onUploaded={loadDocuments}
+        />
+      )}
 
       {generateTestsDoc && (
         <GenerateTestsModal
@@ -1105,9 +907,3 @@ function WorkstreamCard({ ws }: { ws: StatusWorkstream }) {
   );
 }
 
-async function getPresignedUrl(
-  filename: string,
-  _tenantId: string
-): Promise<{ url: string; key: string; content_type: string }> {
-  return api.post('/upload-url', { filename });
-}
