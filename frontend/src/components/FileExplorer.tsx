@@ -21,12 +21,22 @@ interface Props {
   onDownload: (doc: Document) => void;
   onDelete?: (doc: Document) => void;
   onAnalyse?: (doc: Document) => void;
+  onValidateSow?: (doc: Document) => void;
   onPublish?: (doc: Document, published: boolean) => void;
   onGenerateTests?: (doc: Document) => void;
   onBulkAction?: (action: BulkAction, docs: Document[]) => void;
 }
 
 type StatusFilter = 'all' | 'draft' | 'published';
+
+// Doc types that get their own fixed sections regardless of folder_path
+const VIRTUAL_SECTIONS = [
+  { id: 'sow',           label: 'Statement of Work', icon: '📋', docType: 'sow'           },
+  { id: 'test-script',   label: 'Test Scripts',       icon: '🧪', docType: 'test-script'   },
+  { id: 'status-report', label: 'Status Reports',     icon: '📈', docType: 'status-report' },
+] as const;
+
+const VIRTUAL_TYPES = new Set(VIRTUAL_SECTIONS.map(s => s.docType));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -115,7 +125,7 @@ function SelectionBar({
 
 function DocRow({
   doc, versionCount, isSelected, anySelected, onToggle,
-  onDownload, onDelete, onAnalyse, onPublish, onGenerateTests,
+  onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onGenerateTests,
 }: {
   doc: Document;
   versionCount: number;
@@ -125,11 +135,13 @@ function DocRow({
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
+  onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
   onGenerateTests?: (d: Document) => void;
 }) {
-  const isSow    = doc.doc_type === 'sow';
-  const folder   = folderLabel(doc.folder_path);
+  const isSow           = doc.doc_type === 'sow';
+  const isGeneratedDoc  = doc.doc_type === 'test-script' || doc.doc_type === 'status-report';
+  const folder          = folderLabel(doc.folder_path);
 
   return (
     <div className={`flex items-center gap-3 px-4 py-2.5 group transition-colors ${isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50/80'}`}>
@@ -187,12 +199,17 @@ function DocRow({
               {doc.published ? 'Unpublish' : 'Publish'}
             </button>
           )}
-          {onGenerateTests && !isSow && (
+          {isSow && onValidateSow && (
+            <button onClick={() => onValidateSow(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
+              Validate SOW
+            </button>
+          )}
+          {!isSow && !isGeneratedDoc && onGenerateTests && (
             <button onClick={() => onGenerateTests(doc)} className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors">
               Tests
             </button>
           )}
-          {onAnalyse && (
+          {!isSow && onAnalyse && (
             <button onClick={() => onAnalyse(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
               Analyse
             </button>
@@ -215,7 +232,7 @@ function DocRow({
 
 function CategorySection({
   icon, label, rows, selectedIds, anySelected, onToggle,
-  onDownload, onDelete, onAnalyse, onPublish, onGenerateTests,
+  onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onGenerateTests,
 }: {
   icon: string;
   label: string;
@@ -226,6 +243,7 @@ function CategorySection({
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
+  onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
   onGenerateTests?: (d: Document) => void;
 }) {
@@ -260,6 +278,7 @@ function CategorySection({
               onDownload={onDownload}
               onDelete={onDelete}
               onAnalyse={onAnalyse}
+              onValidateSow={onValidateSow}
               onPublish={onPublish}
               onGenerateTests={onGenerateTests}
             />
@@ -272,7 +291,7 @@ function CategorySection({
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onPublish, onGenerateTests, onBulkAction }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onGenerateTests, onBulkAction }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -285,11 +304,21 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
     return allRows;
   }, [allRows, statusFilter]);
 
-  // Group by template folder using folder_path
+  // Group into virtual sections (by doc_type) + template folder sections + catch-all
   const grouped = useMemo(() => {
+    // Fixed sections for SOW, generated test scripts, and status reports
+    const virtual = VIRTUAL_SECTIONS.map(vs => ({
+      ...vs,
+      rows: filtered
+        .filter(r => r.doc.doc_type === vs.docType)
+        .sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at)),
+    }));
+
+    // Template folder sections — exclude virtual doc types
+    const remaining = filtered.filter(r => !VIRTUAL_TYPES.has(r.doc.doc_type as any));
     const sections = template.folders.map(folder => {
       const prefix = `/${folder.name}`;
-      const rows = filtered
+      const rows = remaining
         .filter(r => {
           const fp = r.doc.folder_path || '/';
           return fp === prefix || fp.startsWith(`${prefix}/`);
@@ -297,11 +326,16 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
         .sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at));
       return { folder, rows };
     });
-    const assignedIds = new Set(sections.flatMap(s => s.rows.map(r => r.doc.doc_id)));
+
+    const assignedIds = new Set([
+      ...virtual.flatMap(vs => vs.rows.map(r => r.doc.doc_id)),
+      ...sections.flatMap(s => s.rows.map(r => r.doc.doc_id)),
+    ]);
     const uncategorized = filtered
       .filter(r => !assignedIds.has(r.doc.doc_id))
       .sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at));
-    return { sections, uncategorized };
+
+    return { virtual, sections, uncategorized };
   }, [filtered, template]);
 
   // Tab counts
@@ -389,6 +423,24 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Fixed sections: SOW first, then template folders, then Test Scripts & Status Reports */}
+          {grouped.virtual.slice(0, 1).map(vs => vs.rows.length === 0 ? null : (
+            <CategorySection
+              key={vs.id}
+              icon={vs.icon}
+              label={vs.label}
+              rows={vs.rows}
+              selectedIds={selectedIds}
+              anySelected={anySelected}
+              onToggle={toggleSelect}
+              onDownload={onDownload}
+              onDelete={onDelete}
+              onAnalyse={onAnalyse}
+              onValidateSow={onValidateSow}
+              onPublish={onPublish}
+              onGenerateTests={onGenerateTests}
+            />
+          ))}
           {grouped.sections.map(({ folder, rows }) => {
             if (rows.length === 0) return null;
             return (
@@ -403,11 +455,29 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
                 onDownload={onDownload}
                 onDelete={onDelete}
                 onAnalyse={onAnalyse}
+                onValidateSow={onValidateSow}
                 onPublish={onPublish}
                 onGenerateTests={onGenerateTests}
               />
             );
           })}
+          {grouped.virtual.slice(1).map(vs => vs.rows.length === 0 ? null : (
+            <CategorySection
+              key={vs.id}
+              icon={vs.icon}
+              label={vs.label}
+              rows={vs.rows}
+              selectedIds={selectedIds}
+              anySelected={anySelected}
+              onToggle={toggleSelect}
+              onDownload={onDownload}
+              onDelete={onDelete}
+              onAnalyse={onAnalyse}
+              onValidateSow={onValidateSow}
+              onPublish={onPublish}
+              onGenerateTests={onGenerateTests}
+            />
+          ))}
           {grouped.uncategorized.length > 0 && (
             <CategorySection
               icon="📁"
@@ -419,6 +489,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onDownload={onDownload}
               onDelete={onDelete}
               onAnalyse={onAnalyse}
+              onValidateSow={onValidateSow}
               onPublish={onPublish}
               onGenerateTests={onGenerateTests}
             />

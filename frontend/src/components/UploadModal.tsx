@@ -28,6 +28,7 @@ function docTypeFromFolderName(folderName: string): string {
   if (n.includes('statement') || n.includes('sow')) return 'sow';
   if (n.includes('configuration') || n.includes('workbook')) return 'config-workbook';
   if (n.includes('test')) return 'test-script';
+  if (n.includes('status') || n.includes('report')) return 'status-report';
   return 'document';
 }
 

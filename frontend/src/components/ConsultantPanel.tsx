@@ -238,29 +238,6 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         </div>
 
         <div className="p-5">
-          {/* SOW documents banner */}
-          {documents.filter(d => d.doc_type === 'sow').length > 0 && (
-            <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-indigo-600 text-sm">📋</span>
-                <span className="text-xs font-semibold text-indigo-800 uppercase tracking-wide">Statement of Work</span>
-              </div>
-              <div className="space-y-2">
-                {documents.filter(d => d.doc_type === 'sow').map(doc => (
-                  <div key={doc.doc_id} className="flex items-center justify-between gap-3 bg-white rounded-lg border border-indigo-100 px-3 py-2">
-                    <span className="text-xs text-slate-700 font-medium truncate flex-1">{doc.source_name}</span>
-                    <button
-                      onClick={() => onValidateSow(doc)}
-                      className="flex-shrink-0 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-3 py-1.5 transition-colors"
-                    >
-                      Validate SOW
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {documents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl mb-3">📂</div>
@@ -285,6 +262,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                 } catch { alert('Failed to delete document'); }
               }}
               onAnalyse={onAnalyse}
+              onValidateSow={onValidateSow}
               onGenerateTests={(doc) => setGenerateTestsDoc(doc)}
               onBulkAction={handleBulkAction}
               onPublish={(doc, published) => {
