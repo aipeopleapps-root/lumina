@@ -132,6 +132,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
         tenant_id: new cognito.StringAttribute({ mutable: true }),
         role: new cognito.StringAttribute({ mutable: true }),
       },
+      mfa: cognito.Mfa.OPTIONAL,
+      mfaSecondFactor: { sms: false, otp: true },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 

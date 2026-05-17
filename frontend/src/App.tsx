@@ -4,7 +4,13 @@ import {
   signOut,
   getCurrentUser,
   fetchUserAttributes,
+  confirmSignIn,
+  setUpTOTP,
+  verifyTOTPSetup,
+  updateMFAPreference,
+  fetchMFAPreference,
 } from 'aws-amplify/auth';
+import QRCode from 'qrcode';
 import ConsultantPanel from './components/ConsultantPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { ClientView } from './components/ClientView';
@@ -31,6 +37,15 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // MFA auth flow
+  type AuthStep = 'signin' | 'mfa-totp' | 'mfa-setup';
+  const [authStep, setAuthStep] = useState<AuthStep>('signin');
+  const [totpCode, setTotpCode] = useState('');
+  const [totpSecret, setTotpSecret] = useState('');
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [setupIsConfirmSignIn, setSetupIsConfirmSignIn] = useState(false);
 
   // Consultant client-switcher
   const [myClients, setMyClients] = useState<AssignedClient[]>([]);
@@ -103,18 +118,93 @@ export default function App() {
     }
   }
 
+  async function checkAndCompleteSignIn() {
+    const attrs = await fetchUserAttributes();
+    const role = attrs['custom:role'] ?? 'client';
+    if (!ADMIN_ROLES.has(role)) {
+      const mfaPref = await fetchMFAPreference();
+      const hasTOTP = mfaPref.preferred === 'TOTP' || (mfaPref.enabled ?? []).includes('TOTP');
+      if (!hasTOTP) {
+        const details = await setUpTOTP();
+        const uri = details.getSetupUri('Lumina', attrs.email ?? '');
+        setTotpSecret(details.sharedSecret);
+        setQrDataUrl(await QRCode.toDataURL(uri.toString(), { width: 200, margin: 2 }));
+        setSetupIsConfirmSignIn(false);
+        setTotpCode('');
+        setError(null);
+        setAuthStep('mfa-setup');
+        return;
+      }
+    }
+    await refreshMe();
+  }
+
   async function onSignIn(e: React.FormEvent) {
     e.preventDefault();
     setSigningIn(true);
     setError(null);
     try {
-      await signIn({ username: email, password });
-      await refreshMe();
+      const { nextStep } = await signIn({ username: email, password });
+      if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
+        setTotpCode('');
+        setError(null);
+        setAuthStep('mfa-totp');
+      } else if (nextStep.signInStep === 'CONTINUE_SIGN_IN_WITH_TOTP_SETUP') {
+        const uri = nextStep.totpSetupDetails.getSetupUri('Lumina', email);
+        setTotpSecret(nextStep.totpSetupDetails.sharedSecret);
+        setQrDataUrl(await QRCode.toDataURL(uri.toString(), { width: 200, margin: 2 }));
+        setSetupIsConfirmSignIn(true);
+        setTotpCode('');
+        setError(null);
+        setAuthStep('mfa-setup');
+      } else {
+        await checkAndCompleteSignIn();
+      }
     } catch (err: any) {
       setError(err.message || String(err));
     } finally {
       setSigningIn(false);
     }
+  }
+
+  async function onConfirmTotp(e: React.FormEvent) {
+    e.preventDefault();
+    setMfaBusy(true);
+    setError(null);
+    try {
+      await confirmSignIn({ challengeResponse: totpCode });
+      await refreshMe();
+    } catch (err: any) {
+      setError(err.message || String(err));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function onVerifySetup(e: React.FormEvent) {
+    e.preventDefault();
+    setMfaBusy(true);
+    setError(null);
+    try {
+      if (setupIsConfirmSignIn) {
+        await confirmSignIn({ challengeResponse: totpCode });
+      } else {
+        await verifyTOTPSetup({ code: totpCode });
+        await updateMFAPreference({ totp: 'PREFERRED' });
+      }
+      await refreshMe();
+    } catch (err: any) {
+      setError(err.message || String(err));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function onCancelMfa() {
+    try { await signOut(); } catch {}
+    setAuthStep('signin');
+    setTotpCode('');
+    setError(null);
   }
 
   async function onSignOut() {
@@ -125,6 +215,11 @@ export default function App() {
     setActiveClient(null);
     setPreview({ view: 'admin' });
     setAllClients([]);
+    setAuthStep('signin');
+    setTotpCode('');
+    setTotpSecret('');
+    setQrDataUrl('');
+    setError(null);
   }
 
   if (!authReady) {
@@ -263,55 +358,168 @@ export default function App() {
               <span className="font-semibold text-slate-900">Lumina</span>
             </div>
 
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
-              <p className="text-slate-500 text-sm mt-1">Sign in to your workspace</p>
-            </div>
-
-            <form onSubmit={onSignIn} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-300 transition-shadow"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-shadow"
-                  required
-                />
-              </div>
-
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 text-sm text-red-700 flex items-start gap-2">
-                  <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {error}
+            {/* ── Step 1: Email + Password ── */}
+            {authStep === 'signin' && (
+              <>
+                <div className="mb-8">
+                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
+                  <p className="text-slate-500 text-sm mt-1">Sign in to your workspace</p>
                 </div>
-              )}
+                <form onSubmit={onSignIn} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      placeholder="you@company.com"
+                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-300 transition-shadow"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-shadow"
+                      required
+                    />
+                  </div>
+                  {error && <MfaError message={error} />}
+                  <button
+                    type="submit"
+                    disabled={signingIn}
+                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors mt-1"
+                  >
+                    {signingIn ? 'Signing in…' : 'Sign in'}
+                  </button>
+                </form>
+                <p className="text-xs text-slate-400 mt-8 text-center">
+                  Need access? Contact your project administrator.
+                </p>
+              </>
+            )}
 
-              <button
-                type="submit"
-                disabled={signingIn}
-                className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors mt-1"
-              >
-                {signingIn ? 'Signing in…' : 'Sign in'}
-              </button>
-            </form>
+            {/* ── Step 2: Enter TOTP code (already configured) ── */}
+            {authStep === 'mfa-totp' && (
+              <>
+                <div className="flex flex-col items-center mb-8">
+                  <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-6 h-6 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">Two-factor authentication</h2>
+                  <p className="text-slate-500 text-sm mt-1 text-center">Enter the 6-digit code from your authenticator app.</p>
+                </div>
+                <form onSubmit={onConfirmTotp} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Authentication code</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={totpCode}
+                      onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="000000"
+                      autoFocus
+                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-2xl font-mono tracking-[0.5em] text-center focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-200 transition-shadow"
+                      required
+                    />
+                  </div>
+                  {error && <MfaError message={error} />}
+                  <button
+                    type="submit"
+                    disabled={mfaBusy || totpCode.length < 6}
+                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors"
+                  >
+                    {mfaBusy ? 'Verifying…' : 'Verify'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCancelMfa}
+                    className="w-full text-sm text-slate-500 hover:text-slate-800 py-1.5 transition-colors"
+                  >
+                    ← Back to sign in
+                  </button>
+                </form>
+              </>
+            )}
 
-            <p className="text-xs text-slate-400 mt-8 text-center">
-              Need access? Contact your project administrator.
-            </p>
+            {/* ── Step 3: Forced TOTP setup ── */}
+            {authStep === 'mfa-setup' && (
+              <>
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900 tracking-tight">Secure your account</h2>
+                      <p className="text-slate-500 text-xs">MFA is required for your role</p>
+                    </div>
+                  </div>
+                  <p className="text-slate-600 text-sm leading-relaxed">
+                    Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code below.
+                  </p>
+                </div>
+
+                {qrDataUrl && (
+                  <div className="flex justify-center mb-4">
+                    <div className="border border-slate-200 rounded-xl p-3 bg-white shadow-sm">
+                      <img src={qrDataUrl} alt="TOTP QR code" width={180} height={180} />
+                    </div>
+                  </div>
+                )}
+
+                {totpSecret && (
+                  <div className="mb-5">
+                    <p className="text-xs text-slate-400 mb-1.5">Can't scan? Enter this key manually:</p>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-mono text-xs text-slate-700 tracking-widest break-all select-all">
+                      {totpSecret.match(/.{1,4}/g)?.join(' ') ?? totpSecret}
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={onVerifySetup} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Enter the 6-digit code to verify</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={totpCode}
+                      onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="000000"
+                      autoFocus
+                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-2xl font-mono tracking-[0.5em] text-center focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-200 transition-shadow"
+                      required
+                    />
+                  </div>
+                  {error && <MfaError message={error} />}
+                  <button
+                    type="submit"
+                    disabled={mfaBusy || totpCode.length < 6}
+                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors"
+                  >
+                    {mfaBusy ? 'Activating…' : 'Activate two-factor authentication'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCancelMfa}
+                    className="w-full text-sm text-slate-500 hover:text-slate-800 py-1.5 transition-colors"
+                  >
+                    ← Back to sign in
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -593,6 +801,17 @@ function ConsultantHome({
         </div>
 
       </div>
+    </div>
+  );
+}
+
+function MfaError({ message }: { message: string }) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 text-sm text-red-700 flex items-start gap-2">
+      <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      {message}
     </div>
   );
 }
