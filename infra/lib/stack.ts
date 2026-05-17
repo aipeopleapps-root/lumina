@@ -272,6 +272,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const sowValidateFn = makeFn('SowValidateFn', 'sow_validate', 90);
     const changeImpactFn = makeFn('ChangeImpactFn', 'change_impact', 60);
     const generateTestsFn = makeFn('GenerateTestsFn', 'generate_tests', 120);
+    const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
 
     // Bootstrap — runs on every deploy, idempotent
     const bootstrapFn = makeFn('BootstrapFn', 'bootstrap', 120);
@@ -459,6 +460,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/test-scripts/generate',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('GenerateTestsInt', generateTestsFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/status-report/generate',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('StatusReportInt', statusReportFn),
       authorizer,
     });
 

@@ -143,8 +143,12 @@ def handler(event, context):
     now_iso = datetime.now(timezone.utc).isoformat()
     chunks = _chunk_test_script(test_cases, new_doc_id, script_name, source_module, source_folder, s3_key, now_iso)
 
-    for c in chunks:
-        c["embedding"] = bedrock.embed(c["text"])
+    try:
+        for c in chunks:
+            c["embedding"] = bedrock.embed(c["text"])
+    except Exception as e:
+        log.error("generate_tests embedding error: %s", e, exc_info=True)
+        return http.server_error(f"Embedding failed: {e}")
 
     indexed = vectors.index_chunks(ctx, chunks)
 

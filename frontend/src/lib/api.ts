@@ -353,3 +353,54 @@ export async function generateTestScripts(
 ): Promise<GenerateTestsResponse> {
   return api.post('/test-scripts/generate', { source_doc_id: sourceDocId, test_type: testType });
 }
+
+// Weekly Status Report
+export interface StatusWorkstream {
+  name: string;
+  status: 'green' | 'yellow' | 'red';
+  summary: string;
+  completed_this_week: string[];
+  in_progress: string[];
+  risks: string[];
+  detail: string;
+}
+
+export interface StatusDecision {
+  decision: string;
+  owner: string;
+  deadline: string;
+  impact_if_delayed: string;
+}
+
+export interface StatusRisk {
+  severity: 'high' | 'medium';
+  risk: string;
+  mitigation: string;
+}
+
+export interface StatusMilestone {
+  milestone: string;
+  due: string;
+  status: 'on_track' | 'at_risk' | 'delayed';
+}
+
+export interface StatusReportResponse {
+  doc_id: string;
+  report_name: string;
+  week_ending: string;
+  overall_status: 'green' | 'yellow' | 'red';
+  overall_status_reason: string;
+  exec_summary: string;
+  highlights: string[];
+  workstreams: StatusWorkstream[];
+  decisions_needed: StatusDecision[];
+  key_risks: StatusRisk[];
+  upcoming_milestones: StatusMilestone[];
+  next_week_focus: string[];
+  model_id: string;
+  latency_ms: number;
+}
+
+export async function generateStatusReport(weekEnding?: string): Promise<StatusReportResponse> {
+  return api.post('/status-report/generate', weekEnding ? { week_ending: weekEnding } : {});
+}
