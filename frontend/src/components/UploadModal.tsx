@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { ingestDoc, api } from '../lib/api';
+import { SectionIcon } from './SectionIcon';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
-// Keyword hints per folder type — only strong/distinctive patterns
+// Keyword hints per category name — only strong/distinctive patterns
 const FOLDER_HINTS: [string, string[]][] = [
   ['Configuration Workbooks', ['config', 'workbook', 'wb_', '_wb.', 'hcm_wb', 'payroll_wb', 'benefit_wb']],
   ['Business Process Documents', ['bpd', '_bpd', 'business_process', 'process_flow', 'workflow_']],
@@ -12,24 +13,40 @@ const FOLDER_HINTS: [string, string[]][] = [
   ['Training', ['training_', '_training', 'job_aid', 'jobaid', 'user_guide', 'quick_ref']],
   ['Data Migration', ['migration_', '_migration', 'cutover_', 'data_conv', 'legacy_data']],
   ['Project Management', ['status_report', 'project_plan', 'charter_', 'weekly_status']],
+  ['Status Reports', ['status_report', 'weekly_status', 'weekly_report']],
 ];
 
-function detectMismatch(filename: string, selectedFolderName: string): string | null {
+function detectMismatch(filename: string, selectedName: string): string | null {
   const lower = filename.toLowerCase().replace(/[\s-]/g, '_');
-  for (const [folderName, hints] of FOLDER_HINTS) {
-    if (folderName === selectedFolderName) continue;
-    if (hints.some(h => lower.includes(h))) return folderName;
+  for (const [catName, hints] of FOLDER_HINTS) {
+    if (catName === selectedName) continue;
+    if (hints.some(h => lower.includes(h))) return catName;
   }
   return null;
 }
 
+// Virtual categories that always appear, with explicit doc_type
+const VIRTUAL_CATEGORIES = [
+  { id: 'sow',           name: 'Statement of Work', docType: 'sow',           subfolders: [] },
+  { id: 'test-script',   name: 'Test Scripts',       docType: 'test-script',   subfolders: [] },
+  { id: 'status-report', name: 'Status Reports',     docType: 'status-report', subfolders: [] },
+] as const;
+
+const VIRTUAL_NAMES = new Set<string>(VIRTUAL_CATEGORIES.map(c => c.name));
+
 function docTypeFromFolderName(folderName: string): string {
   const n = folderName.toLowerCase();
-  if (n.includes('statement') || n.includes('sow')) return 'sow';
   if (n.includes('configuration') || n.includes('workbook')) return 'config-workbook';
   if (n.includes('test')) return 'test-script';
   if (n.includes('status') || n.includes('report')) return 'status-report';
   return 'document';
+}
+
+interface Category {
+  id: string;
+  name: string;
+  docType: string;
+  subfolders: readonly { id: string; name: string }[] | { id: string; name: string }[];
 }
 
 interface Props {
@@ -41,7 +58,7 @@ interface Props {
 export function UploadModal({ template, onClose, onUploaded }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Category | null>(null);
   const [selectedSubfolder, setSelectedSubfolder] = useState('');
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
   const [confirmedMismatch, setConfirmedMismatch] = useState(false);
@@ -50,35 +67,54 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedFolderObj = template.folders.find(f => f.name === selectedFolder);
+  // Build unified category list: SOW first, then template folders, then Test Scripts + Status Reports
+  const allCategories: Category[] = [
+    { ...VIRTUAL_CATEGORIES[0] },
+    ...template.folders
+      .filter(f => !VIRTUAL_NAMES.has(f.name))
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        docType: docTypeFromFolderName(f.name),
+        subfolders: f.subfolders,
+      })),
+    { ...VIRTUAL_CATEGORIES[1] },
+    { ...VIRTUAL_CATEGORIES[2] },
+  ];
 
   function handleFile(f: File) {
     setFile(f);
     setMismatchWarning(null);
     setConfirmedMismatch(false);
-    if (selectedFolder) {
-      const mismatch = detectMismatch(f.name, selectedFolder);
+    if (selected) {
+      const mismatch = detectMismatch(f.name, selected.name);
       if (mismatch) setMismatchWarning(mismatch);
     }
   }
 
-  function handleFolderSelect(folderName: string) {
-    setSelectedFolder(folderName);
+  function handleCategorySelect(cat: Category) {
+    setSelected(cat);
     setSelectedSubfolder('');
     setMismatchWarning(null);
     setConfirmedMismatch(false);
     if (file) {
-      const mismatch = detectMismatch(file.name, folderName);
+      const mismatch = detectMismatch(file.name, cat.name);
       if (mismatch) setMismatchWarning(mismatch);
     }
   }
 
+  function switchToCategory(name: string) {
+    const cat = allCategories.find(c => c.name === name);
+    if (cat) handleCategorySelect(cat);
+    setMismatchWarning(null);
+  }
+
   async function handleUpload() {
-    if (!file || !selectedFolder) return;
+    if (!file || !selected) return;
     setError(null);
     const folderPath = selectedSubfolder
-      ? `/${selectedFolder}/${selectedSubfolder}`
-      : `/${selectedFolder}`;
+      ? `/${selected.name}/${selectedSubfolder}`
+      : `/${selected.name}`;
 
     try {
       setUploading(true);
@@ -96,9 +132,9 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
       await ingestDoc({
         s3_key: uploadUrl.key,
         doc_id: crypto.randomUUID(),
-        doc_type: docTypeFromFolderName(selectedFolder),
+        doc_type: selected.docType,
         source_name: file.name,
-        module: selectedFolder,
+        module: selected.name,
         folder_path: folderPath,
       });
       onUploaded();
@@ -110,7 +146,7 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
     }
   }
 
-  const canUpload = !!file && !!selectedFolder && !uploading && (!mismatchWarning || confirmedMismatch);
+  const canUpload = !!file && !!selected && !uploading && (!mismatchWarning || confirmedMismatch);
 
   return (
     <div
@@ -167,7 +203,11 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
               />
               {file ? (
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl flex-shrink-0">📄</span>
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                  </div>
                   <div className="flex-1 min-w-0 text-left">
                     <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
                     <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</p>
@@ -185,8 +225,12 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-1.5 text-center">
-                  <span className="text-3xl">📁</span>
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                    <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                  </div>
                   <p className="text-sm text-slate-600">
                     <span className="font-medium text-slate-800">Drop a file</span> or click to browse
                   </p>
@@ -202,25 +246,27 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
               2 — Tag to category
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {template.folders.map(folder => (
+              {allCategories.map(cat => (
                 <button
-                  key={folder.id}
-                  onClick={() => handleFolderSelect(folder.name)}
-                  className={`flex items-start gap-2.5 px-3 py-3 rounded-xl border text-left transition-all ${
-                    selectedFolder === folder.name
-                      ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500'
-                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  key={cat.id}
+                  onClick={() => handleCategorySelect(cat)}
+                  className={`flex items-center gap-2.5 px-3 py-3 rounded-xl border text-left transition-all ${
+                    selected?.id === cat.id
+                      ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500 text-indigo-600'
+                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-500'
                   }`}
                 >
-                  <span className="text-lg leading-none mt-0.5 flex-shrink-0">{folder.icon}</span>
-                  <span className="text-xs font-medium text-slate-700 leading-snug">{folder.name}</span>
+                  <SectionIcon name={cat.name} className="w-4 h-4 flex-shrink-0" />
+                  <span className={`text-xs font-medium leading-snug ${selected?.id === cat.id ? 'text-indigo-700' : 'text-slate-700'}`}>
+                    {cat.name}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
 
           {/* Step 3: Sub-folder */}
-          {selectedFolderObj && selectedFolderObj.subfolders.length > 0 && (
+          {selected && selected.subfolders.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2.5">
                 3 — Sub-folder{' '}
@@ -231,10 +277,10 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                 onChange={e => setSelectedSubfolder(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option value="">/{selectedFolder} (root)</option>
-                {selectedFolderObj.subfolders.map(sf => (
+                <option value="">/{selected.name} (root)</option>
+                {selected.subfolders.map(sf => (
                   <option key={sf.id} value={sf.name}>
-                    /{selectedFolder}/{sf.name}
+                    /{selected.name}/{sf.name}
                   </option>
                 ))}
               </select>
@@ -245,17 +291,19 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
           {mismatchWarning && !confirmedMismatch && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3.5">
               <div className="flex items-start gap-2.5">
-                <span className="text-amber-500 text-base flex-shrink-0 mt-0.5">⚠</span>
+                <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-amber-800 mb-1">Possible category mismatch</p>
                   <p className="text-xs text-amber-700 leading-relaxed">
                     The filename suggests this might be a{' '}
                     <span className="font-semibold">{mismatchWarning}</span> document, but
-                    you've selected <span className="font-semibold">{selectedFolder}</span>.
+                    you've selected <span className="font-semibold">{selected?.name}</span>.
                   </p>
                   <div className="flex gap-2 mt-3">
                     <button
-                      onClick={() => { setMismatchWarning(null); handleFolderSelect(mismatchWarning); }}
+                      onClick={() => switchToCategory(mismatchWarning)}
                       className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                     >
                       Switch to {mismatchWarning}
@@ -264,7 +312,7 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                       onClick={() => setConfirmedMismatch(true)}
                       className="px-3 py-1.5 text-xs font-medium bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors"
                     >
-                      Keep {selectedFolder}
+                      Keep {selected?.name}
                     </button>
                   </div>
                 </div>
@@ -300,13 +348,13 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between flex-shrink-0">
           <p className="text-xs text-slate-400">
-            {selectedFolder ? (
+            {selected ? (
               <>
                 Saving to{' '}
                 <span className="font-medium text-slate-600">
                   {selectedSubfolder
-                    ? `/${selectedFolder}/${selectedSubfolder}`
-                    : `/${selectedFolder}`}
+                    ? `/${selected.name}/${selectedSubfolder}`
+                    : `/${selected.name}`}
                 </span>
               </>
             ) : (
