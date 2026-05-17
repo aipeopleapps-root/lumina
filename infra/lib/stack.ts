@@ -186,6 +186,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
           'cognito-idp:AdminEnableUser',
           'cognito-idp:AdminResetUserPassword',
           'cognito-idp:AdminUpdateUserAttributes',
+          'cognito-idp:AdminSetUserMFAPreference',
           'cognito-idp:ListUsers',
         ],
         resources: [userPool.userPoolArn],
@@ -272,6 +273,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminArchiveClientFn = makeFn('AdminArchiveClientFn', 'admin_archive_client', 15);
     const adminManageUserFn = makeFn('AdminManageUserFn', 'admin_manage_user', 15);
     const sowValidateFn = makeFn('SowValidateFn', 'sow_validate', 90);
+    const adminUpdateUserFn = makeFn('AdminUpdateUserFn', 'admin_update_user', 15);
+    const mfaResetRequestFn = makeFn('MfaResetRequestFn', 'mfa_reset_request', 15);
     const changeImpactFn = makeFn('ChangeImpactFn', 'change_impact', 60);
     const generateTestsFn = makeFn('GenerateTestsFn', 'generate_tests', 120);
     const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
@@ -468,6 +471,25 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/status-report/generate',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('StatusReportInt', statusReportFn),
+      authorizer,
+    });
+
+    httpApi.addRoutes({
+      path: '/admin/update-user',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminUpdateUserInt', adminUpdateUserFn),
+      authorizer,
+    });
+    // Public — no authorizer: user is stuck at MFA challenge so has no full JWT
+    httpApi.addRoutes({
+      path: '/mfa/request-reset',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('MfaResetRequestInt', mfaResetRequestFn),
+    });
+    httpApi.addRoutes({
+      path: '/admin/mfa-reset-requests',
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('AdminMfaResetRequestsInt', mfaResetRequestFn),
       authorizer,
     });
 

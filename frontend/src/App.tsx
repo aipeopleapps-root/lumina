@@ -11,6 +11,7 @@ import {
   fetchMFAPreference,
 } from 'aws-amplify/auth';
 import QRCode from 'qrcode';
+import { requestMfaReset } from './lib/api';
 import ConsultantPanel from './components/ConsultantPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { ClientView } from './components/ClientView';
@@ -48,6 +49,7 @@ export default function App() {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [mfaBusy, setMfaBusy] = useState(false);
   const [setupIsConfirmSignIn, setSetupIsConfirmSignIn] = useState(false);
+  const [resetRequested, setResetRequested] = useState(false);
 
   // Consultant client-switcher
   const [myClients, setMyClients] = useState<AssignedClient[]>([]);
@@ -57,11 +59,31 @@ export default function App() {
   const [preview, setPreview] = useState<PreviewMode>({ view: 'admin' });
   const [allClients, setAllClients] = useState<AssignedClient[]>([]);
 
+  async function beginForcedSetup(userEmail: string) {
+    const details = await setUpTOTP();
+    const uri = details.getSetupUri('Lumina', userEmail);
+    setTotpSecret(details.sharedSecret);
+    setQrDataUrl(await QRCode.toDataURL(uri.toString(), { width: 200, margin: 2 }));
+    setSetupIsConfirmSignIn(false);
+    setTotpCode('');
+    setError(null);
+    setAuthStep('mfa-setup');
+  }
+
   async function refreshMe() {
     try {
       await getCurrentUser();
       const attrs = await fetchUserAttributes();
       const role = attrs['custom:role'] ?? 'client';
+      // Enforce MFA for non-admin roles on every session load
+      if (!ADMIN_ROLES.has(role)) {
+        const mfaPref = await fetchMFAPreference();
+        const hasTOTP = mfaPref.preferred === 'TOTP' || (mfaPref.enabled ?? []).includes('TOTP');
+        if (!hasTOTP) {
+          await beginForcedSetup(attrs.email ?? '');
+          return;
+        }
+      }
       setMe({
         email: attrs.email ?? '',
         tenantId: attrs['custom:tenant_id'] ?? '(none)',
@@ -129,14 +151,7 @@ export default function App() {
       const mfaPref = await fetchMFAPreference();
       const hasTOTP = mfaPref.preferred === 'TOTP' || (mfaPref.enabled ?? []).includes('TOTP');
       if (!hasTOTP) {
-        const details = await setUpTOTP();
-        const uri = details.getSetupUri('Lumina', attrs.email ?? '');
-        setTotpSecret(details.sharedSecret);
-        setQrDataUrl(await QRCode.toDataURL(uri.toString(), { width: 200, margin: 2 }));
-        setSetupIsConfirmSignIn(false);
-        setTotpCode('');
-        setError(null);
-        setAuthStep('mfa-setup');
+        await beginForcedSetup(attrs.email ?? '');
         return;
       }
     }
@@ -209,6 +224,19 @@ export default function App() {
     setAuthStep('signin');
     setTotpCode('');
     setError(null);
+    setResetRequested(false);
+  }
+
+  async function onRequestMfaReset() {
+    setMfaBusy(true);
+    try {
+      await requestMfaReset(email);
+      setResetRequested(true);
+    } catch {
+      setResetRequested(true); // show confirmation regardless to avoid email enumeration
+    } finally {
+      setMfaBusy(false);
+    }
   }
 
   async function onSignOut() {
@@ -450,6 +478,25 @@ export default function App() {
                     ← Back to sign in
                   </button>
                 </form>
+
+                <div className="mt-6 pt-5 border-t border-slate-100">
+                  {resetRequested ? (
+                    <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-800 text-center">
+                      Reset request sent. An administrator will verify your identity and reset your MFA.
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-xs text-slate-400 mb-2">Lost access to your authenticator app?</p>
+                      <button
+                        onClick={onRequestMfaReset}
+                        disabled={mfaBusy}
+                        className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 disabled:opacity-50 transition-colors"
+                      >
+                        Request MFA Reset
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             )}
 

@@ -408,3 +408,44 @@ export interface StatusReportResponse {
 export async function generateStatusReport(weekEnding?: string): Promise<StatusReportResponse> {
   return api.post('/status-report/generate', weekEnding ? { week_ending: weekEnding } : {});
 }
+
+// User management
+export async function updateUser(params: {
+  email: string;
+  given_name?: string;
+  family_name?: string;
+  role?: string;
+  tenant_id?: string;
+}): Promise<void> {
+  await api.post('/admin/update-user', params);
+}
+
+export async function resetUserMfa(email: string): Promise<void> {
+  await api.post('/admin/manage-user', { email, action: 'reset_mfa' });
+}
+
+// MFA reset requests
+export interface MfaResetRequest {
+  email: string;
+  requested_at: string;
+  ip: string;
+}
+
+export async function getMfaResetRequests(): Promise<MfaResetRequest[]> {
+  const r = await api.get('/admin/mfa-reset-requests');
+  return r.requests ?? [];
+}
+
+export async function dismissMfaResetRequest(email: string): Promise<void> {
+  await api.post('/admin/mfa-reset-requests', { email, action: 'dismiss' });
+}
+
+// Public — no auth token needed (user is stuck at MFA challenge)
+export async function requestMfaReset(email: string): Promise<void> {
+  const response = await fetch(`${API_ENDPOINT}/mfa/request-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new Error('Failed to submit reset request');
+}

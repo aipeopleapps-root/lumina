@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import {
   listTenants, listUsers, listAssignments, createTenant, createUser,
   resetPassword, getAuditLog, assignConsultant, getCostSummary,
-  archiveClient, manageUser,
-  type AdminUser, type AuditEntry, type CostSummary,
+  archiveClient, manageUser, updateUser, resetUserMfa,
+  getMfaResetRequests, dismissMfaResetRequest,
+  type AdminUser, type AuditEntry, type CostSummary, type MfaResetRequest,
 } from '../lib/api';
 import { FolderTemplateSelector, type FolderTemplate } from './FolderTemplateSelector';
 import { api } from '../lib/api';
@@ -499,17 +500,30 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showReset, setShowReset] = useState<AdminUser | null>(null);
+  const [showEdit, setShowEdit] = useState<AdminUser | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdminUser | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [form, setForm] = useState({ email: '', given_name: '', family_name: '', tenant_id: '', role: 'consultant', temporary_password: 'TempPass123!' });
+  const [editForm, setEditForm] = useState({ given_name: '', family_name: '', role: '', tenant_id: '' });
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [mfaRequests, setMfaRequests] = useState<MfaResetRequest[]>([]);
+  const [mfaRequestsLoading, setMfaRequestsLoading] = useState(false);
+  const [actingMfa, setActingMfa] = useState<string | null>(null);
 
   useEffect(() => {
     load();
+    loadMfaRequests();
     listTenants().then(setClients).catch(() => {});
   }, []);
+
+  async function loadMfaRequests() {
+    setMfaRequestsLoading(true);
+    try { setMfaRequests(await getMfaResetRequests()); }
+    catch { setMfaRequests([]); }
+    finally { setMfaRequestsLoading(false); }
+  }
 
   async function load() {
     setLoading(true);
@@ -546,6 +560,52 @@ function UsersTab() {
     } catch (err: any) {
       alert(`Failed: ${err.message}`);
     } finally { setActing(null); }
+  }
+
+  async function handleEditSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!showEdit) return;
+    setSaving(true);
+    try {
+      await updateUser({ email: showEdit.email, ...editForm });
+      setUsers(prev => prev.map(u =>
+        u.sub === showEdit.sub ? { ...u, ...editForm } : u
+      ));
+      setShowEdit(null);
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setSaving(false); }
+  }
+
+  async function handleResetMfa(user: AdminUser) {
+    setActing(user.sub);
+    try {
+      await resetUserMfa(user.email);
+      alert(`MFA reset for ${user.email}. They will be prompted to set up MFA on next login.`);
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setActing(null); }
+  }
+
+  async function handleApproveMfaReset(email: string) {
+    setActingMfa(email);
+    try {
+      await resetUserMfa(email);
+      await dismissMfaResetRequest(email);
+      setMfaRequests(prev => prev.filter(r => r.email !== email));
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setActingMfa(null); }
+  }
+
+  async function handleDismissMfaRequest(email: string) {
+    setActingMfa(email);
+    try {
+      await dismissMfaResetRequest(email);
+      setMfaRequests(prev => prev.filter(r => r.email !== email));
+    } catch (err: any) {
+      alert(`Failed: ${err.message}`);
+    } finally { setActingMfa(null); }
   }
 
   const filtered = users.filter(u =>
@@ -619,12 +679,24 @@ function UsersTab() {
                       {isActing ? (
                         <span className="inline-block w-4 h-4 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
                       ) : (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => { setShowEdit(u); setEditForm({ given_name: u.given_name || '', family_name: u.family_name || '', role: u.role, tenant_id: u.tenant_id }); }}
+                            className="text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-2 py-1 hover:border-slate-400 transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleResetMfa(u)}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-1 hover:border-indigo-400 transition-colors"
+                          >
+                            Reset MFA
+                          </button>
                           <button
                             onClick={() => setShowReset(u)}
                             className="text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-2 py-1 hover:border-slate-400 transition-colors"
                           >
-                            Reset
+                            Reset PW
                           </button>
                           {u.enabled ? (
                             <button
@@ -733,6 +805,95 @@ function UsersTab() {
 
       {showReset && (
         <ResetPasswordModal user={showReset} onClose={() => setShowReset(null)} />
+      )}
+
+      {showEdit && (
+        <Modal title={`Edit User — ${showEdit.email}`} onClose={() => setShowEdit(null)}>
+          <form onSubmit={handleEditSave} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="First Name">
+                <input placeholder="Jane" value={editForm.given_name}
+                  onChange={e => setEditForm({ ...editForm, given_name: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+              </Field>
+              <Field label="Last Name">
+                <input placeholder="Smith" value={editForm.family_name}
+                  onChange={e => setEditForm({ ...editForm, family_name: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+              </Field>
+            </div>
+            <Field label="Role">
+              <select value={editForm.role} onChange={e => setEditForm({ ...editForm, role: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                <option value="client">Client</option>
+                <option value="consultant">Consultant</option>
+                <option value="project_admin">Project Admin</option>
+                <option value="security_admin">Security Admin</option>
+                <option value="admin">Admin</option>
+              </select>
+            </Field>
+            <Field label="Client">
+              <select value={editForm.tenant_id} onChange={e => setEditForm({ ...editForm, tenant_id: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                <option value="">Platform-level (no tenant)</option>
+                {clients.map(c => <option key={c.tenant_id} value={c.tenant_id}>{c.name} ({c.tenant_id})</option>)}
+              </select>
+            </Field>
+            <ModalActions onCancel={() => setShowEdit(null)} saving={saving} label="Save Changes" />
+          </form>
+        </Modal>
+      )}
+
+      {/* MFA Reset Requests */}
+      {(mfaRequests.length > 0 || mfaRequestsLoading) && (
+        <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-900">MFA Reset Requests</h3>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Verify the user's identity out-of-band before approving.
+              </p>
+            </div>
+            {mfaRequestsLoading && (
+              <div className="w-4 h-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin" />
+            )}
+          </div>
+          <div className="divide-y divide-slate-100">
+            {mfaRequests.map(req => {
+              const isActing = actingMfa === req.email;
+              const ts = req.requested_at ? new Date(req.requested_at) : null;
+              return (
+                <div key={req.email} className="px-5 py-3 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-slate-900">{req.email}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      {ts ? ts.toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {req.ip && <span className="ml-2 font-mono">{req.ip}</span>}
+                    </div>
+                  </div>
+                  {isActing ? (
+                    <span className="inline-block w-4 h-4 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleApproveMfaReset(req.email)}
+                        className="text-xs text-green-700 hover:text-green-900 border border-green-300 rounded px-3 py-1 hover:border-green-500 transition-colors font-medium"
+                      >
+                        Approve Reset
+                      </button>
+                      <button
+                        onClick={() => handleDismissMfaRequest(req.email)}
+                        className="text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded px-3 py-1 hover:border-slate-400 transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );

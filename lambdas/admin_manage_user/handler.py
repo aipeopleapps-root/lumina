@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 _USER_POOL_ID = os.environ["USER_POOL_ID"]
 _cognito = boto3.client("cognito-idp")
 
-_ACTIONS = {"disable", "enable", "delete"}
+_ACTIONS = {"disable", "enable", "delete", "reset_mfa"}
 
 
 def handler(event, context):
@@ -42,7 +42,7 @@ def handler(event, context):
     if not email:
         return http.bad_request("email is required")
     if action not in _ACTIONS:
-        return http.bad_request("action must be 'disable', 'enable', or 'delete'")
+        return http.bad_request("action must be 'disable', 'enable', 'delete', or 'reset_mfa'")
 
     # Prevent self-modification
     if ctx.email and ctx.email == email:
@@ -58,6 +58,15 @@ def handler(event, context):
             _cognito.admin_enable_user(UserPoolId=_USER_POOL_ID, Username=email)
             audit_action = "admin.user_enable"
             msg = f"{email} has been re-enabled."
+
+        elif action == "reset_mfa":
+            _cognito.admin_set_user_mfa_preference(
+                UserPoolId=_USER_POOL_ID,
+                Username=email,
+                SoftwareTokenMfaSettings={"Enabled": False, "PreferredMfa": False},
+            )
+            audit_action = "admin.mfa_reset"
+            msg = f"MFA has been reset for {email}. They will be prompted to set up MFA on next login."
 
         else:  # delete
             _cognito.admin_delete_user(UserPoolId=_USER_POOL_ID, Username=email)
