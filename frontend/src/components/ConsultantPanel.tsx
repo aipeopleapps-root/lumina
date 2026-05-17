@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse } from '../lib/api';
+import { ingestDoc, analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream } from '../lib/api';
 import { FolderPicker } from './FolderPicker';
 import { FileExplorer } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
@@ -49,6 +49,8 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [validatingSow, setValidatingSow] = useState(false);
   const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
   const [generateTestsDoc, setGenerateTestsDoc] = useState<Document | null>(null);
+  const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
@@ -163,6 +165,25 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       setResultDocName(null);
     } finally {
       setValidatingSow(false);
+    }
+  }
+
+  async function onGenerateReport() {
+    setError(null);
+    setResult(null);
+    setSowResult(null);
+    setStatusReport(null);
+    setGeneratingReport(true);
+    setShowResults(true);
+    setShowUpload(false);
+    try {
+      const out = await generateStatusReport();
+      setStatusReport(out);
+      loadDocuments();
+    } catch (err: any) {
+      setError(err.message || String(err));
+    } finally {
+      setGeneratingReport(false);
     }
   }
 
@@ -331,14 +352,25 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
               <p className="text-xs text-slate-400 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
-          <button
-            onClick={loadDocuments}
-            disabled={docsLoading}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-          >
-            <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onGenerateReport}
+              disabled={generatingReport}
+              className="flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {generatingReport
+                ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating…</>
+                : <>📊 Weekly Report</>}
+            </button>
+            <button
+              onClick={loadDocuments}
+              disabled={docsLoading}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="p-5">
@@ -405,17 +437,20 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
       </div>
 
       {/* ── Panel 3: Results (analysis or SOW validation) ── */}
-      {(hasResults || showResults || validatingSow || sowResult) && (
-        <div className={`w-[420px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto transition-all ${showResults ? '' : 'hidden'}`}>
+      {(hasResults || showResults || validatingSow || sowResult || generatingReport || statusReport) && (
+        <div className={`w-[480px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto transition-all ${showResults ? '' : 'hidden'}`}>
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">
-                {sowResult || validatingSow ? 'SOW Validation' : 'AI Analysis'}
+                {statusReport || generatingReport ? 'Weekly Status Report'
+                  : sowResult || validatingSow ? 'SOW Validation'
+                  : 'AI Analysis'}
               </h2>
-              {resultDocName && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[280px]">{resultDocName}</p>}
+              {statusReport && <p className="text-xs text-violet-500 mt-0.5">Week ending {statusReport.week_ending}</p>}
+              {resultDocName && !statusReport && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[280px]">{resultDocName}</p>}
             </div>
             <button
-              onClick={() => { setShowResults(false); setSowResult(null); }}
+              onClick={() => { setShowResults(false); setSowResult(null); setStatusReport(null); }}
               title="Hide results"
               className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
             >
@@ -424,12 +459,14 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           </div>
 
           <div className="p-5 space-y-4">
-            {(analyzing || validatingSow) ? (
+            {(analyzing || validatingSow || generatingReport) ? (
               <div className="flex flex-col items-center justify-center py-16 gap-4">
-                <span className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                <span className={`w-8 h-8 border-2 rounded-full animate-spin ${generatingReport ? 'border-violet-200 border-t-violet-600' : 'border-indigo-200 border-t-indigo-600'}`} />
                 <div className="text-center">
                   <p className="text-sm font-medium text-slate-700">
-                    {validatingSow ? 'Validating against SOW…' : 'Analysing document…'}
+                    {validatingSow ? 'Validating against SOW…'
+                      : generatingReport ? 'Generating status report…'
+                      : 'Analysing document…'}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
                 </div>
@@ -462,6 +499,8 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                 </div>
                 <p className="text-xs text-slate-300 pt-2">Model: {sowResult.model_id}</p>
               </>
+            ) : statusReport ? (
+              <StatusReportPanel report={statusReport} />
             ) : result ? (
               <>
                 <div className="bg-slate-50 rounded-xl p-4">
@@ -727,6 +766,201 @@ function SowFindingCard({ f }: { f: SowFinding }) {
           <p className="text-xs text-slate-700">
             <span className="font-medium">Recommendation: </span>{f.recommendation}
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusReportPanel({ report }: { report: StatusReportResponse }) {
+  const sc = {
+    green:  { bg: 'bg-green-50',  border: 'border-green-200',  dot: 'bg-green-500',  text: 'text-green-700'  },
+    yellow: { bg: 'bg-amber-50',  border: 'border-amber-200',  dot: 'bg-amber-400',  text: 'text-amber-700'  },
+    red:    { bg: 'bg-red-50',    border: 'border-red-200',    dot: 'bg-red-500',    text: 'text-red-700'    },
+  }[report.overall_status] ?? { bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-400', text: 'text-amber-700' };
+
+  const statusLabel: Record<string, string> = { green: 'On Track', yellow: 'At Risk', red: 'Action Required' };
+
+  return (
+    <div className="space-y-5">
+      {/* RAG Status + Exec Summary */}
+      <div className={`rounded-xl border p-4 ${sc.bg} ${sc.border}`}>
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`w-3 h-3 rounded-full flex-shrink-0 ${sc.dot}`} />
+          <span className={`text-xs font-semibold uppercase tracking-wide ${sc.text}`}>
+            {statusLabel[report.overall_status] ?? report.overall_status} — {report.overall_status_reason}
+          </span>
+        </div>
+        <p className="text-sm text-slate-700 leading-relaxed">{report.exec_summary}</p>
+      </div>
+
+      {/* Highlights */}
+      {report.highlights.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Highlights</p>
+          <ul className="space-y-1.5">
+            {report.highlights.map((h, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" />
+                <span className="text-xs text-slate-700 leading-relaxed">{h}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Workstreams */}
+      {report.workstreams.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+            Workstreams <span className="text-slate-400 normal-case font-normal">({report.workstreams.length})</span>
+          </p>
+          <div className="space-y-2">
+            {report.workstreams.map((ws, i) => <WorkstreamCard key={i} ws={ws} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Decisions Needed */}
+      {report.decisions_needed.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Decisions Needed</p>
+          <div className="space-y-2">
+            {report.decisions_needed.map((d, i) => (
+              <div key={i} className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2.5">
+                <p className="text-xs font-medium text-slate-800 mb-1.5">{d.decision}</p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <span>Owner: <span className="font-medium text-slate-700">{d.owner}</span></span>
+                  <span>By: <span className="font-medium text-slate-700">{d.deadline}</span></span>
+                </div>
+                {d.impact_if_delayed && (
+                  <p className="text-xs text-amber-700 mt-1.5">⚠ {d.impact_if_delayed}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Key Risks */}
+      {report.key_risks.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Key Risks</p>
+          <div className="space-y-2">
+            {report.key_risks.map((r, i) => (
+              <div key={i} className={`rounded-lg px-3 py-2.5 border ${r.severity === 'high' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                <div className="flex items-start gap-2 mb-1">
+                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${r.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {r.severity}
+                  </span>
+                  <span className="text-xs font-medium text-slate-800 leading-snug">{r.risk}</span>
+                </div>
+                <p className="text-xs text-slate-600 pl-0">Mitigation: {r.mitigation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming Milestones */}
+      {report.upcoming_milestones.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Upcoming Milestones</p>
+          <div className="space-y-1.5">
+            {report.upcoming_milestones.map((m, i) => {
+              const icon = { on_track: '✓', at_risk: '⚠', delayed: '✗' }[m.status] ?? '→';
+              const cls  = { on_track: 'text-green-600', at_risk: 'text-amber-600', delayed: 'text-red-600' }[m.status] ?? 'text-slate-500';
+              return (
+                <div key={i} className="flex items-center gap-2.5">
+                  <span className={`text-sm font-bold flex-shrink-0 ${cls}`}>{icon}</span>
+                  <span className="text-xs text-slate-700 flex-1">{m.milestone}</span>
+                  <span className="text-xs text-slate-400 flex-shrink-0">{m.due}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Next Week Focus */}
+      {report.next_week_focus.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Next Week Focus</p>
+          <ul className="space-y-1.5">
+            {report.next_week_focus.map((f, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="text-violet-400 text-xs mt-0.5 flex-shrink-0">→</span>
+                <span className="text-xs text-slate-700">{f}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="text-xs text-slate-300 pt-2">Model: {report.model_id} · {report.latency_ms}ms</p>
+    </div>
+  );
+}
+
+function WorkstreamCard({ ws }: { ws: StatusWorkstream }) {
+  const [open, setOpen] = useState(false);
+  const dotColors: Record<string, string> = { green: 'bg-green-500', yellow: 'bg-amber-400', red: 'bg-red-500' };
+
+  return (
+    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors"
+      >
+        <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColors[ws.status] ?? 'bg-slate-400'}`} />
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-medium text-slate-800 leading-snug">{ws.name}</span>
+          {!open && <p className="text-xs text-slate-400 mt-0.5 truncate">{ws.summary}</p>}
+        </div>
+        <span className="text-xs text-slate-400 flex-shrink-0 mt-0.5">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-2">
+          <p className="text-xs text-slate-600 leading-relaxed">{ws.summary}</p>
+          {ws.completed_this_week.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">Completed this week</p>
+              <ul className="space-y-0.5">
+                {ws.completed_this_week.map((item, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-700">
+                    <span className="text-green-500 mt-0.5 flex-shrink-0">✓</span>{item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {ws.in_progress.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">In progress</p>
+              <ul className="space-y-0.5">
+                {ws.in_progress.map((item, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-700">
+                    <span className="text-blue-400 mt-0.5 flex-shrink-0">→</span>{item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {ws.risks.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">Risks</p>
+              <ul className="space-y-0.5">
+                {ws.risks.map((risk, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700">
+                    <span className="mt-0.5 flex-shrink-0">⚠</span>{risk}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {ws.detail && (
+            <p className="text-xs text-slate-500 leading-relaxed border-t border-slate-100 pt-2">{ws.detail}</p>
+          )}
         </div>
       )}
     </div>
