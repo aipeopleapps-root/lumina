@@ -186,7 +186,11 @@ def handler(event, context):
         "created_at": now_iso,
         "text": report_text[:8000],  # truncate for embedding
     }
-    chunk["embedding"] = bedrock.embed(chunk["text"])
+    try:
+        chunk["embedding"] = bedrock.embed(chunk["text"])
+    except Exception as e:
+        log.warning("status_report embedding failed (non-fatal): %s", e)
+        chunk["embedding"] = []
     vectors.index_chunks(ctx, [chunk])
 
     audit_events.write(
