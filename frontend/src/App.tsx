@@ -789,7 +789,7 @@ export default function App() {
         {isAdmin && preview.view === 'admin' && <AdminPanel role={me.role} />}
 
         {isAdmin && preview.view === 'consultant' && (
-          <ConsultantPanel role="consultant" tenantId={(preview as any).tenant.tenant_id} />
+          <ConsultantPanel role="consultant" tenantId={(preview as any).tenant.tenant_id} clientName={(preview as any).tenant.name} />
         )}
 
         {isAdmin && preview.view === 'client' && (
@@ -801,7 +801,7 @@ export default function App() {
         {isConsultant && (
           activeClient ? (
             <div className="h-full flex flex-col overflow-hidden">
-              <ConsultantPanel role={me.role} tenantId={activeClient.tenant_id} />
+              <ConsultantPanel role={me.role} tenantId={activeClient.tenant_id} clientName={activeClient.name} />
             </div>
           ) : (
             <ConsultantHome

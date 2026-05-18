@@ -20,9 +20,9 @@ interface Document {
   published?: boolean;
 }
 
-type Props = { role: string; tenantId: string };
+type Props = { role: string; tenantId: string; clientName?: string };
 
-export default function ConsultantPanel({ role, tenantId }: Props) {
+export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [folderTemplate, setFolderTemplate] = useState<FolderTemplate | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
@@ -225,15 +225,21 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         >
           PolicyBot
         </button>
+        {clientName && (
+          <div className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#86BC25]" />
+            <span className="font-medium text-slate-600">{clientName}</span>
+          </div>
+        )}
       </div>
 
       {activeTab === 'policy' ? (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <PolicyAdvisor policyDocs={policyDocs} />
+          <PolicyAdvisor policyDocs={policyDocs} clientName={clientName} />
         </div>
       ) : activeTab === 'coach' ? (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ConsultantChat />
+          <ConsultantChat clientName={clientName} />
         </div>
       ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">

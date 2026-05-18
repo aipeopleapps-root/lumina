@@ -80,7 +80,7 @@ function MarkdownMessage({ content }: { content: string }) {
   return <div className="space-y-0.5">{elements}</div>;
 }
 
-export function ConsultantChat() {
+export function ConsultantChat({ clientName }: { clientName?: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -126,7 +126,9 @@ export function ConsultantChat() {
         </div>
         <div>
           <p className="text-sm font-semibold text-gray-900">Consultant Coach</p>
-          <p className="text-xs text-gray-400">Workday solutioning & delivery guidance</p>
+          <p className="text-xs text-gray-400">
+            {clientName ? `${clientName} — solutioning & delivery guidance` : 'Workday solutioning & delivery guidance'}
+          </p>
         </div>
       </div>
 

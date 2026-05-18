@@ -116,9 +116,10 @@ function AnswerCard({ parsed }: { parsed: ParsedAnswer }) {
 
 interface Props {
   policyDocs?: PolicyDoc[];
+  clientName?: string;
 }
 
-export function PolicyAdvisor({ policyDocs = [] }: Props) {
+export function PolicyAdvisor({ policyDocs = [], clientName }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -181,7 +182,9 @@ export function PolicyAdvisor({ policyDocs = [] }: Props) {
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">PolicyBot</p>
-            <p className="text-xs text-gray-400">Answers sourced from your uploaded policy documents</p>
+            <p className="text-xs text-gray-400">
+              {clientName ? `${clientName} — HR policy documents` : 'Answers sourced from your uploaded policy documents'}
+            </p>
           </div>
         </div>
 
