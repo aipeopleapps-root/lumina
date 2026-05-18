@@ -641,11 +641,11 @@ export default function App() {
   const isAdmin = ADMIN_ROLES.has(me.role);
 
   const roleBadge: Record<string, string> = {
-    client: 'bg-blue-100 text-blue-700',
-    consultant: 'bg-indigo-100 text-indigo-700',
-    project_admin: 'bg-amber-100 text-amber-700',
-    security_admin: 'bg-red-100 text-red-700',
-    admin: 'bg-slate-900 text-white',
+    client:         'bg-[#86BC25]/20 text-[#86BC25] border border-[#86BC25]/30',
+    consultant:     'bg-[#86BC25]/20 text-[#86BC25] border border-[#86BC25]/30',
+    project_admin:  'bg-amber-500/20  text-amber-300  border border-amber-500/30',
+    security_admin: 'bg-red-500/20    text-red-300    border border-red-500/30',
+    admin:          'bg-white/10      text-white       border border-white/20',
   };
   const roleLabel: Record<string, string> = {
     client: 'Client',
@@ -654,6 +654,11 @@ export default function App() {
     security_admin: 'Security Admin',
     admin: 'Admin',
   };
+
+  function goHome() {
+    if (isAdmin) setPreview({ view: 'admin' });
+    else if (isConsultant) setActiveClient(null);
+  }
 
   const previewValue = preview.view === 'admin'
     ? 'admin'
@@ -665,40 +670,44 @@ export default function App() {
     <div className="h-screen flex flex-col">
       {/* Preview banner */}
       {isPreviewing && (
-        <div className="bg-amber-400 text-amber-900 text-xs font-medium px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+        <div className="bg-[#86BC25] text-black text-xs font-medium px-4 py-1.5 flex items-center justify-between flex-shrink-0">
           <span>
             Demo preview — viewing as{' '}
-            <span className="font-semibold capitalize">{preview.view}</span>
+            <span className="font-bold capitalize">{preview.view}</span>
             {(preview.view === 'consultant' || preview.view === 'client') && (
-              <> · <span className="font-semibold">{preview.tenant.name}</span></>
+              <> · <span className="font-bold">{preview.tenant.name}</span></>
             )}
           </span>
           <button
             onClick={() => switchPreview('admin')}
-            className="underline hover:no-underline ml-4"
+            className="underline hover:no-underline ml-4 font-bold"
           >
             Back to Admin Panel
           </button>
         </div>
       )}
 
-      <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-slate-900 rounded-md flex items-center justify-center">
-            <LuminaLogo size={22} />
+      <header className="border-b border-[#222] bg-black px-6 py-0 flex items-center justify-between flex-shrink-0 h-14">
+        {/* Logo — click goes home */}
+        <button
+          onClick={goHome}
+          className="flex items-center gap-3 group focus:outline-none"
+        >
+          <div className="w-8 h-8 flex items-center justify-center">
+            <LuminaLogo size={24} />
           </div>
-          <div>
-            <div className="text-sm font-medium">Lumina</div>
-            <div className="text-xs text-slate-500">Illuminate Your Enterprise</div>
+          <div className="text-left">
+            <div className="text-sm font-bold text-white tracking-wide leading-none">Lumina.</div>
+            <div className="text-[10px] text-[#86BC25] mt-0.5 leading-none tracking-wider uppercase">Illuminate Your Enterprise</div>
           </div>
-        </div>
+        </button>
 
         <div className="flex items-center gap-3">
           {/* Consultant client switcher */}
           {isConsultant && myClients.length > 0 && (
             <>
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
-                <span className="text-xs text-slate-500">Client:</span>
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
+                <span className="text-xs text-white/40">Client:</span>
                 <div className="flex gap-1">
                   {myClients.map(c => (
                     <button
@@ -706,8 +715,8 @@ export default function App() {
                       onClick={() => switchClient(c)}
                       className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                         activeClient?.tenant_id === c.tenant_id
-                          ? 'bg-slate-900 text-white'
-                          : 'text-slate-600 hover:bg-slate-200'
+                          ? 'bg-[#86BC25] text-black'
+                          : 'text-white/60 hover:text-white hover:bg-white/10'
                       }`}
                     >
                       {c.name || c.tenant_id}
@@ -715,7 +724,7 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <div className="h-8 w-px bg-slate-200" />
+              <div className="h-6 w-px bg-white/10" />
             </>
           )}
 
@@ -723,49 +732,46 @@ export default function App() {
           {me.role === 'admin' && allClients.length > 0 && (
             <>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Preview as</span>
+                <span className="text-xs text-white/40">Preview as</span>
                 <select
                   value={previewValue}
                   onChange={e => switchPreview(e.target.value)}
-                  className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 text-slate-700 cursor-pointer"
+                  className="text-xs border border-white/10 rounded-lg px-2.5 py-1.5 bg-white/5 text-white/80 focus:outline-none focus:ring-1 focus:ring-[#86BC25] cursor-pointer"
                 >
-                  <option value="admin">Admin Panel</option>
-                  <option value={`consultant:${allClients[0].tenant_id}`}>
+                  <option value="admin" className="bg-black">Admin Panel</option>
+                  <option value={`consultant:${allClients[0].tenant_id}`} className="bg-black">
                     Consultant — {allClients[0].name}
                   </option>
-                  <option value={`client:${allClients[0].tenant_id}`}>
+                  <option value={`client:${allClients[0].tenant_id}`} className="bg-black">
                     Client — {allClients[0].name}
                   </option>
                 </select>
               </div>
-              <div className="h-8 w-px bg-slate-200" />
+              <div className="h-6 w-px bg-white/10" />
             </>
           )}
 
           {/* Role badge */}
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleBadge[me.role] || 'bg-slate-100 text-slate-600'}`}>
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${roleBadge[me.role] || 'bg-white/10 text-white/60'}`}>
             {roleLabel[me.role] || me.role}
           </span>
 
-          <div className="h-8 w-px bg-slate-200" />
+          <div className="h-6 w-px bg-white/10" />
 
           <div className="text-right">
             {me.firstName ? (
               <>
-                <div className="text-sm font-medium text-slate-800">{me.firstName} {me.lastName}</div>
-                <div className="text-xs text-slate-400">{me.email}</div>
+                <div className="text-xs font-medium text-white">{me.firstName} {me.lastName}</div>
+                <div className="text-[11px] text-white/40">{me.email}</div>
               </>
             ) : (
-              <>
-                <div className="text-xs text-slate-500">Signed in as</div>
-                <div className="text-sm text-slate-800">{me.email}</div>
-              </>
+              <div className="text-xs text-white/60">{me.email}</div>
             )}
           </div>
 
           <button
             onClick={onSignOut}
-            className="text-sm text-slate-500 hover:text-slate-900 ml-1"
+            className="text-xs text-white/40 hover:text-[#86BC25] transition-colors ml-1"
           >
             Sign out
           </button>
