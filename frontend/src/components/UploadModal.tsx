@@ -70,14 +70,14 @@ interface Props {
 }
 
 export function UploadModal({ template, onClose, onUploaded }: Props) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState<Category | null>(null);
   const [selectedSubfolder, setSelectedSubfolder] = useState('');
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
   const [confirmedMismatch, setConfirmedMismatch] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [statusStep, setStatusStep] = useState<'uploading' | 'indexing'>('uploading');
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number; current: string; step: 'uploading' | 'indexing' } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,14 +97,24 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
     { ...VIRTUAL_CATEGORIES[3] },
   ];
 
-  function handleFile(f: File) {
-    setFile(f);
+  function addFiles(incoming: File[]) {
+    const merged = [...files];
+    for (const f of incoming) {
+      if (!merged.find(x => x.name === f.name && x.size === f.size)) merged.push(f);
+    }
+    setFiles(merged);
     setMismatchWarning(null);
     setConfirmedMismatch(false);
-    if (selected) {
-      const mismatch = detectMismatch(f.name, selected.name);
+    if (selected && merged.length === 1) {
+      const mismatch = detectMismatch(merged[0].name, selected.name);
       if (mismatch) setMismatchWarning(mismatch);
     }
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+    setMismatchWarning(null);
+    setConfirmedMismatch(false);
   }
 
   function handleCategorySelect(cat: Category) {
@@ -112,8 +122,8 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
     setSelectedSubfolder('');
     setMismatchWarning(null);
     setConfirmedMismatch(false);
-    if (file) {
-      const mismatch = detectMismatch(file.name, cat.name);
+    if (files.length === 1) {
+      const mismatch = detectMismatch(files[0].name, cat.name);
       if (mismatch) setMismatchWarning(mismatch);
     }
   }
@@ -125,7 +135,7 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
   }
 
   async function handleUpload() {
-    if (!file || !selected) return;
+    if (!files.length || !selected) return;
     setError(null);
     const folderPath = selectedSubfolder
       ? `/${selected.name}/${selectedSubfolder}`
@@ -133,35 +143,40 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
 
     try {
       setUploading(true);
-      setStatusStep('uploading');
-      const uploadUrl: { url: string; key: string; content_type: string } =
-        await api.post('/upload-url', { filename: file.name });
-      const putResp = await fetch(uploadUrl.url, {
-        method: 'PUT',
-        headers: { 'Content-Type': uploadUrl.content_type },
-        body: file,
-      });
-      if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgress({ done: i, total: files.length, current: file.name, step: 'uploading' });
+        const uploadUrl: { url: string; key: string; content_type: string } =
+          await api.post('/upload-url', { filename: file.name });
+        const putResp = await fetch(uploadUrl.url, {
+          method: 'PUT',
+          headers: { 'Content-Type': uploadUrl.content_type },
+          body: file,
+        });
+        if (!putResp.ok) throw new Error(`Upload failed for ${file.name}: ${putResp.status}`);
 
-      setStatusStep('indexing');
-      await ingestDoc({
-        s3_key: uploadUrl.key,
-        doc_id: crypto.randomUUID(),
-        doc_type: selected.docType,
-        source_name: file.name,
-        module: selected.name,
-        folder_path: folderPath,
-      });
+        setUploadProgress({ done: i, total: files.length, current: file.name, step: 'indexing' });
+        await ingestDoc({
+          s3_key: uploadUrl.key,
+          doc_id: crypto.randomUUID(),
+          doc_type: selected.docType,
+          source_name: file.name,
+          module: selected.name,
+          folder_path: folderPath,
+        });
+      }
+      setUploadProgress(null);
       onUploaded();
       onClose();
     } catch (err: any) {
       setError(err.message || String(err));
+      setUploadProgress(null);
     } finally {
       setUploading(false);
     }
   }
 
-  const canUpload = !!file && !!selected && !uploading && (!mismatchWarning || confirmedMismatch);
+  const canUpload = files.length > 0 && !!selected && !uploading && (!mismatchWarning || confirmedMismatch);
 
   return (
     <div
@@ -175,8 +190,8 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Upload Document</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Tag your document to the right category</p>
+            <h2 className="text-base font-semibold text-slate-900">Upload Documents</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Drop multiple files and tag them to a category</p>
           </div>
           <button
             onClick={onClose}
@@ -200,59 +215,60 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
               onDrop={e => {
                 e.preventDefault();
                 setDragging(false);
-                const f = e.dataTransfer.files[0];
-                if (f) handleFile(f);
+                addFiles(Array.from(e.dataTransfer.files));
               }}
               onClick={() => fileInputRef.current?.click()}
               className={`border-2 border-dashed rounded-xl px-5 py-5 cursor-pointer transition-all
                 ${dragging ? 'border-indigo-400 bg-indigo-50'
-                : file ? 'border-green-300 bg-green-50'
+                : files.length ? 'border-slate-300 bg-slate-50'
                 : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
             >
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xlsm,.pdf,.docx"
+                accept=".xlsx,.xlsm,.pdf,.docx,.txt,.md"
+                multiple
                 className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                onChange={e => {
+                  if (e.target.files?.length) addFiles(Array.from(e.target.files));
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
               />
-              {file ? (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                </div>
+                <p className="text-sm text-slate-600">
+                  <span className="font-medium text-slate-800">Drop files</span> or click to browse
+                </p>
+                <p className="text-xs text-slate-400">.xlsx · .xlsm · .pdf · .docx · .txt · .md</p>
+              </div>
+            </div>
+
+            {/* File list */}
+            {files.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                     </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-800 truncate">{f.name}</p>
+                      <p className="text-xs text-slate-400">{(f.size / 1024).toFixed(0)} KB</p>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); removeFile(i); }}
+                      className="text-slate-300 hover:text-red-500 flex-shrink-0 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
-                    <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</p>
-                  </div>
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      setFile(null);
-                      setMismatchWarning(null);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    className="text-xs text-slate-400 hover:text-red-500 flex-shrink-0 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
-                    <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                    </svg>
-                  </div>
-                  <p className="text-sm text-slate-600">
-                    <span className="font-medium text-slate-800">Drop a file</span> or click to browse
-                  </p>
-                  <p className="text-xs text-slate-400">.xlsx · .xlsm · .pdf · .docx</p>
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Step 2: Category */}
@@ -336,17 +352,22 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
           )}
 
           {/* Upload progress */}
-          {uploading && (
+          {uploadProgress && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <span className="w-3.5 h-3.5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
-                {statusStep === 'uploading' ? 'Uploading to storage…' : 'Indexing document…'}
+                <span className="truncate">
+                  {uploadProgress.step === 'uploading' ? 'Uploading' : 'Indexing'}{' '}
+                  <span className="font-medium text-slate-700">{uploadProgress.current}</span>
+                  {uploadProgress.total > 1 && (
+                    <span className="text-slate-400"> ({uploadProgress.done + 1}/{uploadProgress.total})</span>
+                  )}
+                </span>
               </div>
               <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
                 <div
-                  className={`h-full bg-indigo-500 rounded-full transition-all duration-700 ${
-                    statusStep === 'uploading' ? 'w-1/3' : 'w-full'
-                  }`}
+                  className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.round(((uploadProgress.done + (uploadProgress.step === 'indexing' ? 0.5 : 0)) / uploadProgress.total) * 100)}%` }}
                 />
               </div>
             </div>
@@ -365,7 +386,7 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
           <p className="text-xs text-slate-400">
             {selected ? (
               <>
-                Saving to{' '}
+                {files.length > 0 && <span className="font-medium text-slate-600">{files.length} file{files.length > 1 ? 's' : ''} → </span>}
                 <span className="font-medium text-slate-600">
                   {selectedSubfolder
                     ? `/${selected.name}/${selectedSubfolder}`
@@ -393,8 +414,8 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               )}
               {uploading
-                ? statusStep === 'uploading' ? 'Uploading…' : 'Indexing…'
-                : 'Upload'}
+                ? uploadProgress?.step === 'uploading' ? 'Uploading…' : 'Indexing…'
+                : files.length > 1 ? `Upload ${files.length} files` : 'Upload'}
             </button>
           </div>
         </div>

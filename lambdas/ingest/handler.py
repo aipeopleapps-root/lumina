@@ -76,6 +76,11 @@ def handler(event, context):
         chunks = chunking.chunk_docx(
             data, doc_type=doc_type, source_name=source_name, module=module
         )
+    elif ext in ("txt", "md"):
+        chunks = chunking.chunk_text_document(
+            data.decode("utf-8", errors="replace"),
+            doc_type=doc_type, source_name=source_name, module=module
+        )
     else:
         return http.bad_request(f"unsupported file extension: {ext}")
 
