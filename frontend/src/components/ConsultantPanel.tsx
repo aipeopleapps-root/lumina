@@ -4,6 +4,7 @@ import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import { UploadModal } from './UploadModal';
 import { PolicyAdvisor } from './PolicyAdvisor';
+import { ConsultantChat } from './ConsultantChat';
 import { Toast } from './Toast';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
@@ -38,7 +39,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [batchGenerateDocs, setBatchGenerateDocs] = useState<Document[]>([]);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
-  const [activeTab, setActiveTab] = useState<'documents' | 'policy'>('documents');
+  const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy'>('documents');
   const [toast, setToast] = useState<{ message: string; id: number } | null>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
@@ -213,16 +214,26 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
           Documents
         </button>
         <button
+          onClick={() => setActiveTab('coach')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'coach' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+        >
+          Coach
+        </button>
+        <button
           onClick={() => setActiveTab('policy')}
           className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'policy' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
         >
-          HR Policy Advisor
+          PolicyBot
         </button>
       </div>
 
       {activeTab === 'policy' ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <PolicyAdvisor policyDocs={policyDocs} />
+        </div>
+      ) : activeTab === 'coach' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ConsultantChat />
         </div>
       ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">

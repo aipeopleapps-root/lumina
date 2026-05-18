@@ -40,7 +40,7 @@ export function OnboardingChecklist({ role, onDismiss }: Props) {
     ? [
         { icon: '📂', title: 'Browse your documents', desc: 'Your consultant has uploaded documents to your workspace.' },
         { icon: '✨', title: 'Ask the AI Coach', desc: 'Ask questions about your Workday configuration in the chat.' },
-        { icon: '📋', title: 'Try HR Policy Advisor', desc: 'Get instant answers from your HR policies — click the Policies icon on the left.' },
+        { icon: '📋', title: 'Try PolicyBot', desc: 'Get instant answers from your HR policies — click the PolicyBot tab at the top.' },
       ]
     : STEPS;
 

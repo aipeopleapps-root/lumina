@@ -180,8 +180,8 @@ export function PolicyAdvisor({ policyDocs = [] }: Props) {
             </svg>
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-900">HR Policy Advisor</p>
-            <p className="text-xs text-gray-400">Answers sourced from uploaded policy documents</p>
+            <p className="text-sm font-semibold text-gray-900">PolicyBot</p>
+            <p className="text-xs text-gray-400">Answers sourced from your uploaded policy documents</p>
           </div>
         </div>
 

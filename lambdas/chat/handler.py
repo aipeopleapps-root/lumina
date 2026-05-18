@@ -28,6 +28,8 @@ _PROMPT_PATH = Path(__file__).parent / "prompt.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 _HR_POLICY_PROMPT_PATH = Path(__file__).parent / "hr_policy_prompt.md"
 _HR_POLICY_PROMPT = _HR_POLICY_PROMPT_PATH.read_text(encoding="utf-8")
+_CONSULTANT_ADVISOR_PROMPT_PATH = Path(__file__).parent / "consultant_advisor_prompt.md"
+_CONSULTANT_ADVISOR_PROMPT = _CONSULTANT_ADVISOR_PROMPT_PATH.read_text(encoding="utf-8")
 
 TOP_K = 6
 MAX_HISTORY_TURNS = 6
@@ -67,6 +69,11 @@ def handler(event, context):
         system_prompt = _HR_POLICY_PROMPT
         doc_type_filter = "hr_policy"
         module_filter = None  # policy mode searches all hr_policy docs
+        doc_id_filter = None
+    elif mode == "consultant_advisor":
+        system_prompt = _CONSULTANT_ADVISOR_PROMPT
+        doc_type_filter = None  # search all doc types for consultant context
+        module_filter = None
         doc_id_filter = None
     else:
         system_prompt = _SYSTEM_PROMPT
