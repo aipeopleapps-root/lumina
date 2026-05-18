@@ -52,14 +52,16 @@ function formatDate(iso: string) {
   if (!iso) return '—';
   const d = new Date(iso);
   const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, {
+  const date = d.toLocaleDateString(undefined, {
     month: 'short', day: 'numeric',
     ...(!sameYear ? { year: 'numeric' } : {}),
   });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${date} · ${time}`;
 }
 
-// Deduplicate to latest version per source_name
-function latestVersions(docs: Document[]): { doc: Document; versionCount: number }[] {
+// Group by source_name, sort newest-first, expose all versions
+function latestVersions(docs: Document[]): { doc: Document; allVersions: Document[] }[] {
   const map = new Map<string, Document[]>();
   for (const d of docs) {
     if (!map.has(d.source_name)) map.set(d.source_name, []);
@@ -67,7 +69,7 @@ function latestVersions(docs: Document[]): { doc: Document; versionCount: number
   }
   return [...map.values()].map(versions => {
     versions.sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at));
-    return { doc: versions[0], versionCount: versions.length };
+    return { doc: versions[0], allVersions: versions };
   });
 }
 
@@ -118,11 +120,11 @@ function SelectionBar({
 // ── Doc row ───────────────────────────────────────────────────────────────────
 
 function DocRow({
-  doc, versionCount, isSelected, anySelected, onToggle,
+  doc, allVersions, isSelected, anySelected, onToggle,
   onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
 }: {
   doc: Document;
-  versionCount: number;
+  allVersions: Document[];
   isSelected: boolean;
   anySelected: boolean;
   onToggle: () => void;
@@ -132,83 +134,121 @@ function DocRow({
   onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
 }) {
-  const isSow           = doc.doc_type === 'sow';
-  const folder          = folderLabel(doc.folder_path);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const isSow        = doc.doc_type === 'sow';
+  const folder       = folderLabel(doc.folder_path);
+  const totalVer     = allVersions.length;
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-2.5 group transition-colors ${isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50/80'}`}>
-      {/* Checkbox */}
-      <div className={`flex-shrink-0 w-4 transition-opacity ${anySelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggle}
-          onClick={e => e.stopPropagation()}
-          className="w-3.5 h-3.5 rounded border-slate-300 accent-indigo-600 cursor-pointer"
-        />
-      </div>
+    <div>
+      {/* ── Current version row ── */}
+      <div className={`flex items-center gap-3 px-4 py-2.5 group transition-colors ${isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50/80'}`}>
+        {/* Checkbox */}
+        <div className={`flex-shrink-0 w-4 transition-opacity ${anySelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={onToggle}
+            onClick={e => e.stopPropagation()}
+            className="w-3.5 h-3.5 rounded border-slate-300 accent-indigo-600 cursor-pointer"
+          />
+        </div>
 
-      {/* Name */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-slate-800 truncate">{doc.source_name}</p>
-        {versionCount > 1 && (
-          <p className="text-xs text-slate-400">{versionCount - 1} older version{versionCount > 2 ? 's' : ''}</p>
+        {/* Name + version toggle */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-sm text-slate-800 truncate">{doc.source_name}</p>
+            <span className="flex-shrink-0 text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+              v{totalVer}
+            </span>
+          </div>
+          {totalVer > 1 && (
+            <button
+              onClick={() => setHistoryOpen(v => !v)}
+              className="flex items-center gap-0.5 text-xs text-slate-400 hover:text-indigo-600 mt-0.5 transition-colors"
+            >
+              <span>{historyOpen ? '▾' : '▸'}</span>
+              <span>{totalVer - 1} older version{totalVer > 2 ? 's' : ''}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Folder chip */}
+        {folder && (
+          <span className="hidden md:block flex-shrink-0 text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full max-w-[140px] truncate">
+            {folder}
+          </span>
+        )}
+
+        {/* Publish status */}
+        {onPublish && (
+          <div className="flex items-center gap-1.5 flex-shrink-0 w-[78px]">
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${doc.published ? 'bg-green-500' : 'bg-amber-400'}`} />
+            <span className={`text-xs ${doc.published ? 'text-green-700' : 'text-amber-600'}`}>
+              {doc.published ? 'Published' : 'Draft'}
+            </span>
+          </div>
+        )}
+
+        {/* Upload date + time */}
+        <span className="hidden sm:block flex-shrink-0 text-xs text-slate-400 w-28 text-right">
+          {formatDate(doc.uploaded_at)}
+        </span>
+
+        {/* Hover actions */}
+        {!anySelected && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            {onPublish && (
+              <button
+                onClick={() => onPublish(doc, !doc.published)}
+                className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
+                  doc.published ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {doc.published ? 'Unpublish' : 'Publish'}
+              </button>
+            )}
+            {isSow && onValidateSow && (
+              <button onClick={() => onValidateSow(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
+                Validate SOW
+              </button>
+            )}
+            {!isSow && onAnalyse && (
+              <button onClick={() => onAnalyse(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
+                Analyse
+              </button>
+            )}
+            <button onClick={() => onDownload(doc)} className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors" title="Download">↓</button>
+            {onDelete && (
+              <button onClick={() => onDelete(doc)} className="px-2 py-1 text-xs bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors" title="Delete">✕</button>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Folder chip — only shown when there is a folder */}
-      {folder && (
-        <span className="hidden md:block flex-shrink-0 text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full max-w-[160px] truncate">
-          {folder}
-        </span>
-      )}
-
-      {/* Status */}
-      {onPublish && (
-        <div className="flex items-center gap-1.5 flex-shrink-0 w-[78px]">
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${doc.published ? 'bg-green-500' : 'bg-amber-400'}`} />
-          <span className={`text-xs ${doc.published ? 'text-green-700' : 'text-amber-600'}`}>
-            {doc.published ? 'Published' : 'Draft'}
-          </span>
-        </div>
-      )}
-
-      {/* Date */}
-      <span className="hidden sm:block flex-shrink-0 text-xs text-slate-400 w-14 text-right">
-        {formatDate(doc.uploaded_at)}
-      </span>
-
-      {/* Actions — hidden during bulk selection */}
-      {!anySelected && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          {onPublish && (
-            <button
-              onClick={() => onPublish(doc, !doc.published)}
-              className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
-                doc.published ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-green-600 text-white hover:bg-green-700'
-              }`}
+      {/* ── Version history (expandable) ── */}
+      {historyOpen && totalVer > 1 && (
+        <div className="bg-slate-50 border-t border-slate-100">
+          {allVersions.slice(1).map((old, idx) => (
+            <div
+              key={old.doc_id}
+              className="flex items-center gap-3 px-4 py-2 pl-10 border-b border-slate-100 last:border-0 group/old hover:bg-slate-100/60 transition-colors"
             >
-              {doc.published ? 'Unpublish' : 'Publish'}
-            </button>
-          )}
-          {isSow && onValidateSow && (
-            <button onClick={() => onValidateSow(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
-              Validate SOW
-            </button>
-          )}
-          {!isSow && onAnalyse && (
-            <button onClick={() => onAnalyse(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
-              Analyse
-            </button>
-          )}
-          <button onClick={() => onDownload(doc)} className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors" title="Download">
-            ↓
-          </button>
-          {onDelete && (
-            <button onClick={() => onDelete(doc)} className="px-2 py-1 text-xs bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors" title="Delete">
-              ✕
-            </button>
-          )}
+              <span className="flex-shrink-0 text-[10px] font-semibold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded w-7 text-center">
+                v{totalVer - 1 - idx}
+              </span>
+              <p className="text-xs text-slate-500 truncate flex-1">{old.source_name}</p>
+              <span className="flex-shrink-0 text-xs text-slate-400 w-28 text-right">
+                {formatDate(old.uploaded_at)}
+              </span>
+              <div className="flex items-center gap-1 opacity-0 group-hover/old:opacity-100 transition-opacity flex-shrink-0">
+                <button onClick={() => onDownload(old)} className="px-2 py-0.5 text-xs bg-slate-200 text-slate-600 rounded hover:bg-slate-300 transition-colors" title="Download">↓</button>
+                {onDelete && (
+                  <button onClick={() => onDelete(old)} className="px-2 py-0.5 text-xs bg-red-50 text-red-400 rounded hover:bg-red-100 transition-colors" title="Delete">✕</button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -222,7 +262,7 @@ function CategorySection({
   onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
 }: {
   label: string;
-  rows: { doc: Document; versionCount: number }[];
+  rows: { doc: Document; allVersions: Document[] }[];
   selectedIds: Set<string>;
   anySelected: boolean;
   onToggle: (id: string) => void;
@@ -236,7 +276,6 @@ function CategorySection({
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-      {/* Section header */}
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-2.5 px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
@@ -249,14 +288,13 @@ function CategorySection({
         <span className="text-slate-400 text-xs ml-1">{open ? '▾' : '▸'}</span>
       </button>
 
-      {/* Rows */}
       {open && (
         <div className="divide-y divide-slate-100">
-          {rows.map(({ doc, versionCount }) => (
+          {rows.map(({ doc, allVersions }) => (
             <DocRow
               key={doc.doc_id}
               doc={doc}
-              versionCount={versionCount}
+              allVersions={allVersions}
               isSelected={selectedIds.has(doc.doc_id)}
               anySelected={anySelected}
               onToggle={() => onToggle(doc.doc_id)}
