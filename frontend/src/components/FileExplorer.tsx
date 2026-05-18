@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { FolderTemplate } from './FolderTemplateSelector';
 import { SectionIcon } from './SectionIcon';
 
@@ -25,6 +25,8 @@ interface Props {
   onValidateSow?: (doc: Document) => void;
   onPublish?: (doc: Document, published: boolean) => void;
   onBulkAction?: (action: BulkAction, docs: Document[]) => void;
+  onSelectionChange?: (docs: Document[]) => void;
+  selectionReset?: number;
 }
 
 type StatusFilter = 'all' | 'draft' | 'published';
@@ -273,9 +275,17 @@ function CategorySection({
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction, onSelectionChange, selectionReset }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectionReset]);
+
+  useEffect(() => {
+    onSelectionChange?.(documents.filter(d => selectedIds.has(d.doc_id)));
+  }, [selectedIds, documents]);
 
   const allRows = useMemo(() => latestVersions(documents), [documents]);
 
@@ -361,18 +371,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
 
   return (
     <div className="space-y-4">
-      {/* Selection bar */}
-      {anySelected && (
-        <SelectionBar
-          selectedDocs={selectedDocs}
-          totalVisible={filtered.length}
-          onSelectAll={selectAll}
-          onClear={clearSelection}
-          onAction={handleBulkAction}
-          canPublish={!!onPublish}
-        />
-      )}
-
       {/* Status filter tabs */}
       <div className="flex items-center gap-1">
         {STATUS_TABS.map(tab => {

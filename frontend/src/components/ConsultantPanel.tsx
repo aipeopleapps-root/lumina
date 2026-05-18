@@ -36,6 +36,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [validatingSow, setValidatingSow] = useState(false);
   const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
   const [showGenerateTests, setShowGenerateTests] = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState<Document[]>([]);
+  const [selectionReset, setSelectionReset] = useState(0);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy'>('documents');
@@ -139,6 +141,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         for (const doc of docs) {
           try { await deleteDoc(doc.doc_id); } catch { /* skip failed */ }
         }
+        setSelectionReset(v => v + 1);
         loadDocuments();
         break;
       }
@@ -253,32 +256,55 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowGenerateTests(true)}
-              disabled={documents.length === 0}
-              className="flex items-center gap-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              ⚙ Generate Tests
-            </button>
-            <button
-              onClick={onGenerateReport}
-              disabled={generatingReport}
-              className="flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              {generatingReport
-                ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating…</>
-                : <>📊 Weekly Report</>}
-            </button>
-            <button
-              onClick={loadDocuments}
-              disabled={docsLoading}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-            >
-              <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
-              Refresh
-            </button>
-          </div>
+          {selectedDocs.length > 0 ? (
+            <div className="flex items-center gap-1.5 bg-indigo-600 text-white rounded-xl px-3 py-1.5 flex-wrap">
+              <span className="text-xs font-semibold mr-1">
+                {selectedDocs.length} selected
+              </span>
+              <button
+                onClick={() => setSelectionReset(v => v + 1)}
+                className="text-xs text-indigo-200 hover:text-white underline mr-1.5"
+              >
+                Clear
+              </button>
+              {selectedDocs.some(d => !d.published) && (
+                <button onClick={() => handleBulkAction('publish', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-green-600 hover:bg-green-700 rounded-lg transition-colors">✓ Publish</button>
+              )}
+              {selectedDocs.some(d => d.published) && (
+                <button onClick={() => handleBulkAction('unpublish', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors">↩ Unpublish</button>
+              )}
+              <button onClick={() => handleBulkAction('analyse', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">🔍 Analyse</button>
+              <button onClick={() => handleBulkAction('download', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">↓ Download</button>
+              <button onClick={() => handleBulkAction('delete', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-red-500 hover:bg-red-600 rounded-lg transition-colors">✕ Delete</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowGenerateTests(true)}
+                disabled={documents.length === 0}
+                className="flex items-center gap-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                ⚙ Generate Tests
+              </button>
+              <button
+                onClick={onGenerateReport}
+                disabled={generatingReport}
+                className="flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {generatingReport
+                  ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating…</>
+                  : <>📊 Weekly Report</>}
+              </button>
+              <button
+                onClick={loadDocuments}
+                disabled={docsLoading}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
+                Refresh
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="p-5">
@@ -300,6 +326,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
             <FileExplorer
               template={folderTemplate}
               documents={documents}
+              onSelectionChange={setSelectedDocs}
+              selectionReset={selectionReset}
               onDownload={async (doc) => {
                 try {
                   const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
