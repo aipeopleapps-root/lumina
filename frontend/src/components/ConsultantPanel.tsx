@@ -39,8 +39,10 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [selectedDocs, setSelectedDocs] = useState<Document[]>([]);
   const [selectionReset, setSelectionReset] = useState(0);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
-  const [selectionHint, setSelectionHint] = useState(false);
-  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [actionsMenuPos, setActionsMenuPos] = useState({ top: 0, right: 0 });
+  const actionsMenuRef = useRef<HTMLButtonElement>(null);
+  const [bulkModalAction, setBulkModalAction] = useState<BulkAction | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy'>('documents');
@@ -191,11 +193,15 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     }
   }
 
-  function showSelectHint() {
-    setSelectionHint(true);
-    if (hintTimer.current) clearTimeout(hintTimer.current);
-    hintTimer.current = setTimeout(() => setSelectionHint(false), 2000);
-  }
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    function close(e: MouseEvent) {
+      if (actionsMenuRef.current?.contains(e.target as Node)) return;
+      setActionsMenuOpen(false);
+    }
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [actionsMenuOpen]);
 
   if (!canIngest) {
     return (
@@ -205,7 +211,6 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     );
   }
 
-  const hasResults = analyzing || !!result;
   const policyDocs = documents.filter(d => d.doc_type === 'hr_policy');
 
   return (
@@ -253,100 +258,90 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
 
       {/* ── Document Library (fills available space) ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
-        {/* ── Row 1: title + upload ── */}
-        <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">Document Library</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''}</p>
-            </div>
-            {canIngest && folderTemplate && (
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                ↑ Upload
-              </button>
-            )}
+        {/* ── Header: title + actions + upload + refresh ── */}
+        <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex items-center gap-2 shrink-0">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900">Document Library</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''}</p>
           </div>
+
+          {/* Actions dropdown */}
+          {folderTemplate && (
+            <>
+              <button
+                ref={actionsMenuRef}
+                onClick={() => {
+                  if (actionsMenuRef.current) {
+                    const r = actionsMenuRef.current.getBoundingClientRect();
+                    setActionsMenuPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+                  }
+                  setActionsMenuOpen(v => !v);
+                }}
+                disabled={documents.length === 0}
+                className="flex items-center gap-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Actions <span className="text-slate-400 text-[10px]">▾</span>
+              </button>
+
+              {actionsMenuOpen && (
+                <div
+                  style={{ position: 'fixed', top: actionsMenuPos.top, right: actionsMenuPos.right, zIndex: 9999 }}
+                  className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden min-w-[185px]"
+                >
+                  <div className="pt-2 pb-1">
+                    <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Document Actions</p>
+                    {([
+                      { action: 'analyse'  as BulkAction, label: '🔍 Analyse',   cls: 'text-indigo-700' },
+                      { action: 'publish'  as BulkAction, label: '✓ Publish',    cls: 'text-green-700'  },
+                      { action: 'unpublish'as BulkAction, label: '↩ Unpublish',  cls: 'text-amber-700'  },
+                      { action: 'download' as BulkAction, label: '↓ Download',   cls: 'text-slate-700'  },
+                      { action: 'delete'   as BulkAction, label: '✕ Delete',     cls: 'text-red-600'    },
+                    ]).map(({ action, label, cls }) => (
+                      <button
+                        key={action}
+                        onClick={() => { setActionsMenuOpen(false); setBulkModalAction(action); }}
+                        className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 transition-colors ${cls}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="h-px bg-slate-100" />
+                  <div className="pt-2 pb-1">
+                    <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Generate</p>
+                    <button
+                      onClick={() => { setActionsMenuOpen(false); setShowGenerateTests(true); }}
+                      className="w-full text-left px-3 py-2 text-xs text-teal-700 hover:bg-slate-50 transition-colors"
+                    >
+                      ⚙ Generate Tests
+                    </button>
+                    <button
+                      onClick={() => { setActionsMenuOpen(false); onGenerateReport(); }}
+                      disabled={generatingReport}
+                      className="w-full text-left px-3 py-2 text-xs text-violet-700 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                    >
+                      {generatingReport ? '📊 Generating…' : '📊 Weekly Report'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {canIngest && folderTemplate && (
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              ↑ Upload
+            </button>
+          )}
           <button
             onClick={loadDocuments}
             disabled={docsLoading}
             className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 disabled:opacity-40 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
             <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
-          </button>
-        </div>
-
-        {/* ── Row 2: persistent action toolbar ── */}
-        <div className="px-5 py-2 border-b border-slate-200 bg-slate-50 flex items-center gap-2 shrink-0 flex-wrap">
-          {/* Selection state label */}
-          <div className="text-xs w-28 shrink-0">
-            {selectedDocs.length > 0 ? (
-              <span className="flex items-center gap-1.5 font-medium text-indigo-600">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
-                {selectedDocs.length} selected
-                <button onClick={() => setSelectionReset(v => v + 1)} className="text-indigo-400 hover:text-indigo-700 underline font-normal">Clear</button>
-              </span>
-            ) : selectionHint ? (
-              <span className="text-amber-600 font-medium">Select docs first</span>
-            ) : (
-              <span className="text-slate-400">Select to use:</span>
-            )}
-          </div>
-
-          {/* Bulk action buttons — always visible, state-aware styling */}
-          {(() => {
-            const sel = selectedDocs.length > 0;
-            const base = 'px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors';
-            const active = (color: string) => `${base} ${color}`;
-            const idle = `${base} border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600`;
-            const act = (fn: () => void) => sel ? fn : showSelectHint;
-            return (
-              <>
-                <button onClick={act(() => handleBulkAction('analyse', selectedDocs))}
-                  className={sel ? active('border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100') : idle}>
-                  🔍 Analyse
-                </button>
-                <button onClick={act(() => handleBulkAction('publish', selectedDocs))}
-                  className={sel ? active('border-green-200 bg-green-50 text-green-700 hover:bg-green-100') : idle}>
-                  ✓ Publish
-                </button>
-                <button onClick={act(() => handleBulkAction('unpublish', selectedDocs))}
-                  className={sel ? active('border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100') : idle}>
-                  ↩ Unpublish
-                </button>
-                <button onClick={act(() => handleBulkAction('download', selectedDocs))}
-                  className={sel ? active('border-slate-300 bg-white text-slate-700 hover:bg-slate-50') : idle}>
-                  ↓ Download
-                </button>
-                <button onClick={act(() => handleBulkAction('delete', selectedDocs))}
-                  className={sel ? active('border-red-200 bg-red-50 text-red-600 hover:bg-red-100') : idle}>
-                  ✕ Delete
-                </button>
-              </>
-            );
-          })()}
-
-          {/* Divider */}
-          <div className="h-4 w-px bg-slate-300 mx-1 shrink-0" />
-
-          {/* AI generation — always active */}
-          <button
-            onClick={() => setShowGenerateTests(true)}
-            disabled={documents.length === 0}
-            className="flex items-center gap-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 px-3 py-1 rounded-lg transition-colors"
-          >
-            ⚙ Generate Tests
-          </button>
-          <button
-            onClick={onGenerateReport}
-            disabled={generatingReport}
-            className="flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1 rounded-lg transition-colors"
-          >
-            {generatingReport
-              ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating…</>
-              : <>📊 Weekly Report</>}
           </button>
         </div>
 
@@ -562,6 +557,19 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
           documents={documents}
           onClose={() => setShowGenerateTests(false)}
           onGenerated={() => { setShowGenerateTests(false); loadDocuments(); }}
+        />
+      )}
+
+      {bulkModalAction && (
+        <BulkActionModal
+          action={bulkModalAction}
+          documents={documents}
+          preSelected={new Set(selectedDocs.map(d => d.doc_id))}
+          onClose={() => setBulkModalAction(null)}
+          onExecute={(docs) => {
+            setBulkModalAction(null);
+            handleBulkAction(bulkModalAction, docs);
+          }}
         />
       )}
 
@@ -907,6 +915,131 @@ function GenerateTestsModal({
   );
 }
 
+// ── Bulk Action Modal ─────────────────────────────────────────────────────────
+
+const BULK_CFG: Record<BulkAction, {
+  title: string; btn: string; btnCls: string; hint?: string;
+  filter?: (d: Document) => boolean;
+}> = {
+  analyse:   { title: 'Analyse Documents',   btn: '🔍 Analyse',   btnCls: 'bg-indigo-600 hover:bg-indigo-700 text-white' },
+  publish:   { title: 'Publish Documents',   btn: '✓ Publish',    btnCls: 'bg-green-600 hover:bg-green-700 text-white',  hint: 'Showing draft documents only', filter: d => !d.published },
+  unpublish: { title: 'Unpublish Documents', btn: '↩ Unpublish',  btnCls: 'bg-amber-500 hover:bg-amber-600 text-white',  hint: 'Showing published documents only', filter: d => !!d.published },
+  download:  { title: 'Download Documents',  btn: '↓ Download',   btnCls: 'bg-slate-700 hover:bg-slate-800 text-white' },
+  delete:    { title: 'Delete Documents',    btn: '✕ Delete',     btnCls: 'bg-red-600 hover:bg-red-700 text-white',     hint: 'This action cannot be undone' },
+};
+
+function BulkActionModal({
+  action, documents, preSelected, onClose, onExecute,
+}: {
+  action: BulkAction;
+  documents: Document[];
+  preSelected: Set<string>;
+  onClose: () => void;
+  onExecute: (docs: Document[]) => void;
+}) {
+  const cfg = BULK_CFG[action];
+  const eligible = cfg.filter ? documents.filter(cfg.filter) : documents;
+
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const init = new Set<string>();
+    for (const id of preSelected) {
+      if (eligible.some(d => d.doc_id === id)) init.add(id);
+    }
+    return init;
+  });
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, Document[]>();
+    for (const doc of eligible) {
+      const cat = topCategory(doc);
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(doc);
+    }
+    return map;
+  }, [eligible]);
+
+  const selectedList = eligible.filter(d => selected.has(d.doc_id));
+
+  function toggle(id: string) {
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  function toggleAll() {
+    setSelected(selected.size === eligible.length ? new Set() : new Set(eligible.map(d => d.doc_id)));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[80vh]">
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">{cfg.title}</h2>
+            {cfg.hint && <p className="text-xs text-slate-400 mt-0.5">{cfg.hint}</p>}
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">✕</button>
+        </div>
+
+        {/* Doc list */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {eligible.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-10">No eligible documents</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">{selected.size} of {eligible.length} selected</p>
+                <button onClick={toggleAll} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+                  {selected.size === eligible.length ? 'Deselect all' : 'Select all'}
+                </button>
+              </div>
+              {[...grouped.entries()].map(([cat, docs]) => (
+                <div key={cat} className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600">{cat}</div>
+                  <div className="divide-y divide-slate-100">
+                    {docs.map(doc => (
+                      <label
+                        key={doc.doc_id}
+                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${selected.has(doc.doc_id) ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.has(doc.doc_id)}
+                          onChange={() => toggle(doc.doc_id)}
+                          className="w-3.5 h-3.5 rounded border-slate-300 accent-indigo-600 flex-shrink-0"
+                        />
+                        <span className="text-xs text-slate-700 truncate flex-1">{doc.source_name}</span>
+                        {doc.published !== undefined && (
+                          <span className={`text-[10px] font-medium flex-shrink-0 ${doc.published ? 'text-green-600' : 'text-amber-600'}`}>
+                            {doc.published ? '● Published' : '● Draft'}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2 flex-shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => onExecute(selectedList)}
+            disabled={selectedList.length === 0}
+            className={`px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${cfg.btnCls}`}
+          >
+            {cfg.btn} ({selectedList.length})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Document Preview Panel ────────────────────────────────────────────────────
 
 function DocumentPreviewPanel({
@@ -979,12 +1112,12 @@ function DocumentPreviewPanel({
       </div>
 
       {/* Actions footer */}
-      <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0 space-y-2">
-        <div className="flex gap-2">
+      <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0">
+        <div className="flex flex-wrap gap-1.5">
           {isSow && onValidateSow && (
             <button
               onClick={() => onValidateSow(doc)}
-              className="flex-1 px-3 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
             >
               ✓ Validate SOW
             </button>
@@ -992,7 +1125,7 @@ function DocumentPreviewPanel({
           {!isSow && onAnalyse && (
             <button
               onClick={() => onAnalyse(doc)}
-              className="flex-1 px-3 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
             >
               🔍 Analyse
             </button>
@@ -1000,7 +1133,7 @@ function DocumentPreviewPanel({
           {onPublish && (
             <button
               onClick={() => onPublish(doc, !doc.published)}
-              className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                 doc.published
                   ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                   : 'bg-green-600 text-white hover:bg-green-700'
@@ -1009,18 +1142,16 @@ function DocumentPreviewPanel({
               {doc.published ? '↩ Unpublish' : '✓ Publish'}
             </button>
           )}
-        </div>
-        <div className="flex gap-2">
           <button
             onClick={() => onDownload(doc)}
-            className="flex-1 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
           >
             ↓ Download
           </button>
           {onDelete && (
             <button
               onClick={() => onDelete(doc)}
-              className="px-3 py-2 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
             >
               ✕ Delete
             </button>

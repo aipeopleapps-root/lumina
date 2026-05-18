@@ -489,7 +489,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
 
   return (
     <div className="space-y-4">
-      {/* Status filter tabs */}
+      {/* Status filter tabs + selection indicator */}
       <div className="flex items-center gap-1">
         {STATUS_TABS.map(tab => {
           const cnt    = counts[tab.id];
@@ -511,6 +511,18 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
             </button>
           );
         })}
+        {anySelected && (
+          <div className="ml-auto flex items-center gap-1.5 text-xs font-medium text-indigo-600">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+            {selectedIds.size} selected
+            <button
+              onClick={clearSelection}
+              className="text-indigo-400 hover:text-indigo-700 underline font-normal"
+            >
+              Clear
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Category sections */}
