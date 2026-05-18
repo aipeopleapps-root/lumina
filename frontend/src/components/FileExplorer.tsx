@@ -14,7 +14,7 @@ interface Document {
   published?: boolean;
 }
 
-export type BulkAction = 'publish' | 'unpublish' | 'delete' | 'download' | 'analyse' | 'generateTests';
+export type BulkAction = 'publish' | 'unpublish' | 'delete' | 'download' | 'analyse';
 
 interface Props {
   template: FolderTemplate;
@@ -24,7 +24,6 @@ interface Props {
   onAnalyse?: (doc: Document) => void;
   onValidateSow?: (doc: Document) => void;
   onPublish?: (doc: Document, published: boolean) => void;
-  onGenerateTests?: (doc: Document) => void;
   onBulkAction?: (action: BulkAction, docs: Document[]) => void;
 }
 
@@ -32,9 +31,10 @@ type StatusFilter = 'all' | 'draft' | 'published';
 
 // Doc types that get their own fixed sections regardless of folder_path
 const VIRTUAL_SECTIONS = [
-  { id: 'sow',           label: 'Statement of Work', docType: 'sow'           },
-  { id: 'test-script',   label: 'Test Scripts',       docType: 'test-script'   },
-  { id: 'status-report', label: 'Status Reports',     docType: 'status-report' },
+  { id: 'sow',           label: 'Statement of Work',      docType: 'sow'           },
+  { id: 'hr_policy',     label: 'HR Policies & Knowledge', docType: 'hr_policy'    },
+  { id: 'test-script',   label: 'Test Scripts',            docType: 'test-script'  },
+  { id: 'status-report', label: 'Status Reports',          docType: 'status-report'},
 ] as const;
 
 const VIRTUAL_TYPES = new Set(VIRTUAL_SECTIONS.map(s => s.docType));
@@ -72,7 +72,7 @@ function latestVersions(docs: Document[]): { doc: Document; versionCount: number
 // ── Selection toolbar ─────────────────────────────────────────────────────────
 
 function SelectionBar({
-  selectedDocs, totalVisible, onSelectAll, onClear, onAction, canPublish, canGenerateTests,
+  selectedDocs, totalVisible, onSelectAll, onClear, onAction, canPublish,
 }: {
   selectedDocs: Document[];
   totalVisible: number;
@@ -80,13 +80,10 @@ function SelectionBar({
   onClear: () => void;
   onAction: (a: BulkAction) => void;
   canPublish: boolean;
-  canGenerateTests: boolean;
 }) {
   const count            = selectedDocs.length;
   const hasPublishable   = selectedDocs.some(d => !d.published);
   const hasUnpublishable = selectedDocs.some(d => d.published === true);
-  const eligibleForTests = selectedDocs.every(d => d.doc_type !== 'sow');
-  const mixedWithSow     = !eligibleForTests && selectedDocs.some(d => d.doc_type !== 'sow');
 
   return (
     <div className="mb-4 bg-indigo-600 text-white rounded-xl px-4 py-2.5 flex items-center gap-3 flex-wrap shadow-md">
@@ -108,16 +105,10 @@ function SelectionBar({
         {canPublish && hasUnpublishable && (
           <button onClick={() => onAction('unpublish')} className="px-2.5 py-1 text-xs font-medium bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors">↩ Unpublish</button>
         )}
-        {canGenerateTests && eligibleForTests && (
-          <button onClick={() => onAction('generateTests')} className="px-2.5 py-1 text-xs font-medium bg-teal-500 hover:bg-teal-600 rounded-lg transition-colors">⚙ Generate Tests</button>
-        )}
         <button onClick={() => onAction('analyse')} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">🔍 Analyse</button>
         <button onClick={() => onAction('download')} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">↓ Download</button>
         <button onClick={() => onAction('delete')} className="px-2.5 py-1 text-xs font-medium bg-red-500 hover:bg-red-600 rounded-lg transition-colors">✕ Delete</button>
       </div>
-      {mixedWithSow && (
-        <span className="text-xs text-indigo-200 italic">Generate Tests unavailable — deselect SOW docs first</span>
-      )}
     </div>
   );
 }
@@ -126,7 +117,7 @@ function SelectionBar({
 
 function DocRow({
   doc, versionCount, isSelected, anySelected, onToggle,
-  onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onGenerateTests,
+  onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
 }: {
   doc: Document;
   versionCount: number;
@@ -138,10 +129,8 @@ function DocRow({
   onAnalyse?: (d: Document) => void;
   onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
-  onGenerateTests?: (d: Document) => void;
 }) {
   const isSow           = doc.doc_type === 'sow';
-  const isGeneratedDoc  = doc.doc_type === 'test-script' || doc.doc_type === 'status-report';
   const folder          = folderLabel(doc.folder_path);
 
   return (
@@ -205,11 +194,6 @@ function DocRow({
               Validate SOW
             </button>
           )}
-          {!isSow && !isGeneratedDoc && onGenerateTests && (
-            <button onClick={() => onGenerateTests(doc)} className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors">
-              Tests
-            </button>
-          )}
           {!isSow && onAnalyse && (
             <button onClick={() => onAnalyse(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
               Analyse
@@ -233,7 +217,7 @@ function DocRow({
 
 function CategorySection({
   label, rows, selectedIds, anySelected, onToggle,
-  onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onGenerateTests,
+  onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
 }: {
   label: string;
   rows: { doc: Document; versionCount: number }[];
@@ -245,7 +229,6 @@ function CategorySection({
   onAnalyse?: (d: Document) => void;
   onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
-  onGenerateTests?: (d: Document) => void;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -280,7 +263,6 @@ function CategorySection({
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
-              onGenerateTests={onGenerateTests}
             />
           ))}
         </div>
@@ -291,7 +273,7 @@ function CategorySection({
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onGenerateTests, onBulkAction }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -388,7 +370,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
           onClear={clearSelection}
           onAction={handleBulkAction}
           canPublish={!!onPublish}
-          canGenerateTests={!!onGenerateTests}
         />
       )}
 
@@ -423,8 +404,8 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Fixed sections: SOW first, then template folders, then Test Scripts & Status Reports */}
-          {grouped.virtual.slice(0, 1).map(vs => vs.rows.length === 0 ? null : (
+          {/* SOW + HR Policies first, then template folders, then Test Scripts & Status Reports */}
+          {grouped.virtual.slice(0, 2).map(vs => vs.rows.length === 0 ? null : (
             <CategorySection
               key={vs.id}
               label={vs.label}
@@ -437,7 +418,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
-              onGenerateTests={onGenerateTests}
             />
           ))}
           {grouped.sections.map(({ folder, rows }) => {
@@ -455,11 +435,10 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
                 onAnalyse={onAnalyse}
                 onValidateSow={onValidateSow}
                 onPublish={onPublish}
-                onGenerateTests={onGenerateTests}
               />
             );
           })}
-          {grouped.virtual.slice(1).map(vs => vs.rows.length === 0 ? null : (
+          {grouped.virtual.slice(2).map(vs => vs.rows.length === 0 ? null : (
             <CategorySection
               key={vs.id}
               label={vs.label}
@@ -472,7 +451,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
-              onGenerateTests={onGenerateTests}
             />
           ))}
           {grouped.uncategorized.length > 0 && (
@@ -487,7 +465,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
-              onGenerateTests={onGenerateTests}
             />
           )}
         </div>
