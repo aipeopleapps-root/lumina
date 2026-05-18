@@ -16,6 +16,7 @@ import ConsultantPanel from './components/ConsultantPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { ClientView } from './components/ClientView';
 import { LuminaLogo } from './components/LuminaLogo';
+import { OnboardingChecklist, shouldShowOnboarding } from './components/OnboardingChecklist';
 import { getMyClients, setActiveClientTenant, listTenants, type AssignedClient } from './lib/api';
 
 type Me = {
@@ -59,6 +60,7 @@ export default function App() {
   // Admin demo previewer
   const [preview, setPreview] = useState<PreviewMode>({ view: 'admin' });
   const [allClients, setAllClients] = useState<AssignedClient[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   async function beginForcedSetup(userEmail: string) {
     const details = await setUpTOTP();
@@ -92,6 +94,7 @@ export default function App() {
         firstName: attrs.given_name ?? '',
         lastName: attrs.family_name ?? '',
       });
+      if (shouldShowOnboarding()) setShowOnboarding(true);
       if (role === 'consultant') {
         loadMyClients();
       }
@@ -728,24 +731,28 @@ export default function App() {
             </>
           )}
 
-          {/* Admin demo previewer */}
+          {/* Admin demo previewer — pill switcher */}
           {me.role === 'admin' && allClients.length > 0 && (
             <>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-white/40">Preview as</span>
-                <select
-                  value={previewValue}
-                  onChange={e => switchPreview(e.target.value)}
-                  className="text-xs border border-white/10 rounded-lg px-2.5 py-1.5 bg-white/5 text-white/80 focus:outline-none focus:ring-1 focus:ring-[#86BC25] cursor-pointer"
-                >
-                  <option value="admin" className="bg-black">Admin Panel</option>
-                  <option value={`consultant:${allClients[0].tenant_id}`} className="bg-black">
-                    Consultant — {allClients[0].name}
-                  </option>
-                  <option value={`client:${allClients[0].tenant_id}`} className="bg-black">
-                    Client — {allClients[0].name}
-                  </option>
-                </select>
+              <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg p-0.5">
+                {[
+                  { value: 'admin', label: 'Admin' },
+                  { value: `consultant:${allClients[0].tenant_id}`, label: 'Consultant' },
+                  { value: `client:${allClients[0].tenant_id}`, label: 'Client' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => switchPreview(opt.value)}
+                    title={opt.value.startsWith('consultant') || opt.value.startsWith('client') ? `${opt.label} — ${allClients[0].name}` : opt.label}
+                    className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
+                      previewValue === opt.value
+                        ? 'bg-[#86BC25] text-black'
+                        : 'text-white/50 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
               <div className="h-6 w-px bg-white/10" />
             </>
@@ -778,7 +785,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 bg-slate-50 overflow-hidden">
+      <main className="flex-1 bg-[#f8f9fa] overflow-hidden" style={{ borderTop: '1px solid #1a1a1a' }}>
         {isAdmin && preview.view === 'admin' && <AdminPanel role={me.role} />}
 
         {isAdmin && preview.view === 'consultant' && (
@@ -812,6 +819,10 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {showOnboarding && me && (
+        <OnboardingChecklist role={me.role} onDismiss={() => setShowOnboarding(false)} />
+      )}
     </div>
   );
 }

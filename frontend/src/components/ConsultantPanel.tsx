@@ -4,6 +4,7 @@ import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import { UploadModal } from './UploadModal';
 import { PolicyAdvisor } from './PolicyAdvisor';
+import { Toast } from './Toast';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 interface Document {
@@ -38,6 +39,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [activeTab, setActiveTab] = useState<'documents' | 'policy'>('documents');
+  const [toast, setToast] = useState<{ message: string; id: number } | null>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
 
@@ -268,7 +270,15 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl mb-3">📂</div>
               <p className="text-sm font-medium text-slate-600">No documents yet</p>
-              <p className="text-xs text-slate-400 mt-1">Uploaded files will appear here</p>
+              <p className="text-xs text-slate-400 mt-2 max-w-[200px] leading-relaxed">Upload your first document to start analysing your Workday configuration</p>
+              {canIngest && folderTemplate && (
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="mt-4 flex items-center gap-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-700 px-3 py-2 rounded-lg transition-colors"
+                >
+                  ↑ Upload first document
+                </button>
+              )}
             </div>
           ) : folderTemplate ? (
             <FileExplorer
@@ -305,42 +315,41 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         </div>
       </div>
 
-      {/* ── Panel 3: Results (analysis or SOW validation) ── */}
-      {(hasResults || showResults || validatingSow || sowResult || generatingReport || statusReport) && (
-        <div className={`w-[480px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto transition-all ${showResults ? '' : 'hidden'}`}>
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                {statusReport || generatingReport ? 'Weekly Status Report'
-                  : sowResult || validatingSow ? 'SOW Validation'
-                  : 'AI Analysis'}
-              </h2>
-              {statusReport && <p className="text-xs text-violet-500 mt-0.5">Week ending {statusReport.week_ending}</p>}
-              {resultDocName && !statusReport && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[280px]">{resultDocName}</p>}
-            </div>
-            <button
-              onClick={() => { setShowResults(false); setSowResult(null); setStatusReport(null); }}
-              title="Hide results"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
-            >
-              ✕
-            </button>
+      {/* ── Panel 3: Results — always visible, placeholder when idle ── */}
+      <div className={`w-[420px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto ${showResults ? '' : 'hidden'}`}>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              {statusReport || generatingReport ? 'Weekly Status Report'
+                : sowResult || validatingSow ? 'SOW Validation'
+                : 'AI Analysis'}
+            </h2>
+            {statusReport && <p className="text-xs text-violet-500 mt-0.5">Week ending {statusReport.week_ending}</p>}
+            {resultDocName && !statusReport && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[240px]">{resultDocName}</p>}
           </div>
+          <button
+            onClick={() => { setShowResults(false); setSowResult(null); setStatusReport(null); setResult(null); setError(null); }}
+            title="Close panel"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
+          >
+            ✕
+          </button>
+        </div>
 
-          <div className="p-5 space-y-4">
-            {(analyzing || validatingSow || generatingReport) ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-4">
-                <span className={`w-8 h-8 border-2 rounded-full animate-spin ${generatingReport ? 'border-violet-200 border-t-violet-600' : 'border-indigo-200 border-t-indigo-600'}`} />
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700">
-                    {validatingSow ? 'Validating against SOW…'
-                      : generatingReport ? 'Generating status report…'
-                      : 'Analysing document…'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
-                </div>
+        <div className="p-5 space-y-4 flex-1">
+          {(analyzing || validatingSow || generatingReport) ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4 pb-8">
+              <span className={`w-8 h-8 border-2 rounded-full animate-spin ${generatingReport ? 'border-violet-200 border-t-violet-600' : 'border-indigo-200 border-t-indigo-600'}`} />
+              <div className="text-center">
+                <p className="text-sm font-medium text-slate-700">
+                  {validatingSow ? 'Validating against SOW…'
+                    : generatingReport ? 'Generating status report…'
+                    : 'Analysing document…'}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
               </div>
-            ) : sowResult ? (
+            </div>
+          ) : sowResult ? (
               <>
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
                   <p className="text-xs font-medium text-indigo-600 uppercase tracking-wide mb-2">Executive Summary</p>
@@ -394,23 +403,8 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
                 <p className="text-xs text-red-600">{error}</p>
               </div>
             ) : null}
-          </div>
         </div>
-      )}
-
-      {/* Show results button when panel is hidden but results exist */}
-      {!showResults && hasResults && !analyzing && (
-        <div className="w-10 flex-shrink-0 flex flex-col items-center border-l border-slate-200 bg-white py-4 gap-3">
-          <button
-            onClick={() => setShowResults(true)}
-            title="Show analysis results"
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-colors text-sm"
-          >
-            ←
-          </button>
-          <span className="text-xs text-slate-300 [writing-mode:vertical-rl] rotate-180 select-none tracking-wide mt-1">Analysis</span>
-        </div>
-      )}
+      </div>
 
     </div>
     )}
@@ -420,7 +414,16 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         <UploadModal
           template={folderTemplate}
           onClose={() => setShowUploadModal(false)}
-          onUploaded={loadDocuments}
+          onUploaded={(msg) => { loadDocuments(); setToast({ message: msg, id: Date.now() }); }}
+        />
+      )}
+
+      {toast && (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type="success"
+          onDismiss={() => setToast(null)}
         />
       )}
 

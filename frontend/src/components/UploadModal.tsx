@@ -48,6 +48,19 @@ const VIRTUAL_CATEGORIES = [
 
 const VIRTUAL_NAMES = new Set<string>(VIRTUAL_CATEGORIES.map(c => c.name));
 
+const CATEGORY_DESCRIPTIONS: Record<string, string> = {
+  'Statement of Work':       'Contracts and scoped deliverable agreements',
+  'Test Scripts':            'SIT / UAT test cases and scenario scripts',
+  'Status Reports':          'Weekly or milestone project status updates',
+  'HR Policies & Knowledge': 'Company policies, handbooks, and HR guidance',
+  'Configuration Workbooks': 'Workday configuration workbooks (.xlsx / .xlsm)',
+  'Business Process Documents': 'BPDs, process flows, and workflow designs',
+  'Integration Design':      'Integration specs, API docs, and middleware designs',
+  'Training':                'Job aids, user guides, and training materials',
+  'Data Migration':          'Data conversion and cutover planning docs',
+  'Project Management':      'Project plans, charters, and governance docs',
+};
+
 function docTypeFromFolderName(folderName: string): string {
   const n = folderName.toLowerCase();
   if (n.includes('configuration') || n.includes('workbook')) return 'config-workbook';
@@ -66,7 +79,7 @@ interface Category {
 interface Props {
   template: FolderTemplate;
   onClose: () => void;
-  onUploaded: () => void;
+  onUploaded: (message: string) => void;
 }
 
 export function UploadModal({ template, onClose, onUploaded }: Props) {
@@ -166,7 +179,8 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
         });
       }
       setUploadProgress(null);
-      onUploaded();
+      const n = files.length;
+      onUploaded(`${n} file${n > 1 ? 's' : ''} uploaded and indexed successfully`);
       onClose();
     } catch (err: any) {
       setError(err.message || String(err));
@@ -276,21 +290,28 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2.5">
               2 — Tag to category
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {allCategories.map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => handleCategorySelect(cat)}
-                  className={`flex items-center gap-2.5 px-3 py-3 rounded-xl border text-left transition-all ${
+                  className={`flex items-start gap-2.5 px-3 py-3 rounded-xl border text-left transition-all ${
                     selected?.id === cat.id
-                      ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500 text-indigo-600'
-                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-500'
+                      ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500'
+                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
-                  <SectionIcon name={cat.name} className="w-4 h-4 flex-shrink-0" />
-                  <span className={`text-xs font-medium leading-snug ${selected?.id === cat.id ? 'text-indigo-700' : 'text-slate-700'}`}>
-                    {cat.name}
-                  </span>
+                  <SectionIcon name={cat.name} className={`w-4 h-4 flex-shrink-0 mt-0.5 ${selected?.id === cat.id ? 'text-indigo-500' : 'text-slate-400'}`} />
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold leading-snug ${selected?.id === cat.id ? 'text-indigo-700' : 'text-slate-700'}`}>
+                      {cat.name}
+                    </div>
+                    {CATEGORY_DESCRIPTIONS[cat.name] && (
+                      <div className={`text-[11px] leading-snug mt-0.5 ${selected?.id === cat.id ? 'text-indigo-400' : 'text-slate-400'}`}>
+                        {CATEGORY_DESCRIPTIONS[cat.name]}
+                      </div>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
