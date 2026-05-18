@@ -42,7 +42,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   // MFA auth flow
-  type AuthStep = 'signin' | 'mfa-totp' | 'mfa-setup';
+  type AuthStep = 'signin' | 'new-password' | 'mfa-totp' | 'mfa-setup';
   const [authStep, setAuthStep] = useState<AuthStep>('signin');
   const [totpCode, setTotpCode] = useState('');
   const [totpSecret, setTotpSecret] = useState('');
@@ -50,6 +50,7 @@ export default function App() {
   const [mfaBusy, setMfaBusy] = useState(false);
   const [setupIsConfirmSignIn, setSetupIsConfirmSignIn] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
   // Consultant client-switcher
   const [myClients, setMyClients] = useState<AssignedClient[]>([]);
@@ -164,7 +165,11 @@ export default function App() {
     setError(null);
     try {
       const { nextStep } = await signIn({ username: email, password });
-      if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
+      if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+        setNewPassword('');
+        setError(null);
+        setAuthStep('new-password');
+      } else if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
         setTotpCode('');
         setError(null);
         setAuthStep('mfa-totp');
@@ -183,6 +188,20 @@ export default function App() {
       setError(err.message || String(err));
     } finally {
       setSigningIn(false);
+    }
+  }
+
+  async function onSetNewPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setMfaBusy(true);
+    setError(null);
+    try {
+      await confirmSignIn({ challengeResponse: newPassword });
+      await checkAndCompleteSignIn();
+    } catch (err: any) {
+      setError(err.message || String(err));
+    } finally {
+      setMfaBusy(false);
     }
   }
 
@@ -223,6 +242,7 @@ export default function App() {
     try { await signOut(); } catch {}
     setAuthStep('signin');
     setTotpCode('');
+    setNewPassword('');
     setError(null);
     setResetRequested(false);
   }
@@ -431,6 +451,46 @@ export default function App() {
                 <p className="text-xs text-slate-400 mt-8 text-center">
                   Need access? Contact your project administrator.
                 </p>
+              </>
+            )}
+
+            {/* ── Step 1b: Set new password (temp password on first login) ── */}
+            {authStep === 'new-password' && (
+              <>
+                <div className="mb-8">
+                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Set your password</h2>
+                  <p className="text-slate-500 text-sm mt-1">Your temporary password has expired. Please set a permanent password.</p>
+                </div>
+                <form onSubmit={onSetNewPassword} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">New password</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      autoFocus
+                      minLength={8}
+                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-shadow"
+                      required
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Must be at least 8 characters with uppercase, lowercase, number and symbol.</p>
+                  </div>
+                  {error && <MfaError message={error} />}
+                  <button
+                    type="submit"
+                    disabled={mfaBusy || newPassword.length < 8}
+                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors mt-1"
+                  >
+                    {mfaBusy ? 'Setting password…' : 'Set password & continue'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCancelMfa}
+                    className="w-full text-sm text-slate-500 hover:text-slate-800 py-1.5 transition-colors"
+                  >
+                    ← Back to sign in
+                  </button>
+                </form>
               </>
             )}
 
