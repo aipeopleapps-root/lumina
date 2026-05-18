@@ -1,13 +1,13 @@
 """
-Test Script Generator — multi-document, split output.
+Test Script Generator — async multi-document, split output.
 
-Accepts multiple source documents, auto-detects integration design docs,
-and generates:
-  - Functional Scenario Tests (business/UAT scenarios from all docs)
-  - Integration Tests (technical data-flow tests from integration docs only)
+POST /test-scripts/generate  → validates, stores job record, invokes worker async
+                               returns { job_id, status: "processing" } in < 1 s
 
-POST /test-scripts/generate
-Body: { "source_doc_ids": ["...", "..."] }
+worker_handler (direct Lambda invocation) → does the actual Bedrock generation,
+   updates the job record in DynamoDB with { status: "done", result: {...} }
+
+GET /test-scripts/status/{jobId}  → separate Lambda (test_scripts_status)
 """
 
 from __future__ import annotations
@@ -24,15 +24,18 @@ from boto3.dynamodb.conditions import Key
 
 from common import tenant_from_event, TenantError, bedrock, audit_events, http
 from common import dynamo_vectors as vectors
+from common.tenant import TenantContext
 
 log = logging.getLogger(__name__)
 log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 _s3 = boto3.client("s3")
 _dynamodb = boto3.resource("dynamodb")
+_lambda_client = boto3.client("lambda")
 _BUCKET = os.environ["DOCS_BUCKET"]
 _VECTOR_TABLE = os.environ["VECTOR_TABLE_NAME"]
 _MODEL_ID = os.environ["GENERATION_MODEL_ID"]
+_WORKER_FUNCTION_ARN = os.environ.get("GENERATE_TESTS_WORKER_FUNCTION_ARN", "")
 
 MAX_CHARS_PER_DOC = 12_000
 MAX_TOTAL_CHARS = 60_000
@@ -105,6 +108,8 @@ Rules:
 """
 
 
+# ── API Gateway entry point ────────────────────────────────────────────────────
+
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
@@ -117,7 +122,6 @@ def handler(event, context):
     except json.JSONDecodeError:
         return http.bad_request("invalid JSON body")
 
-    # Accept source_doc_ids (new) or source_doc_id (legacy single)
     source_doc_ids = body.get("source_doc_ids") or []
     if not source_doc_ids and body.get("source_doc_id"):
         source_doc_ids = [body["source_doc_id"]]
@@ -127,17 +131,112 @@ def handler(event, context):
     if not isinstance(source_doc_ids, list) or len(source_doc_ids) > 20:
         return http.bad_request("source_doc_ids must be a list of up to 20 doc IDs")
 
+    job_id = str(uuid.uuid4())
     table = _dynamodb.Table(_VECTOR_TABLE)
 
-    # Load and classify each document
-    docs: list[dict] = []
-    chars_budget = MAX_TOTAL_CHARS
-    chars_per_doc = min(MAX_CHARS_PER_DOC, chars_budget // max(len(source_doc_ids), 1))
+    table.put_item(Item={
+        "tenant_id": ctx.tenant_id,
+        "chunk_id": f"job#{job_id}",
+        "doc_type": "_job",
+        "job_type": "generate_tests",
+        "status": "processing",
+        "source_doc_ids": source_doc_ids,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "ttl": int(time.time()) + 3600,
+    })
 
+    worker_payload = {
+        "job_id": job_id,
+        "tenant_id": ctx.tenant_id,
+        "user_id": ctx.user_id,
+        "role": ctx.role,
+        "email": ctx.email,
+        "source_doc_ids": source_doc_ids,
+        "ip": audit_events.get_ip(event),
+    }
+
+    if not _WORKER_FUNCTION_ARN:
+        log.error("GENERATE_TESTS_WORKER_FUNCTION_ARN not configured")
+        return http.server_error("Worker function not configured")
+
+    _lambda_client.invoke(
+        FunctionName=_WORKER_FUNCTION_ARN,
+        InvocationType="Event",
+        Payload=json.dumps(worker_payload).encode(),
+    )
+
+    log.info("generate_tests job=%s tenant=%s docs=%d enqueued", job_id, ctx.tenant_id, len(source_doc_ids))
+    return http.ok({"job_id": job_id, "status": "processing"})
+
+
+# ── Worker entry point (direct Lambda invocation, async) ──────────────────────
+
+def worker_handler(event, context):
+    job_id = event["job_id"]
+    tenant_id = event["tenant_id"]
+    source_doc_ids = event["source_doc_ids"]
+    ip = event.get("ip", "unknown")
+
+    ctx = TenantContext(
+        tenant_id=tenant_id,
+        user_id=event.get("user_id", ""),
+        role=event.get("role", "consultant"),
+        email=event.get("email", ""),
+    )
+
+    table = _dynamodb.Table(_VECTOR_TABLE)
+
+    try:
+        result = _generate(ctx, source_doc_ids, table)
+
+        audit_events.write(
+            ctx,
+            "ai.generate_tests",
+            ip=ip,
+            resource_type="document",
+            resource_id=result["doc_id"],
+            resource_name=result["source_name"],
+            details={
+                "source_doc_ids": source_doc_ids,
+                "doc_count": result.get("doc_count", len(source_doc_ids)),
+                "functional_count": result["functional_count"],
+                "integration_count": result["integration_count"],
+                "model_id": _MODEL_ID,
+                "latency_ms": result["latency_ms"],
+            },
+        )
+
+        table.update_item(
+            Key={"tenant_id": tenant_id, "chunk_id": f"job#{job_id}"},
+            UpdateExpression="SET #s = :s, #r = :r",
+            ExpressionAttributeNames={"#s": "status", "#r": "result"},
+            ExpressionAttributeValues={":s": "done", ":r": json.dumps(result)},
+        )
+        log.info(
+            "worker done job=%s tenant=%s functional=%d integration=%d latency=%dms",
+            job_id, tenant_id, result["functional_count"], result["integration_count"], result["latency_ms"],
+        )
+
+    except Exception as e:
+        log.error("worker error job=%s: %s", job_id, e, exc_info=True)
+        table.update_item(
+            Key={"tenant_id": tenant_id, "chunk_id": f"job#{job_id}"},
+            UpdateExpression="SET #s = :s, #e = :e",
+            ExpressionAttributeNames={"#s": "status", "#e": "error"},
+            ExpressionAttributeValues={":s": "error", ":e": str(e)},
+        )
+
+
+# ── Core generation logic (shared) ────────────────────────────────────────────
+
+def _generate(ctx: TenantContext, source_doc_ids: list[str], table) -> dict:
+    chars_per_doc = min(MAX_CHARS_PER_DOC, MAX_TOTAL_CHARS // max(len(source_doc_ids), 1))
+
+    docs: list[dict] = []
     for doc_id in source_doc_ids:
         chunks = _load_chunks_by_doc(table, ctx.tenant_id, doc_id)
         if not chunks:
-            log.warning("Doc %s not found or empty for tenant %s", doc_id, ctx.tenant_id)
+            log.warning("doc %s not found for tenant %s", doc_id, ctx.tenant_id)
             continue
         name = chunks[0].get("source_name", "Document")
         text = _join_chunks(chunks, chars_per_doc)
@@ -145,15 +244,12 @@ def handler(event, context):
         docs.append({"name": name, "text": text, "is_integration": is_integration})
 
     if not docs:
-        return http.bad_request("No valid source documents found")
+        raise ValueError("No valid source documents found")
 
-    # Build document context block
     doc_blocks = []
     for d in docs:
         tag = "INTEGRATION" if d["is_integration"] else "FUNCTIONAL"
-        doc_blocks.append(
-            f'<document type="{tag}" name="{d["name"]}">\n{d["text"]}\n</document>'
-        )
+        doc_blocks.append(f'<document type="{tag}" name="{d["name"]}">\n{d["text"]}\n</document>')
 
     has_integration = any(d["is_integration"] for d in docs)
     doc_names = [d["name"] for d in docs]
@@ -168,28 +264,19 @@ def handler(event, context):
     )
 
     t0 = time.time()
-    try:
-        result = bedrock.generate_json(_SYSTEM_PROMPT, user_prompt, max_tokens=6000, temperature=0.1)
-    except ValueError as e:
-        log.error("generate_tests model output error: %s", e)
-        return http.server_error(f"Model output error: {e}")
-    except Exception as e:
-        log.error("generate_tests Bedrock error: %s", e, exc_info=True)
-        return http.server_error(f"AI generation failed: {e}")
-
+    result_json = bedrock.generate_json(_SYSTEM_PROMPT, user_prompt, max_tokens=6000, temperature=0.1)
     latency_ms = int((time.time() - t0) * 1000)
-    functional_tests = result.get("functional_tests", [])
-    integration_tests = result.get("integration_tests", [])
+
+    functional_tests = result_json.get("functional_tests", [])
+    integration_tests = result_json.get("integration_tests", [])
     total = len(functional_tests) + len(integration_tests)
 
     if total == 0:
-        return http.server_error("No test cases were generated")
+        raise ValueError("No test cases were generated")
 
-    # Format as plain-text document with two sections
     now = datetime.now(timezone.utc)
     doc_text = _format_test_script(doc_names, functional_tests, integration_tests, now)
 
-    # Script name
     if len(docs) == 1:
         base_name = docs[0]["name"].rsplit(".", 1)[0]
         script_name = f"Test Scripts — {base_name}.txt"
@@ -198,10 +285,9 @@ def handler(event, context):
         script_name = f"Test Scripts — {len(docs)} documents — {date_str}.txt"
 
     new_doc_id = str(uuid.uuid4())
-    # Use folder of first source doc so it appears in same area
-    first_chunk = _load_chunks_by_doc(table, ctx.tenant_id, source_doc_ids[0])
-    source_module = first_chunk[0].get("module", "unknown") if first_chunk else "unknown"
-    source_folder = first_chunk[0].get("folder_path", "/") if first_chunk else "/"
+    first_chunks = _load_chunks_by_doc(table, ctx.tenant_id, source_doc_ids[0])
+    source_module = first_chunks[0].get("module", "unknown") if first_chunks else "unknown"
+    source_folder = first_chunks[0].get("folder_path", "/") if first_chunks else "/"
     s3_key = f"tenants/{ctx.tenant_id}/generated/{new_doc_id}/{script_name}"
 
     _s3.put_object(
@@ -211,58 +297,29 @@ def handler(event, context):
         ContentType="text/plain",
     )
 
-    # Chunk and index — one chunk per test case for fine-grained retrieval
-    now_iso = now.isoformat()
     all_chunks = _chunk_tests(
         functional_tests, integration_tests,
-        new_doc_id, script_name, source_module, source_folder, s3_key, now_iso,
+        new_doc_id, script_name, source_module, source_folder, s3_key, now.isoformat(),
     )
-
-    try:
-        for c in all_chunks:
-            c["embedding"] = bedrock.embed(c["text"])
-    except Exception as e:
-        log.error("generate_tests embedding error: %s", e, exc_info=True)
-        return http.server_error(f"Embedding failed: {e}")
+    for c in all_chunks:
+        c["embedding"] = bedrock.embed(c["text"])
 
     vectors.index_chunks(ctx, all_chunks)
 
-    audit_events.write(
-        ctx,
-        "ai.generate_tests",
-        ip=audit_events.get_ip(event),
-        resource_type="document",
-        resource_id=new_doc_id,
-        resource_name=script_name,
-        details={
-            "source_doc_ids": source_doc_ids,
-            "doc_count": len(docs),
-            "functional_count": len(functional_tests),
-            "integration_count": len(integration_tests),
-            "model_id": _MODEL_ID,
-            "latency_ms": latency_ms,
-        },
-    )
-
-    log.info(
-        "generate_tests tenant=%s docs=%d functional=%d integration=%d latency=%dms",
-        ctx.tenant_id, len(docs), len(functional_tests), len(integration_tests), latency_ms,
-    )
-
-    return http.ok({
+    return {
         "doc_id": new_doc_id,
         "source_name": script_name,
         "functional_count": len(functional_tests),
         "integration_count": len(integration_tests),
         "total_count": total,
-        # legacy compat
         "test_count": total,
         "test_type": "functional+integration" if has_integration else "functional",
         "latency_ms": latency_ms,
-    })
+        "doc_count": len(docs),
+    }
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _is_integration_doc(chunk: dict) -> bool:
     module = (chunk.get("module") or "").lower()

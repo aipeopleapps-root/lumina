@@ -218,7 +218,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
 
     const lambdasRoot = path.join(__dirname, '..', '..', 'lambdas');
 
-    const makeFn = (name: string, handlerPath: string, timeoutSec = 30) =>
+    const makeFn = (name: string, handlerPath: string, timeoutSec = 30, handlerFn = 'handler.handler') =>
       new lambda.Function(this, name, {
         runtime: lambda.Runtime.PYTHON_3_12,
         architecture: lambda.Architecture.ARM_64,
@@ -237,7 +237,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
             ],
           },
         }),
-        handler: 'handler.handler',
+        handler: handlerFn,
         role: lambdaRole,
         vpc,
         vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
@@ -276,7 +276,11 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const adminUpdateUserFn = makeFn('AdminUpdateUserFn', 'admin_update_user', 15);
     const mfaResetRequestFn = makeFn('MfaResetRequestFn', 'mfa_reset_request', 15);
     const changeImpactFn = makeFn('ChangeImpactFn', 'change_impact', 60);
-    const generateTestsFn = makeFn('GenerateTestsFn', 'generate_tests', 120);
+    const generateTestsFn = makeFn('GenerateTestsFn', 'generate_tests', 29);
+    const generateTestsWorkerFn = makeFn('GenerateTestsWorkerFn', 'generate_tests', 120, 'handler.worker_handler');
+    generateTestsWorkerFn.grantInvoke(lambdaRole);
+    generateTestsFn.addEnvironment('GENERATE_TESTS_WORKER_FUNCTION_ARN', generateTestsWorkerFn.functionArn);
+    const testScriptsStatusFn = makeFn('TestScriptsStatusFn', 'test_scripts_status', 15);
     const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
 
     // Bootstrap — runs on every deploy, idempotent
@@ -465,6 +469,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/test-scripts/generate',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('GenerateTestsInt', generateTestsFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/test-scripts/status/{jobId}',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('TestScriptsStatusInt', testScriptsStatusFn),
       authorizer,
     });
     httpApi.addRoutes({

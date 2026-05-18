@@ -353,10 +353,27 @@ export interface GenerateTestsResponse {
   latency_ms: number;
 }
 
+export interface GenerateTestsJobResponse {
+  job_id: string;
+  status: 'processing' | 'done' | 'error';
+  error?: string;
+  doc_id?: string;
+  source_name?: string;
+  functional_count?: number;
+  integration_count?: number;
+  total_count?: number;
+  test_type?: string;
+  latency_ms?: number;
+}
+
 export async function generateTestScripts(
   sourceDocIds: string[],
-): Promise<GenerateTestsResponse> {
+): Promise<GenerateTestsJobResponse> {
   return api.post('/test-scripts/generate', { source_doc_ids: sourceDocIds });
+}
+
+export async function getTestScriptJob(jobId: string): Promise<GenerateTestsJobResponse> {
+  return api.get(`/test-scripts/status/${jobId}`);
 }
 
 // Weekly Status Report

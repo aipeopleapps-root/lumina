@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream, type GenerateTestsResponse } from '../lib/api';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, getTestScriptJob, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream, type GenerateTestsResponse } from '../lib/api';
 import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import { UploadModal } from './UploadModal';
@@ -505,8 +505,54 @@ function GenerateTestsModal({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateTestsResponse | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!jobId) return;
+    const currentJobId = jobId;
+    let cancelled = false;
+
+    function scheduleNextPoll() {
+      pollRef.current = setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const status = await getTestScriptJob(currentJobId);
+          if (cancelled) return;
+          if (status.status === 'done') {
+            setResult({
+              doc_id: status.doc_id!,
+              source_name: status.source_name!,
+              functional_count: status.functional_count ?? 0,
+              integration_count: status.integration_count ?? 0,
+              total_count: status.total_count ?? 0,
+              test_type: status.test_type ?? 'functional',
+              latency_ms: status.latency_ms ?? 0,
+            });
+            setGenerating(false);
+            setJobId(null);
+          } else if (status.status === 'error') {
+            setError(status.error || 'Generation failed — please try again');
+            setGenerating(false);
+            setJobId(null);
+          } else {
+            scheduleNextPoll();
+          }
+        } catch (err: any) {
+          if (!cancelled) {
+            setError(err.message || 'Failed to check job status');
+            setGenerating(false);
+            setJobId(null);
+          }
+        }
+      }, 3000);
+    }
+
+    scheduleNextPoll();
+    return () => { cancelled = true; if (pollRef.current) clearTimeout(pollRef.current); };
+  }, [jobId]);
 
   // Exclude generated/auto docs from picker
   const eligibleDocs = useMemo(() =>
@@ -553,10 +599,25 @@ function GenerateTestsModal({
     setGenerating(true);
     try {
       const r = await generateTestScripts([...selected]);
-      setResult(r);
+      if (r.status === 'processing' && r.job_id) {
+        setJobId(r.job_id);
+      } else if (r.status === 'done') {
+        setResult({
+          doc_id: r.doc_id!,
+          source_name: r.source_name!,
+          functional_count: r.functional_count ?? 0,
+          integration_count: r.integration_count ?? 0,
+          total_count: r.total_count ?? 0,
+          test_type: r.test_type ?? 'functional',
+          latency_ms: r.latency_ms ?? 0,
+        });
+        setGenerating(false);
+      } else if (r.status === 'error') {
+        setError(r.error || 'Generation failed');
+        setGenerating(false);
+      }
     } catch (err: any) {
       setError(err.message || String(err));
-    } finally {
       setGenerating(false);
     }
   }
@@ -720,7 +781,7 @@ function GenerateTestsModal({
                   className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
                   {generating && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                  {generating ? 'Generating…' : `Generate (${selected.size} doc${selected.size !== 1 ? 's' : ''})`}
+                  {generating ? (jobId ? 'Generating… (this may take 60–90s)' : 'Starting…') : `Generate (${selected.size} doc${selected.size !== 1 ? 's' : ''})`}
                 </button>
               </div>
             </div>
