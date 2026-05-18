@@ -154,7 +154,7 @@ export const api = {
 export async function chat(
   message: string,
   history: any[] = [],
-  options: { module?: string; doc_id?: string } = {}
+  options: { module?: string; doc_id?: string; mode?: string } = {}
 ): Promise<ChatResponse> {
   return api.post('/chat', { message, history, ...options });
 }

@@ -27,10 +27,24 @@ function detectMismatch(filename: string, selectedName: string): string | null {
 
 // Virtual categories that always appear, with explicit doc_type
 const VIRTUAL_CATEGORIES = [
-  { id: 'sow',           name: 'Statement of Work', docType: 'sow',           subfolders: [] },
-  { id: 'test-script',   name: 'Test Scripts',       docType: 'test-script',   subfolders: [] },
-  { id: 'status-report', name: 'Status Reports',     docType: 'status-report', subfolders: [] },
-] as const;
+  { id: 'sow',           name: 'Statement of Work',      docType: 'sow',           subfolders: [] as {id:string;name:string}[] },
+  { id: 'test-script',   name: 'Test Scripts',           docType: 'test-script',   subfolders: [] as {id:string;name:string}[] },
+  { id: 'status-report', name: 'Status Reports',         docType: 'status-report', subfolders: [] as {id:string;name:string}[] },
+  {
+    id: 'hr_policy',
+    name: 'HR Policies & Knowledge',
+    docType: 'hr_policy',
+    subfolders: [
+      { id: 'leave',       name: 'Leave & Time Off' },
+      { id: 'remote',      name: 'Remote Work & Flexible Working' },
+      { id: 'benefits',    name: 'Benefits & Compensation' },
+      { id: 'conduct',     name: 'Code of Conduct & Ethics' },
+      { id: 'learning',    name: 'Learning & Development' },
+      { id: 'performance', name: 'Performance Management' },
+      { id: 'general',     name: 'General HR' },
+    ],
+  },
+];
 
 const VIRTUAL_NAMES = new Set<string>(VIRTUAL_CATEGORIES.map(c => c.name));
 
@@ -80,6 +94,7 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
       })),
     { ...VIRTUAL_CATEGORIES[1] },
     { ...VIRTUAL_CATEGORIES[2] },
+    { ...VIRTUAL_CATEGORIES[3] },
   ];
 
   function handleFile(f: File) {

@@ -1,0 +1,161 @@
+DELOITTE AUSTRALIA
+FLEXIBLE WORKING & REMOTE WORK POLICY
+Policy Number: HR-004 | Effective Date: 1 January 2024 | Review Date: 31 December 2024
+Owner: People & Purpose | Approved by: Chief People Officer
+
+─────────────────────────────────────────────────────────────────────────────
+1. PURPOSE AND PHILOSOPHY
+─────────────────────────────────────────────────────────────────────────────
+Deloitte supports flexible working arrangements that enable employees to
+deliver outstanding work for clients while maintaining their wellbeing.
+This policy governs working from home (WFH), flexible hours, and hybrid
+working arrangements. Flexibility is a privilege based on performance and
+role suitability, not an entitlement.
+
+─────────────────────────────────────────────────────────────────────────────
+2. SCOPE
+─────────────────────────────────────────────────────────────────────────────
+This policy applies to all permanent full-time and part-time employees.
+It does not apply to graduate recruits in their first 12 months or to roles
+designated as site-critical or client-on-site only.
+
+─────────────────────────────────────────────────────────────────────────────
+3. HYBRID WORK MODEL
+─────────────────────────────────────────────────────────────────────────────
+
+3.1 Default Hybrid Arrangement
+
+Eligible employees may work from home for up to 2 days per week, with a
+minimum of 3 days per week in the office or at a client site. The specific
+in-office days are agreed between the employee and their manager based on
+team and client requirements.
+
+3.2 Client-Facing Roles
+
+Employees in client-facing roles must align their office/remote schedule with
+client expectations. Where a client engagement requires full-time on-site
+attendance, this requirement supersedes any personal hybrid arrangement for
+the duration of the engagement.
+
+3.3 Increased Remote Work
+
+Employees wishing to work remotely for more than 2 days per week must submit
+a formal Flexible Working Request via Workday. Such requests are reviewed
+by the manager and approved at the Partner/Director level. Approval is based
+on performance history, role requirements, and client impact.
+
+─────────────────────────────────────────────────────────────────────────────
+4. ELIGIBILITY FOR REMOTE WORK
+─────────────────────────────────────────────────────────────────────────────
+
+4.1 Eligibility Criteria
+
+To be eligible for remote work arrangements, employees must:
+- Have completed a minimum of 6 months of service with Deloitte Australia
+- Be rated "Meets Expectations" or above in their most recent performance review
+- Have a suitable home workspace that meets the requirements in Section 5
+- Not be subject to a current performance improvement plan
+
+4.2 Probationary Employees
+
+Employees on probation (typically the first 3 months of employment) are
+required to work from the office full-time unless a medical or exceptional
+circumstance is approved by People & Purpose.
+
+─────────────────────────────────────────────────────────────────────────────
+5. HOME WORKSPACE REQUIREMENTS
+─────────────────────────────────────────────────────────────────────────────
+
+5.1 Minimum Requirements
+
+Employees working from home must maintain a dedicated workspace that is:
+- A private area with the ability to hold confidential conversations
+- Ergonomically suitable (appropriate desk, chair, and monitor placement)
+- Free from excessive noise and distractions during core hours
+- Equipped with a stable internet connection of at least 25 Mbps download
+
+5.2 Equipment Provision
+
+Deloitte will provide all standard technology equipment (laptop, headset)
+required for remote work. Employees are responsible for their own desk,
+chair, and internet connection. A one-time home office allowance of $500
+(ex-GST) is available to eligible permanent employees upon commencement.
+This allowance must be claimed via Workday Expenses within 90 days of
+eligibility. Receipts are required for all claims.
+
+─────────────────────────────────────────────────────────────────────────────
+6. CORE HOURS
+─────────────────────────────────────────────────────────────────────────────
+
+6.1 Core Availability Hours
+
+All employees, regardless of work location, are expected to be available and
+responsive during core hours of 9:30 AM to 4:00 PM local time. Outside core
+hours, employees may work flexibly within agreement with their manager.
+
+6.2 Meeting Attendance
+
+Employees are expected to attend all scheduled meetings, whether virtual or
+in-person, during their agreed working hours. Camera-on is the expected
+standard for all internal and external video meetings unless otherwise agreed.
+
+─────────────────────────────────────────────────────────────────────────────
+7. INTERNET AND TELEPHONE EXPENSES
+─────────────────────────────────────────────────────────────────────────────
+
+Deloitte does not reimburse ongoing internet or telephone service costs for
+employees working from home. Employees should ensure their personal plans
+are sufficient for their work requirements. Where mobile calls are incurred
+for client-related work, these may be reimbursable in accordance with the
+Expense Reimbursement Policy (HR-009).
+
+─────────────────────────────────────────────────────────────────────────────
+8. DATA SECURITY WHILE WORKING REMOTELY
+─────────────────────────────────────────────────────────────────────────────
+
+8.1 Required Security Measures
+
+When working remotely, employees must:
+- Use only Deloitte-issued equipment for work activities
+- Connect to all Deloitte systems via the approved VPN client
+- Never use public Wi-Fi (cafés, airports, hotels) without an active VPN
+- Ensure screens are not visible to others in public or shared spaces
+- Lock screens when stepping away from the workspace
+- Report any suspected security incidents immediately to the IT Security team
+
+8.2 Confidential Materials
+
+Physical confidential documents must not be removed from Deloitte offices or
+client sites. All sensitive information must be handled digitally and stored
+on approved Deloitte systems only.
+
+─────────────────────────────────────────────────────────────────────────────
+9. PERFORMANCE AND ACCOUNTABILITY
+─────────────────────────────────────────────────────────────────────────────
+
+Remote working privileges may be reduced or revoked where:
+- An employee's performance or productivity declines
+- The employee is not responsive during agreed working hours
+- Client or business requirements change
+- The employee is not meeting the workspace or security requirements
+
+Managers will provide reasonable notice (minimum 5 business days) before
+changing a flexible working arrangement unless urgent business or security
+reasons apply.
+
+─────────────────────────────────────────────────────────────────────────────
+10. INTERSTATE AND OVERSEAS WORK
+─────────────────────────────────────────────────────────────────────────────
+
+Working remotely from interstate for periods exceeding 4 consecutive weeks
+requires approval from the employee's Partner/Director and notification to
+People & Purpose due to payroll and tax implications. Working from overseas
+is not permitted without formal approval from the CFO and General Counsel
+due to tax, visa, and insurance implications.
+
+─────────────────────────────────────────────────────────────────────────────
+11. CONTACT
+─────────────────────────────────────────────────────────────────────────────
+
+For questions about flexible working arrangements, contact your manager or
+People & Purpose at hrpolicies@deloitte.com.au.

@@ -3,6 +3,7 @@ import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, ge
 import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import { UploadModal } from './UploadModal';
+import { PolicyAdvisor } from './PolicyAdvisor';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 interface Document {
@@ -36,6 +37,7 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   const [batchGenerateDocs, setBatchGenerateDocs] = useState<Document[]>([]);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [activeTab, setActiveTab] = useState<'documents' | 'policy'>('documents');
 
   const canIngest = role === 'consultant' || role === 'admin';
 
@@ -194,10 +196,34 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
   }
 
   const hasResults = analyzing || !!result;
+  const policyDocs = documents.filter(d => d.doc_type === 'hr_policy');
 
   return (
     <>
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
+
+      {/* ── Tab Toggle ── */}
+      <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-200 bg-white shrink-0">
+        <button
+          onClick={() => setActiveTab('documents')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'documents' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+        >
+          Documents
+        </button>
+        <button
+          onClick={() => setActiveTab('policy')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'policy' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+        >
+          HR Policy Advisor
+        </button>
+      </div>
+
+      {activeTab === 'policy' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <PolicyAdvisor policyDocs={policyDocs} />
+        </div>
+      ) : (
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
       {/* ── Document Library (fills available space) ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
@@ -386,6 +412,8 @@ export default function ConsultantPanel({ role, tenantId }: Props) {
         </div>
       )}
 
+    </div>
+    )}
     </div>
 
       {showUploadModal && folderTemplate && (

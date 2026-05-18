@@ -26,6 +26,8 @@ log = logging.getLogger(__name__)
 _GENERATION_MODEL_ID = os.environ["GENERATION_MODEL_ID"]
 _PROMPT_PATH = Path(__file__).parent / "prompt.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
+_HR_POLICY_PROMPT_PATH = Path(__file__).parent / "hr_policy_prompt.md"
+_HR_POLICY_PROMPT = _HR_POLICY_PROMPT_PATH.read_text(encoding="utf-8")
 
 TOP_K = 6
 MAX_HISTORY_TURNS = 6
@@ -58,13 +60,25 @@ def handler(event, context):
 
     module_filter = body.get("module")
     doc_id_filter = body.get("doc_id")
+    mode = (body.get("mode") or "").strip().lower()
+
+    # HR Policy Advisor mode — scoped retrieval + specialist prompt
+    if mode == "hr_advisor":
+        system_prompt = _HR_POLICY_PROMPT
+        doc_type_filter = "hr_policy"
+        module_filter = None  # policy mode searches all hr_policy docs
+        doc_id_filter = None
+    else:
+        system_prompt = _SYSTEM_PROMPT
+        doc_type_filter = None
 
     retrieval_query = _build_retrieval_query(user_message, history)
 
     with audit.Timer() as t:
         query_vector = bedrock.embed(retrieval_query)
         hits = vectors.search(
-            ctx, query_vector, top_k=TOP_K, module=module_filter, doc_id=doc_id_filter,
+            ctx, query_vector, top_k=TOP_K,
+            doc_type=doc_type_filter, module=module_filter, doc_id=doc_id_filter,
         )
 
         context_block = _render_context(hits)
@@ -79,7 +93,7 @@ def handler(event, context):
             },
         ]
         answer = bedrock.generate(
-            _SYSTEM_PROMPT, messages, max_tokens=1500, temperature=0.3
+            system_prompt, messages, max_tokens=1500, temperature=0.2
         )
 
     # Convert Decimal to float for JSON serialization
