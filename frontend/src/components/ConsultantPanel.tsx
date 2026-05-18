@@ -38,6 +38,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [showGenerateTests, setShowGenerateTests] = useState(false);
   const [selectedDocs, setSelectedDocs] = useState<Document[]>([]);
   const [selectionReset, setSelectionReset] = useState(0);
+  const [selectionHint, setSelectionHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy'>('documents');
@@ -185,6 +187,12 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     }
   }
 
+  function showSelectHint() {
+    setSelectionHint(true);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setSelectionHint(false), 2000);
+  }
+
   if (!canIngest) {
     return (
       <div className="text-sm text-slate-500 bg-slate-100 p-4 rounded border border-slate-200">
@@ -241,7 +249,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
 
       {/* ── Document Library (fills available space) ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
-        <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
+        {/* ── Row 1: title + upload ── */}
+        <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Document Library</h2>
@@ -256,55 +265,85 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
               </button>
             )}
           </div>
-          {selectedDocs.length > 0 ? (
-            <div className="flex items-center gap-1.5 bg-indigo-600 text-white rounded-xl px-3 py-1.5 flex-wrap">
-              <span className="text-xs font-semibold mr-1">
+          <button
+            onClick={loadDocuments}
+            disabled={docsLoading}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 disabled:opacity-40 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
+          </button>
+        </div>
+
+        {/* ── Row 2: persistent action toolbar ── */}
+        <div className="px-5 py-2 border-b border-slate-200 bg-slate-50 flex items-center gap-2 shrink-0 flex-wrap">
+          {/* Selection state label */}
+          <div className="text-xs w-28 shrink-0">
+            {selectedDocs.length > 0 ? (
+              <span className="flex items-center gap-1.5 font-medium text-indigo-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
                 {selectedDocs.length} selected
+                <button onClick={() => setSelectionReset(v => v + 1)} className="text-indigo-400 hover:text-indigo-700 underline font-normal">Clear</button>
               </span>
-              <button
-                onClick={() => setSelectionReset(v => v + 1)}
-                className="text-xs text-indigo-200 hover:text-white underline mr-1.5"
-              >
-                Clear
-              </button>
-              {selectedDocs.some(d => !d.published) && (
-                <button onClick={() => handleBulkAction('publish', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-green-600 hover:bg-green-700 rounded-lg transition-colors">✓ Publish</button>
-              )}
-              {selectedDocs.some(d => d.published) && (
-                <button onClick={() => handleBulkAction('unpublish', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors">↩ Unpublish</button>
-              )}
-              <button onClick={() => handleBulkAction('analyse', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">🔍 Analyse</button>
-              <button onClick={() => handleBulkAction('download', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">↓ Download</button>
-              <button onClick={() => handleBulkAction('delete', selectedDocs)} className="px-2.5 py-1 text-xs font-medium bg-red-500 hover:bg-red-600 rounded-lg transition-colors">✕ Delete</button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowGenerateTests(true)}
-                disabled={documents.length === 0}
-                className="flex items-center gap-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                ⚙ Generate Tests
-              </button>
-              <button
-                onClick={onGenerateReport}
-                disabled={generatingReport}
-                className="flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {generatingReport
-                  ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating…</>
-                  : <>📊 Weekly Report</>}
-              </button>
-              <button
-                onClick={loadDocuments}
-                disabled={docsLoading}
-                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-40 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-              >
-                <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
-                Refresh
-              </button>
-            </div>
-          )}
+            ) : selectionHint ? (
+              <span className="text-amber-600 font-medium">Select docs first</span>
+            ) : (
+              <span className="text-slate-400">Select to use:</span>
+            )}
+          </div>
+
+          {/* Bulk action buttons — always visible, state-aware styling */}
+          {(() => {
+            const sel = selectedDocs.length > 0;
+            const base = 'px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors';
+            const active = (color: string) => `${base} ${color}`;
+            const idle = `${base} border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600`;
+            const act = (fn: () => void) => sel ? fn : showSelectHint;
+            return (
+              <>
+                <button onClick={act(() => handleBulkAction('analyse', selectedDocs))}
+                  className={sel ? active('border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100') : idle}>
+                  🔍 Analyse
+                </button>
+                <button onClick={act(() => handleBulkAction('publish', selectedDocs))}
+                  className={sel ? active('border-green-200 bg-green-50 text-green-700 hover:bg-green-100') : idle}>
+                  ✓ Publish
+                </button>
+                <button onClick={act(() => handleBulkAction('unpublish', selectedDocs))}
+                  className={sel ? active('border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100') : idle}>
+                  ↩ Unpublish
+                </button>
+                <button onClick={act(() => handleBulkAction('download', selectedDocs))}
+                  className={sel ? active('border-slate-300 bg-white text-slate-700 hover:bg-slate-50') : idle}>
+                  ↓ Download
+                </button>
+                <button onClick={act(() => handleBulkAction('delete', selectedDocs))}
+                  className={sel ? active('border-red-200 bg-red-50 text-red-600 hover:bg-red-100') : idle}>
+                  ✕ Delete
+                </button>
+              </>
+            );
+          })()}
+
+          {/* Divider */}
+          <div className="h-4 w-px bg-slate-300 mx-1 shrink-0" />
+
+          {/* AI generation — always active */}
+          <button
+            onClick={() => setShowGenerateTests(true)}
+            disabled={documents.length === 0}
+            className="flex items-center gap-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 px-3 py-1 rounded-lg transition-colors"
+          >
+            ⚙ Generate Tests
+          </button>
+          <button
+            onClick={onGenerateReport}
+            disabled={generatingReport}
+            className="flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1 rounded-lg transition-colors"
+          >
+            {generatingReport
+              ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating…</>
+              : <>📊 Weekly Report</>}
+          </button>
         </div>
 
         <div className="p-5">
