@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import type { FolderTemplate } from './FolderTemplateSelector';
 import { SectionIcon } from './SectionIcon';
 
@@ -26,6 +26,7 @@ interface Props {
   onPublish?: (doc: Document, published: boolean) => void;
   onBulkAction?: (action: BulkAction, docs: Document[]) => void;
   onSelectionChange?: (docs: Document[]) => void;
+  onPreview?: (doc: Document) => void;
   selectionReset?: number;
 }
 
@@ -117,17 +118,110 @@ function SelectionBar({
   );
 }
 
+// ── Context menu (⋯) ──────────────────────────────────────────────────────────
+
+function ContextMenu({
+  doc, isSow,
+  onPreview, onAnalyse, onValidateSow, onPublish, onDownload, onDelete,
+}: {
+  doc: Document;
+  isSow: boolean;
+  onPreview?: (d: Document) => void;
+  onAnalyse?: (d: Document) => void;
+  onValidateSow?: (d: Document) => void;
+  onPublish?: (d: Document, published: boolean) => void;
+  onDownload: (d: Document) => void;
+  onDelete?: (d: Document) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  function openMenu(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setOpen(v => !v);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function close(e: MouseEvent) {
+      if (btnRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  function MenuItem({ label, onClick, cls }: { label: string; onClick: () => void; cls?: string }) {
+    return (
+      <button
+        onClick={() => { setOpen(false); onClick(); }}
+        className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 transition-colors ${cls ?? 'text-slate-700'}`}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={openMenu}
+        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors text-sm leading-none"
+        title="More actions"
+      >
+        ···
+      </button>
+
+      {open && (
+        <div
+          style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 9999 }}
+          className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden min-w-[168px]"
+        >
+          {onPreview && (
+            <MenuItem label="👁  Preview" onClick={() => onPreview(doc)} />
+          )}
+          {isSow && onValidateSow && (
+            <MenuItem label="✓  Validate SOW" onClick={() => onValidateSow(doc)} cls="text-indigo-700" />
+          )}
+          {!isSow && onAnalyse && (
+            <MenuItem label="🔍  Analyse" onClick={() => onAnalyse(doc)} cls="text-indigo-700" />
+          )}
+          {onPublish && (
+            <MenuItem
+              label={doc.published ? '↩  Unpublish' : '✓  Publish'}
+              onClick={() => onPublish(doc, !doc.published)}
+              cls={doc.published ? 'text-amber-700' : 'text-green-700'}
+            />
+          )}
+          <div className="h-px bg-slate-100 my-0.5" />
+          <MenuItem label="↓  Download" onClick={() => onDownload(doc)} />
+          {onDelete && (
+            <MenuItem label="✕  Delete" onClick={() => onDelete(doc)} cls="text-red-600" />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Doc row ───────────────────────────────────────────────────────────────────
 
 function DocRow({
   doc, allVersions, isSelected, anySelected, onToggle,
-  onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
+  onPreview, onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
 }: {
   doc: Document;
   allVersions: Document[];
   isSelected: boolean;
   anySelected: boolean;
   onToggle: () => void;
+  onPreview?: (d: Document) => void;
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
@@ -135,9 +229,9 @@ function DocRow({
   onPublish?: (d: Document, published: boolean) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
-  const isSow        = doc.doc_type === 'sow';
-  const folder       = folderLabel(doc.folder_path);
-  const totalVer     = allVersions.length;
+  const isSow    = doc.doc_type === 'sow';
+  const folder   = folderLabel(doc.folder_path);
+  const totalVer = allVersions.length;
 
   return (
     <div>
@@ -154,10 +248,16 @@ function DocRow({
           />
         </div>
 
-        {/* Name + version toggle */}
+        {/* Clickable name + version toggle */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
-            <p className="text-sm text-slate-800 truncate">{doc.source_name}</p>
+            <button
+              onClick={() => onPreview?.(doc)}
+              className="text-sm text-slate-800 hover:text-indigo-700 truncate text-left transition-colors"
+              title={onPreview ? `Preview ${doc.source_name}` : doc.source_name}
+            >
+              {doc.source_name}
+            </button>
             <span className="flex-shrink-0 text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
               v{totalVer}
             </span>
@@ -195,35 +295,17 @@ function DocRow({
           {formatDate(doc.uploaded_at)}
         </span>
 
-        {/* Hover actions */}
-        {!anySelected && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-            {onPublish && (
-              <button
-                onClick={() => onPublish(doc, !doc.published)}
-                className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
-                  doc.published ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                {doc.published ? 'Unpublish' : 'Publish'}
-              </button>
-            )}
-            {isSow && onValidateSow && (
-              <button onClick={() => onValidateSow(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
-                Validate SOW
-              </button>
-            )}
-            {!isSow && onAnalyse && (
-              <button onClick={() => onAnalyse(doc)} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
-                Analyse
-              </button>
-            )}
-            <button onClick={() => onDownload(doc)} className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors" title="Download">↓</button>
-            {onDelete && (
-              <button onClick={() => onDelete(doc)} className="px-2 py-1 text-xs bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors" title="Delete">✕</button>
-            )}
-          </div>
-        )}
+        {/* Context menu */}
+        <ContextMenu
+          doc={doc}
+          isSow={isSow}
+          onPreview={onPreview}
+          onAnalyse={onAnalyse}
+          onValidateSow={onValidateSow}
+          onPublish={onPublish}
+          onDownload={onDownload}
+          onDelete={onDelete}
+        />
       </div>
 
       {/* ── Version history (expandable) ── */}
@@ -259,13 +341,14 @@ function DocRow({
 
 function CategorySection({
   label, rows, selectedIds, anySelected, onToggle,
-  onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
+  onPreview, onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
 }: {
   label: string;
   rows: { doc: Document; allVersions: Document[] }[];
   selectedIds: Set<string>;
   anySelected: boolean;
   onToggle: (id: string) => void;
+  onPreview?: (d: Document) => void;
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
   onAnalyse?: (d: Document) => void;
@@ -298,6 +381,7 @@ function CategorySection({
               isSelected={selectedIds.has(doc.doc_id)}
               anySelected={anySelected}
               onToggle={() => onToggle(doc.doc_id)}
+              onPreview={onPreview}
               onDownload={onDownload}
               onDelete={onDelete}
               onAnalyse={onAnalyse}
@@ -313,7 +397,7 @@ function CategorySection({
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction, onSelectionChange, selectionReset }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction, onSelectionChange, onPreview, selectionReset }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -336,7 +420,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
 
   // Group into virtual sections (by doc_type) + template folder sections + catch-all
   const grouped = useMemo(() => {
-    // Fixed sections for SOW, generated test scripts, and status reports
     const virtual = VIRTUAL_SECTIONS.map(vs => ({
       ...vs,
       rows: filtered
@@ -344,7 +427,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
         .sort((a, b) => b.doc.uploaded_at.localeCompare(a.doc.uploaded_at)),
     }));
 
-    // Template folder sections — exclude virtual doc types
     const remaining = filtered.filter(r => !VIRTUAL_TYPES.has(r.doc.doc_type as any));
     const sections = template.folders.map(folder => {
       const prefix = `/${folder.name}`;
@@ -368,7 +450,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
     return { virtual, sections, uncategorized };
   }, [filtered, template]);
 
-  // Tab counts
   const counts = {
     all:       allRows.length,
     draft:     allRows.filter(r => !r.doc.published).length,
@@ -399,7 +480,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
   }
 
   const anySelected  = selectedIds.size > 0;
-  const selectedDocs = documents.filter(d => selectedIds.has(d.doc_id));
 
   const STATUS_TABS: { id: StatusFilter; label: string }[] = [
     { id: 'all',       label: 'All' },
@@ -440,7 +520,6 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
         </div>
       ) : (
         <div className="space-y-3">
-          {/* SOW + HR Policies first, then template folders, then Test Scripts & Status Reports */}
           {grouped.virtual.slice(0, 2).map(vs => vs.rows.length === 0 ? null : (
             <CategorySection
               key={vs.id}
@@ -449,6 +528,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               selectedIds={selectedIds}
               anySelected={anySelected}
               onToggle={toggleSelect}
+              onPreview={onPreview}
               onDownload={onDownload}
               onDelete={onDelete}
               onAnalyse={onAnalyse}
@@ -466,6 +546,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
                 selectedIds={selectedIds}
                 anySelected={anySelected}
                 onToggle={toggleSelect}
+                onPreview={onPreview}
                 onDownload={onDownload}
                 onDelete={onDelete}
                 onAnalyse={onAnalyse}
@@ -482,6 +563,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               selectedIds={selectedIds}
               anySelected={anySelected}
               onToggle={toggleSelect}
+              onPreview={onPreview}
               onDownload={onDownload}
               onDelete={onDelete}
               onAnalyse={onAnalyse}
@@ -496,6 +578,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               selectedIds={selectedIds}
               anySelected={anySelected}
               onToggle={toggleSelect}
+              onPreview={onPreview}
               onDownload={onDownload}
               onDelete={onDelete}
               onAnalyse={onAnalyse}

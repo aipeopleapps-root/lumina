@@ -38,6 +38,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [showGenerateTests, setShowGenerateTests] = useState(false);
   const [selectedDocs, setSelectedDocs] = useState<Document[]>([]);
   const [selectionReset, setSelectionReset] = useState(0);
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [selectionHint, setSelectionHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
@@ -73,6 +74,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   }, [tenantId]);
 
   async function onAnalyse(doc: Document) {
+    setPreviewDoc(null);
     setError(null);
     setResult(null);
     setSowResult(null);
@@ -91,6 +93,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   }
 
   async function onValidateSow(doc: Document) {
+    setPreviewDoc(null);
     setError(null);
     setResult(null);
     setSowResult(null);
@@ -109,6 +112,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   }
 
   async function onGenerateReport() {
+    setPreviewDoc(null);
     setError(null);
     setResult(null);
     setSowResult(null);
@@ -367,6 +371,14 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
               documents={documents}
               onSelectionChange={setSelectedDocs}
               selectionReset={selectionReset}
+              onPreview={(doc) => {
+                setShowResults(false);
+                setResult(null);
+                setSowResult(null);
+                setStatusReport(null);
+                setError(null);
+                setPreviewDoc(doc);
+              }}
               onDownload={async (doc) => {
                 try {
                   const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
@@ -397,20 +409,26 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         </div>
       </div>
 
-      {/* ── Panel 3: Results — always visible, placeholder when idle ── */}
-      <div className={`w-[420px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white overflow-y-auto ${showResults ? '' : 'hidden'}`}>
+      {/* ── Panel 3: Results / Preview ── */}
+      <div className={`w-[420px] flex-shrink-0 flex flex-col border-l border-slate-200 bg-white ${(showResults || !!previewDoc) ? '' : 'hidden'}`}>
+        {/* Panel header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">
               {statusReport || generatingReport ? 'Weekly Status Report'
                 : sowResult || validatingSow ? 'SOW Validation'
+                : analyzing || result || error ? 'AI Analysis'
+                : previewDoc ? 'Document Preview'
                 : 'AI Analysis'}
             </h2>
             {statusReport && <p className="text-xs text-violet-500 mt-0.5">Week ending {statusReport.week_ending}</p>}
-            {resultDocName && !statusReport && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[240px]">{resultDocName}</p>}
+            {resultDocName && !statusReport && !previewDoc && <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-[240px]">{resultDocName}</p>}
+            {previewDoc && !analyzing && !result && !sowResult && !statusReport && !error && (
+              <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[240px]">{previewDoc.source_name}</p>
+            )}
           </div>
           <button
-            onClick={() => { setShowResults(false); setSowResult(null); setStatusReport(null); setResult(null); setError(null); }}
+            onClick={() => { setShowResults(false); setPreviewDoc(null); setSowResult(null); setStatusReport(null); setResult(null); setError(null); }}
             title="Close panel"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
           >
@@ -418,20 +436,49 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
           </button>
         </div>
 
-        <div className="p-5 space-y-4 flex-1">
-          {(analyzing || validatingSow || generatingReport) ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4 pb-8">
-              <span className={`w-8 h-8 border-2 rounded-full animate-spin ${generatingReport ? 'border-violet-200 border-t-violet-600' : 'border-indigo-200 border-t-indigo-600'}`} />
-              <div className="text-center">
-                <p className="text-sm font-medium text-slate-700">
-                  {validatingSow ? 'Validating against SOW…'
-                    : generatingReport ? 'Generating status report…'
-                    : 'Analysing document…'}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
+        {/* Panel body — preview gets full height, analysis gets scrollable padded area */}
+        {previewDoc && !analyzing && !validatingSow && !generatingReport && !result && !sowResult && !statusReport && !error ? (
+          <DocumentPreviewPanel
+            doc={previewDoc}
+            onAnalyse={onAnalyse}
+            onValidateSow={onValidateSow}
+            onPublish={(doc, published) => {
+              if (published) {
+                setPendingPublishDoc(doc);
+              } else {
+                publishDoc(doc.doc_id, false).then(loadDocuments).catch(() => alert('Failed to unpublish'));
+              }
+            }}
+            onDownload={async (doc) => {
+              try {
+                const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
+                window.open(r.url, '_blank');
+              } catch { alert('Failed to download document'); }
+            }}
+            onDelete={async (doc) => {
+              if (!confirm(`Delete "${doc.source_name}"? This cannot be undone.`)) return;
+              try {
+                await deleteDoc(doc.doc_id);
+                setPreviewDoc(null);
+                loadDocuments();
+              } catch { alert('Failed to delete document'); }
+            }}
+          />
+        ) : (
+          <div className="p-5 space-y-4 flex-1 overflow-y-auto">
+            {(analyzing || validatingSow || generatingReport) ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 pb-8">
+                <span className={`w-8 h-8 border-2 rounded-full animate-spin ${generatingReport ? 'border-violet-200 border-t-violet-600' : 'border-indigo-200 border-t-indigo-600'}`} />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-slate-700">
+                    {validatingSow ? 'Validating against SOW…'
+                      : generatingReport ? 'Generating status report…'
+                      : 'Analysing document…'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
+                </div>
               </div>
-            </div>
-          ) : sowResult ? (
+            ) : sowResult ? (
               <>
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
                   <p className="text-xs font-medium text-indigo-600 uppercase tracking-wide mb-2">Executive Summary</p>
@@ -485,7 +532,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
                 <p className="text-xs text-red-600">{error}</p>
               </div>
             ) : null}
-        </div>
+          </div>
+        )}
       </div>
 
     </div>
@@ -854,6 +902,130 @@ function GenerateTestsModal({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Document Preview Panel ────────────────────────────────────────────────────
+
+function DocumentPreviewPanel({
+  doc, onAnalyse, onValidateSow, onPublish, onDownload, onDelete,
+}: {
+  doc: Document;
+  onAnalyse?: (d: Document) => void;
+  onValidateSow?: (d: Document) => void;
+  onPublish?: (d: Document, published: boolean) => void;
+  onDownload: (d: Document) => void;
+  onDelete?: (d: Document) => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loadingUrl, setLoadingUrl] = useState(true);
+  const [urlError, setUrlError] = useState(false);
+
+  const isPdf = doc.source_name.toLowerCase().endsWith('.pdf') || doc.doc_type === 'sow';
+  const isSow = doc.doc_type === 'sow';
+
+  useEffect(() => {
+    setUrl(null);
+    setLoadingUrl(true);
+    setUrlError(false);
+    api.post('/documents/download-url', { s3_key: doc.s3_key })
+      .then(r => setUrl(r.url))
+      .catch(() => setUrlError(true))
+      .finally(() => setLoadingUrl(false));
+  }, [doc.doc_id]);
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Preview area */}
+      <div className="flex-1 min-h-0 relative bg-slate-50">
+        {loadingUrl && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="w-6 h-6 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin" />
+          </div>
+        )}
+        {urlError && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <p className="text-xs text-red-500">Failed to load preview</p>
+          </div>
+        )}
+        {url && isPdf && (
+          <iframe
+            src={url}
+            className="w-full h-full border-0"
+            title={doc.source_name}
+          />
+        )}
+        {url && !isPdf && (
+          <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
+            <div className="w-16 h-20 bg-white border border-slate-200 rounded-xl shadow-sm flex items-center justify-center text-3xl">
+              📄
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-medium text-slate-700 break-all">{doc.source_name}</p>
+              <p className="text-xs text-slate-400 mt-1 uppercase tracking-wide">{doc.doc_type.replace(/-/g, ' ')}</p>
+            </div>
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+            >
+              Open document ↗
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* Actions footer */}
+      <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0 space-y-2">
+        <div className="flex gap-2">
+          {isSow && onValidateSow && (
+            <button
+              onClick={() => onValidateSow(doc)}
+              className="flex-1 px-3 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            >
+              ✓ Validate SOW
+            </button>
+          )}
+          {!isSow && onAnalyse && (
+            <button
+              onClick={() => onAnalyse(doc)}
+              className="flex-1 px-3 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            >
+              🔍 Analyse
+            </button>
+          )}
+          {onPublish && (
+            <button
+              onClick={() => onPublish(doc, !doc.published)}
+              className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                doc.published
+                  ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+            >
+              {doc.published ? '↩ Unpublish' : '✓ Publish'}
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onDownload(doc)}
+            className="flex-1 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+          >
+            ↓ Download
+          </button>
+          {onDelete && (
+            <button
+              onClick={() => onDelete(doc)}
+              className="px-3 py-2 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+            >
+              ✕ Delete
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
