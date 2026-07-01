@@ -25,6 +25,7 @@ type Props = { role: string; tenantId: string; clientName?: string };
 export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [folderTemplate, setFolderTemplate] = useState<FolderTemplate | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [processingDocId, setProcessingDocId] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [resultDocName, setResultDocName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +85,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     setResultDocName(doc.source_name);
     setAnalyzing(true);
     setShowResults(true);
+    setProcessingDocId(doc.doc_id);
     try {
       const out = await analyzeDoc(doc.doc_id, 'all');
       setResult(out);
@@ -92,6 +94,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
       setResultDocName(null);
     } finally {
       setAnalyzing(false);
+      setProcessingDocId(null);
     }
   }
 
@@ -103,6 +106,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     setResultDocName(doc.source_name);
     setValidatingSow(true);
     setShowResults(true);
+    setProcessingDocId(doc.doc_id);
     try {
       const out = await validateSow(doc.doc_id);
       setSowResult(out);
@@ -111,6 +115,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
       setResultDocName(null);
     } finally {
       setValidatingSow(false);
+      setProcessingDocId(null);
     }
   }
 
@@ -179,6 +184,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
           setSowResult(null);
           setResultDocName(doc.source_name);
           setAnalyzing(true);
+          setProcessingDocId(doc.doc_id);
           try {
             const out = await analyzeDoc(doc.doc_id, 'all');
             setResult(out);
@@ -187,6 +193,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
             setResultDocName(null);
           } finally {
             setAnalyzing(false);
+            setProcessingDocId(null);
           }
         }
         break;
@@ -369,6 +376,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
               documents={documents}
               onSelectionChange={setSelectedDocs}
               selectionReset={selectionReset}
+              processingDocId={processingDocId}
               onPreview={(doc) => {
                 setShowResults(false);
                 setResult(null);

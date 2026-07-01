@@ -28,6 +28,7 @@ interface Props {
   onSelectionChange?: (docs: Document[]) => void;
   onPreview?: (doc: Document) => void;
   selectionReset?: number;
+  processingDocId?: string | null;
 }
 
 type StatusFilter = 'all' | 'draft' | 'published';
@@ -217,7 +218,7 @@ function ContextMenu({
 
 function DocRow({
   doc, allVersions, isSelected, anySelected, onToggle,
-  onPreview, onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
+  onPreview, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, processingDocId,
 }: {
   doc: Document;
   allVersions: Document[];
@@ -230,6 +231,7 @@ function DocRow({
   onAnalyse?: (d: Document) => void;
   onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
+  processingDocId?: string | null;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const isSow    = doc.doc_type === 'sow';
@@ -298,17 +300,23 @@ function DocRow({
           {formatDate(doc.uploaded_at)}
         </span>
 
-        {/* Context menu */}
-        <ContextMenu
-          doc={doc}
-          isSow={isSow}
-          onPreview={onPreview}
-          onAnalyse={onAnalyse}
-          onValidateSow={onValidateSow}
-          onPublish={onPublish}
-          onDownload={onDownload}
-          onDelete={onDelete}
-        />
+        {/* Context menu / processing indicator */}
+        {processingDocId === doc.doc_id ? (
+          <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center" title="Processing…">
+            <span className="w-3.5 h-3.5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+          </div>
+        ) : (
+          <ContextMenu
+            doc={doc}
+            isSow={isSow}
+            onPreview={onPreview}
+            onAnalyse={onAnalyse}
+            onValidateSow={onValidateSow}
+            onPublish={onPublish}
+            onDownload={onDownload}
+            onDelete={onDelete}
+          />
+        )}
       </div>
 
       {/* ── Version history (expandable) ── */}
@@ -344,7 +352,7 @@ function DocRow({
 
 function CategorySection({
   label, rows, selectedIds, anySelected, onToggle,
-  onPreview, onDownload, onDelete, onAnalyse, onValidateSow, onPublish,
+  onPreview, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, processingDocId,
 }: {
   label: string;
   rows: { doc: Document; allVersions: Document[] }[];
@@ -357,6 +365,7 @@ function CategorySection({
   onAnalyse?: (d: Document) => void;
   onValidateSow?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
+  processingDocId?: string | null;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -390,6 +399,7 @@ function CategorySection({
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
+              processingDocId={processingDocId}
             />
           ))}
         </div>
@@ -400,7 +410,7 @@ function CategorySection({
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction, onSelectionChange, onPreview, selectionReset }: Props) {
+export function FileExplorer({ template, documents, onDownload, onDelete, onAnalyse, onValidateSow, onPublish, onBulkAction, onSelectionChange, onPreview, selectionReset, processingDocId }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -549,6 +559,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
+              processingDocId={processingDocId}
             />
           ))}
           {grouped.sections.map(({ folder, rows }) => {
@@ -567,6 +578,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
                 onAnalyse={onAnalyse}
                 onValidateSow={onValidateSow}
                 onPublish={onPublish}
+                processingDocId={processingDocId}
               />
             );
           })}
@@ -584,6 +596,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
+              processingDocId={processingDocId}
             />
           ))}
           {grouped.uncategorized.length > 0 && (
@@ -599,6 +612,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
               onAnalyse={onAnalyse}
               onValidateSow={onValidateSow}
               onPublish={onPublish}
+              processingDocId={processingDocId}
             />
           )}
         </div>
