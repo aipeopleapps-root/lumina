@@ -278,7 +278,13 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const changeImpactFn = makeFn('ChangeImpactFn', 'change_impact', 60);
     const generateTestsFn = makeFn('GenerateTestsFn', 'generate_tests', 29);
     const generateTestsWorkerFn = makeFn('GenerateTestsWorkerFn', 'generate_tests', 120, 'handler.worker_handler');
-    generateTestsWorkerFn.grantInvoke(lambdaRole);
+    // Use Resource:'*' to avoid a circular dependency:
+    // grantInvoke(lambdaRole) would add a policy statement referencing GenerateTestsWorkerFn.Arn,
+    // but all Lambdas share lambdaRole, so LambdaRoleDefaultPolicy → GenerateTestsWorkerFn → lambdaRole → LambdaRoleDefaultPolicy.
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: ['*'],
+    }));
     generateTestsFn.addEnvironment('GENERATE_TESTS_WORKER_FUNCTION_ARN', generateTestsWorkerFn.functionArn);
     const testScriptsStatusFn = makeFn('TestScriptsStatusFn', 'test_scripts_status', 15);
     const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
