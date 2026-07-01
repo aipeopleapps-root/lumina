@@ -15,7 +15,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as path from 'path';
 
-const GENERATION_MODEL_ID = 'global.anthropic.claude-sonnet-4-6';
+const GENERATION_MODEL_ID = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const EMBEDDING_MODEL_ID = 'amazon.titan-embed-text-v2:0';
 const EMBEDDING_DIM = 1024;
 
