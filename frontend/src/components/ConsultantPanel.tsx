@@ -42,6 +42,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [actionsMenuPos, setActionsMenuPos] = useState({ top: 0, right: 0 });
   const actionsMenuRef = useRef<HTMLButtonElement>(null);
+  const actionsMenuDivRef = useRef<HTMLDivElement>(null);
   const [bulkModalAction, setBulkModalAction] = useState<BulkAction | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
@@ -197,6 +198,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     if (!actionsMenuOpen) return;
     function close(e: MouseEvent) {
       if (actionsMenuRef.current?.contains(e.target as Node)) return;
+      if (actionsMenuDivRef.current?.contains(e.target as Node)) return;
       setActionsMenuOpen(false);
     }
     document.addEventListener('mousedown', close);
@@ -285,6 +287,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
 
               {actionsMenuOpen && (
                 <div
+                  ref={actionsMenuDivRef}
                   style={{ position: 'fixed', top: actionsMenuPos.top, right: actionsMenuPos.right, zIndex: 9999 }}
                   className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden min-w-[185px]"
                 >

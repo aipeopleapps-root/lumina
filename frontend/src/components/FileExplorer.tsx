@@ -136,6 +136,7 @@ function ContextMenu({
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, right: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   function openMenu(e: React.MouseEvent) {
     e.stopPropagation();
@@ -150,6 +151,7 @@ function ContextMenu({
     if (!open) return;
     function close(e: MouseEvent) {
       if (btnRef.current?.contains(e.target as Node)) return;
+      if (menuRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     }
     document.addEventListener('mousedown', close);
@@ -180,6 +182,7 @@ function ContextMenu({
 
       {open && (
         <div
+          ref={menuRef}
           style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 9999 }}
           className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden min-w-[168px]"
         >
