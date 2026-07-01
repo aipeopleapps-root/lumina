@@ -62,6 +62,10 @@ def handler(event, context):
 
     module_filter = body.get("module")
     doc_id_filter = body.get("doc_id")
+    doc_ids_filter = body.get("doc_ids") or None  # list of doc_ids for multi-doc scoping
+    if isinstance(doc_ids_filter, list) and len(doc_ids_filter) == 1:
+        doc_id_filter = doc_ids_filter[0]
+        doc_ids_filter = None
     mode = (body.get("mode") or "").strip().lower()
 
     # HR Policy Advisor mode — scoped retrieval + specialist prompt
@@ -70,11 +74,13 @@ def handler(event, context):
         doc_type_filter = "hr_policy"
         module_filter = None  # policy mode searches all hr_policy docs
         doc_id_filter = None
+        doc_ids_filter = None
     elif mode == "consultant_advisor":
         system_prompt = _CONSULTANT_ADVISOR_PROMPT
         doc_type_filter = None  # search all doc types for consultant context
         module_filter = None
         doc_id_filter = None
+        doc_ids_filter = None
     else:
         system_prompt = _SYSTEM_PROMPT
         doc_type_filter = None
@@ -85,7 +91,8 @@ def handler(event, context):
         query_vector = bedrock.embed(retrieval_query)
         hits = vectors.search(
             ctx, query_vector, top_k=TOP_K,
-            doc_type=doc_type_filter, module=module_filter, doc_id=doc_id_filter,
+            doc_type=doc_type_filter, module=module_filter,
+            doc_id=doc_id_filter, doc_ids=doc_ids_filter,
         )
 
         context_block = _render_context(hits)
