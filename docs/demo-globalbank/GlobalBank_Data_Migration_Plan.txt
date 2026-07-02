@@ -1,0 +1,203 @@
+DATA MIGRATION PLAN AND STATUS REPORT
+GlobalBank Financial Services – Workday HCM & Payroll
+Document Reference: GB-DM-PLAN-v4.2
+Version: 4.2 | Date: November 1, 2024
+Author: Lumina Data Migration Lead
+Status: IN PROGRESS – FINAL PARALLEL RUN ISSUES UNRESOLVED
+
+================================================================================
+1. MIGRATION OVERVIEW
+================================================================================
+
+Source System:     PeopleSoft HCM 9.2 (implemented 2009, 15 years of data)
+Target System:     Workday HCM & Payroll (Production Tenant)
+Go-Live Date:      December 2, 2024
+
+POPULATIONS IN SCOPE:
+  Active US Employees:          7,300 (migrating to Workday Payroll)
+  Active Canada Employees:      724 (view only in Phase 1 – payroll TBD)
+  US Contingent Workers:        1,247 (view-only, no payroll)
+  Total Workers in Workday:     9,271
+
+HISTORICAL DATA SCOPE (agreed with client):
+  Active employee records:      Full history from PeopleSoft (2009 onwards)
+  Terminated employees:         Last 5 years (Jan 2019 – present) for reporting
+  Payroll history:              Last 2 years (Jan 2022 – Nov 2024)
+  Benefits history:             Current plan year only
+  Performance history:          Last 3 completed review cycles
+
+================================================================================
+2. DATA CLEANSING STATUS
+================================================================================
+
+OVERALL CLEANSING PROGRESS: 71% complete (TARGET: 95% by Nov 15)
+
+Category                      Total Records    Cleansed    % Complete    Status
+──────────────────────────────────────────────────────────────────────────────────
+Worker Personal Data          9,271            9,182       99.0%         COMPLETE
+Job and Position Data         9,271            8,953       96.6%         COMPLETE
+Compensation History          9,271            8,847       95.4%         COMPLETE
+Organisation Assignment       9,271            8,200       88.5%         IN PROGRESS
+Cost Centre Mapping           9,271            8,929       96.3%         IN PROGRESS
+Benefits Enrollment           7,300            7,118       97.5%         COMPLETE
+Payroll Tax Data              7,300            6,854       93.9%         IN PROGRESS
+Banking / Direct Deposit      7,300            7,189       98.5%         COMPLETE
+FINRA Licensing Data          2,100            1,847       88.0%         AT RISK
+Performance Review History    9,271            6,700       72.2%         AT RISK
+
+CRITICAL ISSUE DM-001: Cost Centre Mapping Gaps
+  312 active employees have PeopleSoft cost centres that do not map to any
+  active Oracle Financials cost centre. Root cause: 47 cost centres were
+  retired in 2022 Oracle migration but employees never reassigned.
+  Impact: Payroll GL posting will fail for these 312 employees at go-live.
+  Owner: James Liu (VP Finance) and Rachel Torres (Director HR Ops)
+  Deadline: Cost centre reassignments required by November 20, 2024.
+
+CRITICAL ISSUE DM-002: Legacy Job Code Mapping Incomplete
+  89 legacy PeopleSoft job codes (retired 2018 but still assigned to active
+  workers) need to be mapped to the new Workday Job Profile structure.
+  Current status: 47 of 89 resolved. 42 remain unresolved.
+  Impact: 214 active employees cannot be loaded to Workday until resolved.
+  These employees' managers cannot complete performance reviews.
+  Owner: Rachel Torres (HR Ops) / GlobalBank HRIS team
+  Deadline: November 12, 2024.
+
+ISSUE DM-003: FINRA Licensing Data Incomplete
+  253 employees in Investment Banking and Global Markets show as FINRA-licensed
+  in PeopleSoft, but licensing details (Series type, license number, expiry date)
+  are missing or incorrect in 12% of cases.
+  Impact: Compliance reporting gap for licensed employees. FINRA requires
+  accurate license data. Manual verification required with Compliance team.
+  Owner: GlobalBank Compliance (Janet Morrison)
+  Deadline: November 22, 2024.
+
+================================================================================
+3. DATA CONVERSION LOADS
+================================================================================
+
+MOCK LOAD 1 (July 19, 2024): COMPLETE
+  Records loaded: 8,891 / 9,271 (95.9%)
+  Errors: 380 records failed validation
+  Key issues: Date format errors, missing required fields (SSN format)
+  Resolution: Lumina fixed data transformation scripts
+
+MOCK LOAD 2 (August 9, 2024): COMPLETE
+  Records loaded: 9,148 / 9,271 (98.7%)
+  Errors: 123 records failed
+  Key issues: Duplicate worker IDs (legacy system allowed duplicates)
+  Resolution: 89 duplicates resolved; 34 remain – require GlobalBank decision
+
+PRODUCTION CUTOVER LOAD (planned):
+  Window: November 29, 2024, 5:00 PM ET – December 1, 2024, 8:00 AM ET
+  Duration: 39 hours total (including validation and fallback buffer)
+  Estimated load time: 22-24 hours (based on Mock 2 performance)
+  Buffer time: 15 hours for validation and issue resolution
+
+CUTOVER RISK ASSESSMENT:
+  *** CRITICAL RISK: Cutover window falls over Thanksgiving weekend ***
+  November 29 = Day after Thanksgiving (US public holiday)
+  November 30 = Saturday
+  December 1 = Sunday
+  IT support staffing during this window:
+  - GlobalBank IT: 2 on-call engineers (reduced capacity)
+  - Lumina team: Full team confirmed (Lumina does not observe Thanksgiving)
+  - Oracle DBA support: On-call, 4-hour SLA response
+  - Workday production support: Standard weekend support (4-hour SLA)
+  *** If a critical data issue is discovered on Nov 30, resolution may   ***
+  *** require Oracle DBA involvement with 4-hour response time.          ***
+
+================================================================================
+4. PARALLEL PAYROLL RESULTS
+================================================================================
+
+OCTOBER PARALLEL RUN (Completed October 25, 2024):
+  Population tested: 7,300 US active employees
+  Result: PASS
+  - 7,289 employees matched within $1.00 tolerance (99.8%)
+  - 11 employees with variance > $1.00
+  - Root causes identified and resolved for all 11 (7 retro pay, 4 mid-month)
+
+NOVEMBER PARALLEL RUN (Completed November 22, 2024):
+  Population tested: 7,300 US active employees
+  Result: CONDITIONAL PASS (47 unexplained variances)
+  - 7,253 employees matched within $1.00 tolerance (99.4%)
+  - 47 employees with unexplained variance > $50
+  - Root cause identified for 37 of 47:
+      - 23: Retroactive salary adjustments processed in PeopleSoft after
+            data extract but before Workday parallel run (timing issue)
+      - 14: Mid-November new hires (start date calculation differences)
+  - 10 employees: Variance > $50, root cause UNKNOWN
+      *** GO-LIVE ACCEPTANCE CRITERIA REQUIRES 0 UNEXPLAINED VARIANCES ***
+      *** These 10 cases are under investigation by Lumina Payroll team  ***
+      *** Target resolution: November 28, 2024                          ***
+
+CANADA PAYROLL: NOT TESTED (Canada payroll configuration not started)
+
+================================================================================
+5. CUTOVER PLAN
+================================================================================
+
+D-4 (Nov 25, Monday): Final data extract from PeopleSoft
+D-3 (Nov 26, Tuesday): Data transformation and validation
+  - Run automated validation scripts
+  - Review exceptions (target: 0 critical exceptions)
+  - GlobalBank sign-off required by 5:00 PM
+
+D-2 (Nov 27, Wednesday – day before Thanksgiving):
+  - Final go/no-go decision meeting: 2:00 PM ET
+  - Attendees: Sarah Chen (CPO), Marcus Webb (VP HRT), Jennifer Park (PM),
+    David Okafor (Lumina), James Liu (VP Finance)
+  - Decision criteria: All acceptance criteria met or risk-accepted waivers
+    signed by GlobalBank CPO and CIO
+
+D-1 (Nov 28, Thursday – THANKSGIVING – US HOLIDAY):
+  - Buffer day (no planned activities)
+  - Team on standby
+
+D-Day (Nov 29, Friday):
+  5:00 PM ET: Legacy PeopleSoft locked for data entry
+  5:30 PM ET: Final data extract from PeopleSoft begins
+  7:00 PM ET: Data transformation begins
+  11:00 PM ET: Estimated Workday load begins
+
+D+1 (Nov 30, Saturday):
+  8:00 AM ET: Estimated load complete
+  8:00 AM – 8:00 PM: Validation and reconciliation
+  8:00 PM ET: Escalation decision point (proceed or invoke fallback)
+
+D+2 (Dec 1, Sunday):
+  8:00 AM ET: Workday production open for HR Administrators (soft launch)
+  12:00 PM ET: All validation complete and sign-off received
+  5:00 PM ET: Workday available to all employees
+
+December 2 (Monday): OFFICIAL GO-LIVE
+  8:00 AM: All employees can access Workday self-service
+  9:00 AM: First Workday payroll processing run initiated
+
+FALLBACK PLAN:
+  If validation fails and cannot be resolved by Dec 1 8:00 AM:
+  - PeopleSoft remains in read-only mode as fallback
+  - December payroll processed in PeopleSoft (legacy system)
+  - Go-live deferred to January 6, 2025 (next pay period start)
+  - Cost of delay: approximately $180,000 (additional Lumina fees + licensing)
+
+================================================================================
+6. OPEN ITEMS AND DECISIONS REQUIRED
+================================================================================
+
+DECISION DM-D001 [REQUIRED BY NOV 20]:
+  Cost centre mapping for 312 employees
+  Owner: James Liu / Marcus Webb
+  If not resolved: 312 employees' payroll will post to suspense account
+
+DECISION DM-D002 [REQUIRED BY NOV 15]:
+  34 duplicate worker IDs with no clear resolution
+  Options: (a) Manual merge in PeopleSoft, (b) Load as separate records with note
+  Owner: Rachel Torres / GlobalBank HRIS
+
+DECISION DM-D003 [REQUIRED BY NOV 28]:
+  Go/No-Go decision if any parallel run variances remain unexplained
+  Decision authority: Sarah Chen (CPO) and William Park (CIO)
+  If outstanding: CPO and CIO must sign risk-acceptance waiver
+
+END OF DATA MIGRATION PLAN

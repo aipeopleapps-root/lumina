@@ -1,0 +1,318 @@
+GLOBALBANK FINANCIAL SERVICES
+EMPLOYEE HANDBOOK 2024
+Effective: January 1, 2024
+HR Policy Owner: Sarah Chen, Chief People Officer
+Document Reference: HR-POL-HANDBOOK-2024-v3.1
+
+This handbook applies to all permanent employees of GlobalBank Financial
+Services globally, unless otherwise stated. Specific local policies may
+supplement or supersede this handbook where required by local law.
+
+================================================================================
+CHAPTER 1: EMPLOYMENT PRINCIPLES
+================================================================================
+
+1.1 AT-WILL EMPLOYMENT (US)
+Employment at GlobalBank in the United States is at-will, meaning either
+the employee or GlobalBank may terminate the employment relationship at any
+time with or without cause, subject to the notice periods in Section 6.
+
+1.2 CODE OF CONDUCT
+All GlobalBank employees must complete the GlobalBank Code of Conduct
+e-learning module within 30 days of joining and annually thereafter.
+Failure to complete is a disciplinary matter and may result in system access
+restrictions. The Code of Conduct covers: anti-bribery, conflicts of interest,
+information security, market conduct, and client confidentiality.
+
+1.3 FINRA AND REGULATORY OBLIGATIONS
+Employees in roles requiring FINRA registration (Series 7, 63, 65, 79, etc.)
+must maintain their registrations in good standing at all times. Any regulatory
+inquiry, complaint, or outside business activity must be disclosed to
+Compliance immediately. Failure to disclose is grounds for immediate termination.
+
+================================================================================
+CHAPTER 2: ANNUAL LEAVE AND HOLIDAYS
+================================================================================
+
+2.1 ANNUAL LEAVE ENTITLEMENT
+
+Annual leave entitlement is based on grade level:
+
+  Grade 1 to Grade 8:    15 days per year
+  Grade 9 to Grade 12:   20 days per year
+  Grade 13 and above:    25 days per year
+
+Annual leave accrues at the rate of 1.25 days per month (Grade 1-8),
+1.67 days per month (Grade 9-12), or 2.08 days per month (Grade 13+),
+beginning from the first day of employment.
+
+New joiners receive a pro-rated entitlement based on their start date.
+
+2.2 CARRY-OVER
+A maximum of 5 days of unused annual leave may be carried over from one
+calendar year to the next. Carried-over leave must be used by March 31 of
+the following year or it will be forfeited. No monetary payout is provided
+for forfeited leave except in exceptional circumstances approved by the CPO.
+
+2.3 ANNUAL LEAVE APPROVAL
+Requests for annual leave should be submitted in Workday with at least:
+  - 2 weeks notice for leave of 1-5 days
+  - 4 weeks notice for leave of 6-10 days
+  - 8 weeks notice for leave of more than 10 days
+Leave is subject to manager approval and operational requirements of the team.
+
+2.4 HOLIDAY SCHEDULE (US)
+GlobalBank observes the following US Federal Holidays (11 days per year):
+  New Year's Day, Martin Luther King Jr. Day, Presidents' Day, Memorial Day,
+  Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day,
+  Thanksgiving Day, Christmas Day.
+
+Trading floor employees in Global Markets may be required to work on
+public holidays if markets are open in other time zones. Holiday premium
+pay of 1.5x will be applied for hours worked on a federal holiday.
+
+================================================================================
+CHAPTER 3: SICK LEAVE AND HEALTH
+================================================================================
+
+3.1 SICK LEAVE
+All employees receive 10 days of paid sick leave per calendar year.
+Sick leave does not accrue and resets on January 1 each year.
+Unused sick leave is not paid out upon termination.
+
+For absences of more than 5 consecutive days due to illness, a medical
+certificate from a licensed physician is required.
+
+3.2 SERIOUS MEDICAL CONDITIONS
+Employees with serious medical conditions (including cancer treatment,
+major surgery, or mental health crises requiring hospitalisation) may
+take unlimited paid sick leave with HR approval, subject to regular review.
+This is in addition to FMLA entitlements (US employees).
+
+3.3 OCCUPATIONAL HEALTH
+GlobalBank provides access to an occupational health service for work-related
+injuries and health assessments. Contact HR for referral.
+
+================================================================================
+CHAPTER 4: PARENTAL LEAVE
+================================================================================
+
+4.1 PRIMARY CAREGIVER LEAVE
+The primary caregiver (regardless of gender) receives 20 weeks of fully
+paid parental leave upon the birth, adoption, or fostering of a child.
+Eligibility: Employees with at least 6 months continuous service.
+Leave may begin up to 4 weeks before the expected date of birth/placement.
+Payment: 100% of base salary during the 20-week period.
+
+4.2 SECONDARY CAREGIVER LEAVE
+The secondary caregiver receives 10 weeks of fully paid parental leave.
+Eligibility: Employees with at least 6 months continuous service.
+This leave must be taken within the first 12 months of the child's birth
+or placement.
+Payment: 100% of base salary during the 10-week period.
+
+4.3 RETURN TO WORK
+Employees who take parental leave are required to return to work for a
+minimum of 3 months following the end of their leave, or repay the leave
+pay on a pro-rata basis.
+Exceptions may be granted by the CPO in exceptional circumstances.
+
+4.4 ADDITIONAL LEAVE
+After the paid parental leave period, additional unpaid leave of up to
+12 weeks may be taken with manager and HR approval.
+
+================================================================================
+CHAPTER 5: REMOTE WORK POLICY
+================================================================================
+
+5.1 HYBRID WORKING ARRANGEMENT
+GlobalBank operates a hybrid working model. The standard arrangement is:
+  Minimum 3 days in the office per week
+  Maximum 2 days remote work per week
+
+5.2 REGULATED ROLES
+Due to Financial Services Authority (FCA) and Financial Industry Regulatory
+Authority (FINRA) supervision and conduct obligations, employees in
+regulated roles (investment banking, trading, sales, research) must:
+  - Work from a GlobalBank approved office or home environment
+  - Have a compliant home working setup (dedicated workspace, secure internet)
+  - Be physically present in the office for client meetings and key supervisory events
+  - NOT work from public locations (cafés, airports) unless using a VPN
+
+Senior managers (Grade 11+) in regulated roles must be in the office at least
+4 days per week due to supervisory responsibilities.
+
+5.3 INTERNATIONAL REMOTE WORKING
+Working remotely from outside your home country requires prior approval
+from HR and Compliance. Tax and regulatory implications must be assessed.
+Requests must be submitted at least 4 weeks in advance.
+
+5.4 HOME WORKING EQUIPMENT
+GlobalBank provides a laptop and secure VPN access. Employees are responsible
+for maintaining a suitable home working environment. A one-time home office
+allowance of $500 is available to Grade 1-8 employees upon request.
+
+================================================================================
+CHAPTER 6: COMPENSATION AND BONUS
+================================================================================
+
+6.1 BASE SALARY REVIEW
+Annual base salary reviews take place in March, effective April 1.
+Reviews are based on individual performance rating and market positioning.
+Employees rated "Below Expectations" (Rating 1) do not receive a merit increase.
+
+6.2 ANNUAL PERFORMANCE BONUS
+GlobalBank operates an annual discretionary bonus scheme. Bonus targets
+as a percentage of base salary are as follows:
+
+  Grade 1-3 (Analyst):         Target 10% of base salary    (max 20%)
+  Grade 4-6 (Associate):       Target 15% of base salary    (max 30%)
+  Grade 7-8 (VP):              Target 30% of base salary    (max 60%)
+  Grade 9-10 (Director):       Target 50% of base salary    (max 100%)
+  Grade 11-12 (Exec Director): Target 75% of base salary    (max 150%)
+  Grade 13-15 (MD/Partner):    Target 100% of base salary   (max 200%)
+
+Bonuses are paid in March following the performance year.
+Actual bonus payments are entirely discretionary and may be zero in any year.
+Bonus targets are subject to change at GlobalBank's sole discretion.
+
+Employees must be employed on the bonus payment date to receive payment.
+Employees who resign before the payment date forfeit their bonus entitlement.
+
+6.3 DEFERRED COMPENSATION
+Employees at Grade 12 and above are subject to mandatory deferral of 30%
+of any annual bonus exceeding $100,000. Deferred awards vest after 3 years
+and are subject to clawback provisions.
+Deferral is into GlobalBank restricted stock units (RSUs) or a deferred
+cash account, at the employee's election.
+
+6.4 SIGN-ON BONUSES
+Sign-on bonuses are subject to repayment if the employee leaves within 12 months
+(Grade 1-8) or 24 months (Grade 9+) of their start date.
+
+================================================================================
+CHAPTER 7: BENEFITS SUMMARY
+================================================================================
+
+7.1 HEALTH INSURANCE
+GlobalBank offers three medical plan options through Blue Cross Blue Shield:
+  - HDHP (High-Deductible Health Plan with HSA)
+  - PPO Core
+  - PPO Premium
+
+GlobalBank pays 80% of the monthly premium for the employee.
+Dependent coverage is available; employee pays 100% of dependent premium.
+
+Dental: Delta Dental (Basic and Major coverage included; Orthodontics available)
+Vision: VSP ($150 frame allowance per 24 months; $25 exam copay)
+
+7.2 HEALTH SAVINGS ACCOUNT (HSA)
+Available to HDHP plan members only.
+2024 IRS limits: $4,150 individual / $8,300 family
+GlobalBank contributes: $500 per year (individual) / $1,000 (family) to HSA
+Employee contributions are pre-tax via payroll deduction.
+
+7.3 RETIREMENT – 401(k) PLAN
+Plan provider: Fidelity Investments
+Employee contribution: Up to 6% of base salary (traditional pre-tax or Roth)
+Employer match: GlobalBank matches 50% of employee contributions up to 6%
+  (maximum employer contribution = 3% of base salary)
+Vesting schedule: 3-year cliff vesting for employer match
+  (0% years 1-2; 100% from year 3)
+Additional voluntary contributions allowed up to IRS limit ($23,000 for 2024)
+
+7.4 LIFE INSURANCE
+Basic: 4x annual base salary (fully employer-paid)
+Supplemental: Employee may elect additional coverage up to 10x salary
+  (subject to Evidence of Insurability above 4x)
+AD&D: Equal to life insurance amount
+
+7.5 DISABILITY INSURANCE
+Short-term disability: 100% of base salary for 12 weeks
+Long-term disability: 60% of base salary after 12-week elimination period
+  (maximum benefit $25,000 per month)
+
+7.6 EMPLOYEE ASSISTANCE PROGRAMME (EAP)
+GlobalBank partners with Lyra Health to provide:
+  - 6 free counselling sessions per year per employee (and immediate family)
+  - Legal and financial advisory services
+  - Work-life balance coaching
+
+7.7 WELLBEING BENEFITS
+  - Gym membership reimbursement: $75 per month
+  - Headspace subscription: Provided free to all employees
+  - Fertility treatment support: Up to $30,000 lifetime benefit
+
+================================================================================
+CHAPTER 8: GIFTS AND ENTERTAINMENT POLICY
+================================================================================
+
+8.1 GIFTS FROM THIRD PARTIES
+Employees may accept gifts from clients, vendors, or counterparties up to
+a maximum value of $75 per gift.
+Gifts exceeding $75 in value must be:
+  (a) Declined and returned, OR
+  (b) Disclosed to Compliance and surrendered for charitable donation.
+
+Cash gifts, gift cards, and gifts in kind of equivalent value are
+treated the same as cash and may NOT be accepted in any amount.
+
+8.2 GIFTS TO THIRD PARTIES
+Employees may provide gifts to clients and business contacts up to $75.
+All gifts to third parties must be:
+  - For legitimate business purposes
+  - Pre-approved by manager for amounts over $50
+  - Recorded in the Gifts and Entertainment register (via Compliance portal)
+
+8.3 ENTERTAINMENT
+Business entertainment (meals, events, sports tickets) is permitted where:
+  - It has a clear business purpose
+  - It is not lavish or extravagant
+  - The value does not exceed $250 per person per occasion
+  - Expenses are submitted and coded correctly in the expense system
+
+Entertainment events exceeding $250 per person or for more than 10 guests
+require Director-level approval. All client entertainment must be
+pre-approved by Compliance for employees in regulated roles.
+
+================================================================================
+CHAPTER 9: DISCIPLINARY AND GRIEVANCE PROCEDURES
+================================================================================
+
+9.1 DISCIPLINARY PROCESS
+GlobalBank follows a progressive disciplinary process:
+  Step 1: Verbal warning (documented)
+  Step 2: First written warning
+  Step 3: Final written warning
+  Step 4: Dismissal
+
+Gross misconduct (theft, fraud, harassment, serious regulatory breach)
+may result in immediate dismissal without progressing through the steps.
+
+9.2 NOTICE PERIODS UPON TERMINATION/RESIGNATION
+
+  Grade 1-8:    2 weeks written notice
+  Grade 9-12:   4 weeks written notice
+  Grade 13+:    3 months written notice (or payment in lieu of notice)
+
+9.3 GARDEN LEAVE
+Employees at Grade 11 and above may be placed on garden leave during
+their notice period, during which they are paid but prohibited from
+accessing systems, contacting clients, or working elsewhere.
+
+================================================================================
+CHAPTER 10: DATA PROTECTION AND CONFIDENTIALITY
+================================================================================
+
+10.1 EMPLOYEE DATA
+GlobalBank processes employee personal data in accordance with GDPR (UK/EU)
+and applicable US state privacy laws (CCPA for California employees).
+Employee data is used for HR, payroll, benefits, and regulatory compliance.
+
+10.2 CONFIDENTIALITY
+Employees must not share client data, deal information, or proprietary
+GlobalBank information outside the firm. This obligation continues for
+12 months after employment ends.
+
+END OF EMPLOYEE HANDBOOK
+Questions? Contact your HR Business Partner or HR@globalbank-internal.com

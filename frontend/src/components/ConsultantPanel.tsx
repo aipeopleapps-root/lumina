@@ -26,6 +26,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [folderTemplate, setFolderTemplate] = useState<FolderTemplate | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
+  const [goLiveCheckMode, setGoLiveCheckMode] = useState(false);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [resultDocName, setResultDocName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +79,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   }, [tenantId]);
 
   async function onAnalyse(doc: Document) {
+    setGoLiveCheckMode(false);
     setPreviewDoc(null);
     setError(null);
     setResult(null);
@@ -99,6 +101,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   }
 
   async function onValidateSow(doc: Document) {
+    setGoLiveCheckMode(false);
     setPreviewDoc(null);
     setError(null);
     setResult(null);
@@ -119,7 +122,38 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     }
   }
 
+  async function onGoLiveCheck() {
+    const sowDoc = documents.find(d => d.doc_type === 'sow');
+    if (!sowDoc) {
+      setGoLiveCheckMode(false);
+      setError('No Statement of Work found. Upload your SOW to run a readiness check.');
+      setShowResults(true);
+      return;
+    }
+    setGoLiveCheckMode(true);
+    setPreviewDoc(null);
+    setError(null);
+    setResult(null);
+    setSowResult(null);
+    setStatusReport(null);
+    setResultDocName(sowDoc.source_name);
+    setValidatingSow(true);
+    setShowResults(true);
+    setProcessingDocId(sowDoc.doc_id);
+    try {
+      const out = await validateSow(sowDoc.doc_id);
+      setSowResult(out);
+    } catch (err: any) {
+      setError(err.message || String(err));
+      setGoLiveCheckMode(false);
+    } finally {
+      setValidatingSow(false);
+      setProcessingDocId(null);
+    }
+  }
+
   async function onGenerateReport() {
+    setGoLiveCheckMode(false);
     setPreviewDoc(null);
     setError(null);
     setResult(null);
@@ -332,6 +366,13 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
                     >
                       {generatingReport ? '📊 Generating…' : '📊 Weekly Report'}
                     </button>
+                    <button
+                      onClick={() => { setActionsMenuOpen(false); onGoLiveCheck(); }}
+                      disabled={validatingSow}
+                      className="w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                    >
+                      {validatingSow && goLiveCheckMode ? '✓ Checking…' : '✓ Go-live Check'}
+                    </button>
                   </div>
                 </div>
               )}
@@ -354,6 +395,12 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
             <span className={docsLoading ? 'animate-spin inline-block' : ''}>↻</span>
           </button>
         </div>
+
+        <ImplementationHealthDashboard
+          documents={documents}
+          statusReport={statusReport}
+          sowResult={sowResult}
+        />
 
         <div className="p-5">
           {documents.length === 0 ? (
@@ -421,7 +468,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">
-              {statusReport || generatingReport ? 'Weekly Status Report'
+              {goLiveCheckMode && (sowResult || validatingSow) ? 'Go-live Readiness'
+                : statusReport || generatingReport ? 'Weekly Status Report'
                 : sowResult || validatingSow ? 'SOW Validation'
                 : analyzing || result || error ? 'AI Analysis'
                 : previewDoc ? 'Document Preview'
@@ -434,7 +482,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
             )}
           </div>
           <button
-            onClick={() => { setShowResults(false); setPreviewDoc(null); setSowResult(null); setStatusReport(null); setResult(null); setError(null); }}
+            onClick={() => { setShowResults(false); setPreviewDoc(null); setSowResult(null); setStatusReport(null); setResult(null); setError(null); setGoLiveCheckMode(false); }}
             title="Close panel"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-base leading-none"
           >
@@ -484,6 +532,8 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
                   <p className="text-xs text-slate-400 mt-1">This may take 30–60 seconds</p>
                 </div>
               </div>
+            ) : goLiveCheckMode && sowResult ? (
+              <GoLiveReadinessPanel sowResult={sowResult} />
             ) : sowResult ? (
               <>
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
@@ -1390,6 +1440,173 @@ function StatusReportPanel({ report }: { report: StatusReportResponse }) {
       )}
 
       <p className="text-xs text-slate-300 pt-2">Model: {report.model_id} · {report.latency_ms}ms</p>
+    </div>
+  );
+}
+
+function ImplementationHealthDashboard({ documents, statusReport, sowResult }: {
+  documents: Document[];
+  statusReport: StatusReportResponse | null;
+  sowResult: SowValidateResponse | null;
+}) {
+  if (documents.length === 0) return null;
+
+  const modules = [...new Set(documents.map(d => d.module).filter(Boolean))];
+
+  const highRisks = statusReport?.key_risks?.filter(r => r.severity === 'high').length ?? 0;
+  const redFindings = sowResult?.findings?.filter(f => f.traffic_light === 'red').length ?? 0;
+  const totalRisks = highRisks + redFindings;
+
+  const greenCount = sowResult?.findings?.filter(f => f.traffic_light === 'green').length ?? 0;
+  const totalFindings = sowResult?.findings?.length ?? 0;
+
+  let healthPct: number | null = null;
+  let healthColor: 'green' | 'amber' | 'red' = 'amber';
+  if (totalFindings > 0) {
+    healthPct = Math.round((greenCount / totalFindings) * 100);
+    healthColor = healthPct >= 80 ? 'green' : healthPct >= 55 ? 'amber' : 'red';
+  } else if (statusReport) {
+    const s = statusReport.overall_status;
+    healthPct = s === 'green' ? 85 : s === 'yellow' ? 63 : 40;
+    healthColor = s === 'green' ? 'green' : s === 'yellow' ? 'amber' : 'red';
+  }
+
+  const barCls = healthColor === 'green' ? 'bg-green-500' : healthColor === 'amber' ? 'bg-amber-400' : 'bg-red-500';
+  const valCls = healthColor === 'green' ? 'text-green-600' : healthColor === 'amber' ? 'text-amber-600' : 'text-red-600';
+
+  return (
+    <div className="px-5 pt-4 pb-0">
+      <div className="grid grid-cols-3 gap-2.5 mb-3">
+        <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Documents</p>
+          <p className="text-xl font-bold text-slate-700">{documents.length}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">{modules.length} module{modules.length !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Open Risks</p>
+          <p className={`text-xl font-bold ${totalRisks === 0 ? 'text-green-600' : totalRisks > 3 ? 'text-red-600' : 'text-amber-600'}`}>{totalRisks}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">{totalRisks === 0 ? 'All clear' : `${redFindings} critical`}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Health</p>
+          <p className={`text-xl font-bold ${healthPct === null ? 'text-slate-300' : valCls}`}>
+            {healthPct !== null ? `${healthPct}%` : '—'}
+          </p>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            {healthPct === null ? 'Run check' : healthPct >= 80 ? 'On track' : healthPct >= 55 ? 'At risk' : 'Action needed'}
+          </p>
+        </div>
+      </div>
+      {healthPct !== null && (
+        <div className="mb-3.5">
+          <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
+            <div className={`h-1 rounded-full ${barCls}`} style={{ width: `${healthPct}%` }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GoLiveReadinessPanel({ sowResult }: { sowResult: SowValidateResponse }) {
+  const green  = sowResult.findings.filter(f => f.traffic_light === 'green').length;
+  const yellow = sowResult.findings.filter(f => f.traffic_light === 'yellow').length;
+  const red    = sowResult.findings.filter(f => f.traffic_light === 'red').length;
+  const total  = sowResult.findings.length;
+  const pct    = total > 0 ? Math.round((green / total) * 100) : 0;
+  const barCls = pct >= 80 ? 'bg-green-500' : pct >= 55 ? 'bg-amber-400' : 'bg-red-500';
+  const pctCls = pct >= 80 ? 'text-green-600' : pct >= 55 ? 'text-amber-600' : 'text-red-600';
+  const label  = pct >= 80 ? 'On Track' : pct >= 55 ? 'At Risk' : 'Action Required';
+
+  return (
+    <div className="space-y-5">
+      {/* Score */}
+      <div className="bg-slate-50 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Readiness Score</p>
+            <p className={`text-xs font-medium mt-0.5 ${pctCls}`}>{label}</p>
+          </div>
+          <span className={`text-3xl font-bold ${pctCls}`}>{pct}%</span>
+        </div>
+        <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden mb-2">
+          <div className={`h-2.5 rounded-full ${barCls}`} style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex gap-4 text-xs">
+          <span className="text-green-700 font-medium">{green} Evidenced</span>
+          <span className="text-amber-700 font-medium">{yellow} Partial</span>
+          <span className="text-red-700 font-medium">{red} Gap</span>
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+        <p className="text-xs font-medium text-indigo-600 uppercase tracking-wide mb-2">Assessment</p>
+        <p className="text-sm text-slate-700 leading-relaxed">{sowResult.summary}</p>
+      </div>
+
+      {/* Gaps */}
+      {red > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Gaps — Action Required ({red})</p>
+          <div className="space-y-1.5">
+            {sowResult.findings.filter(f => f.traffic_light === 'red').map((f, i) => (
+              <ReadinessCheckItem key={i} f={f} />
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Partial */}
+      {yellow > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Partial — Monitor ({yellow})</p>
+          <div className="space-y-1.5">
+            {sowResult.findings.filter(f => f.traffic_light === 'yellow').map((f, i) => (
+              <ReadinessCheckItem key={i} f={f} />
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Evidenced */}
+      {green > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Evidenced — Ready ({green})</p>
+          <div className="space-y-1.5">
+            {sowResult.findings.filter(f => f.traffic_light === 'green').map((f, i) => (
+              <ReadinessCheckItem key={i} f={f} />
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-slate-300 pt-2">Model: {sowResult.model_id}</p>
+    </div>
+  );
+}
+
+function ReadinessCheckItem({ f }: { f: SowFinding }) {
+  const [open, setOpen] = useState(false);
+  const icon    = { green: '✓', yellow: '~', red: '✗' }[f.traffic_light] ?? '·';
+  const iconCls = { green: 'text-green-600', yellow: 'text-amber-600', red: 'text-red-600' }[f.traffic_light] ?? 'text-slate-500';
+  const borderCls = { green: 'border-slate-200', yellow: 'border-amber-200', red: 'border-red-200' }[f.traffic_light] ?? 'border-slate-200';
+
+  return (
+    <div className={`border rounded-lg overflow-hidden bg-white ${borderCls}`}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-slate-50 transition-colors"
+      >
+        <span className={`font-bold text-sm flex-shrink-0 mt-0.5 ${iconCls}`}>{icon}</span>
+        <span className="text-xs text-slate-800 flex-1 leading-snug">{f.deliverable}</span>
+        <span className="text-xs text-slate-400 flex-shrink-0">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 space-y-1.5 border-t border-slate-100 pt-2">
+          <p className="text-xs text-slate-600 leading-relaxed">{f.detail}</p>
+          {f.recommendation && (
+            <p className="text-xs text-slate-700"><span className="font-medium">Action: </span>{f.recommendation}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

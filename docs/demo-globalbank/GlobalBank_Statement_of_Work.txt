@@ -1,0 +1,253 @@
+STATEMENT OF WORK
+Workday HCM & Payroll Implementation
+GlobalBank Financial Services
+Prepared by: Lumina Consulting Group
+Version: 2.1 | Date: January 15, 2024
+Status: EXECUTED
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Client:           GlobalBank Financial Services
+Project Name:     Workday HCM & Payroll Transformation
+Contract Value:   $4,750,000 USD
+Project Duration: January 15, 2024 – December 2, 2024 (10.5 months)
+Go-Live Date:     December 2, 2024
+
+Employee Population in Scope: 8,024 active employees (US & Canada)
+Contingent Workers in Scope:  1,247 (view-only, no payroll processing)
+Out-of-Scope Populations:     UK (734 employees) – deferred to Phase 2
+
+Project Executive Sponsor:    Sarah Chen, Chief People Officer
+Client Project Lead:          Marcus Webb, VP HR Technology
+Lumina Project Manager:       Jennifer Park
+Lumina Principal Consultant:  David Okafor
+Workday Account Executive:    TBC
+
+================================================================================
+2. SCOPE OF SERVICES
+================================================================================
+
+2.1 IN-SCOPE WORKDAY MODULES
+- HCM Core (Organisations, Staffing, Talent, Absence)
+- Payroll (United States – all states, Canada – Ontario and British Columbia)
+- Benefits Administration (Medical, Dental, Vision, Life, 401k, HSA)
+- Compensation Management (Base, Merit, Bonus, Deferred Compensation)
+- Reporting & Analytics (Workday standard reports + 12 custom reports)
+- Security (Role-Based Access Control, Segregation of Duties)
+
+2.2 OUT OF SCOPE
+- UK Payroll (734 employees) – Phase 2, timeline to be defined Q1 2025
+- Workday Learning
+- Workday Recruiting
+- Bloomberg terminal integrations (client retains existing HR-Bloomberg feed)
+- Integration with legacy fixed income trading system (APEX v4.2) – excluded by mutual agreement
+- Historical payroll migration beyond 2 years (Jan 2022 onwards)
+- Workday Adaptive Planning
+
+2.3 INTEGRATIONS IN SCOPE
+- ADP Tax Filing (outbound – replaces existing ADP connection)
+- Fidelity 401(k) (outbound – census file, contribution changes)
+- BCBS Benefits carrier connection (outbound – eligibility feed)
+- Active Directory / Azure AD (inbound – new hire provisioning)
+- Background check: First Advantage (inbound – adjudication status)
+- Time tracking: Kronos WFC (inbound/outbound – time data for non-exempt)
+- Payroll: Internal GL posting to Oracle Financials (outbound)
+
+2.4 INTEGRATIONS EXCLUDED
+- Bloomberg B-PIPE employee data feed (out of scope – separate agreement)
+- APEX trading system HR data feed (out of scope – regulatory complexity)
+
+================================================================================
+3. KEY DELIVERABLES
+================================================================================
+
+PHASE 1 – ARCHITECT (Jan 15 – Mar 31, 2024)
+- Current State Assessment Report
+- 47 Business Process Design (BPD) documents (see Appendix A for full list)
+- Data migration strategy and data conversion specification
+- Security design document and role matrix
+- Integration design specifications (8 integrations)
+- Tenant provisioning and configuration of Workday tenant
+
+PHASE 2 – CONFIGURE (Apr 1 – Jun 30, 2024)
+- Configuration of all in-scope Workday modules
+- 12 configuration workbooks completed and signed off
+- Data conversion loads (mock 1 and mock 2)
+- Integration development and unit testing
+- Training plan and materials
+
+PHASE 3 – TEST (Jul 1 – Oct 31, 2024)
+- System Integration Testing (SIT): Jul 1 – Aug 16
+- User Acceptance Testing (UAT): Sept 3 – Oct 18
+- Parallel payroll run: October payroll (US and Canada)
+- Parallel payroll run: November payroll (US and Canada)
+- Defect resolution and retesting
+
+PHASE 4 – DEPLOY (Nov 1 – Dec 2, 2024)
+- Go-live readiness assessment
+- Data cutover (Nov 29 5:00pm – Dec 1 8:00am)
+- Production go-live: December 2, 2024
+- Hypercare support: Dec 2 – Jan 31, 2025 (inclusive of first live payroll run)
+
+================================================================================
+4. PROJECT MILESTONES
+================================================================================
+
+Milestone                              Target Date     Status
+─────────────────────────────────────────────────────────────────────────
+Tenant provisioned                     Jan 22, 2024    COMPLETE
+BPD signoff (all 47 documents)         Mar 29, 2024    COMPLETE
+Security design approved               Apr 5, 2024     COMPLETE
+Configuration workbooks signed off     Jul 12, 2024    AT RISK (3 pending)
+Mock 1 data load complete              Jul 19, 2024    COMPLETE
+Mock 2 data load complete              Aug 9, 2024     COMPLETE
+SIT complete (no P1 defects)           Aug 16, 2024    IN PROGRESS
+UAT kick-off                           Sept 3, 2024    NOT STARTED
+Parallel run – October payroll         Oct 25, 2024    NOT STARTED
+Parallel run – November payroll        Nov 22, 2024    NOT STARTED
+Data cutover                           Nov 29, 2024    NOT STARTED
+Go-live                                Dec 2, 2024     NOT STARTED
+
+CRITICAL PATH NOTE: The November 15 – January 15 year-end processing
+freeze at GlobalBank IT restricts any infrastructure changes in this
+window. All environment promotions must be completed before Nov 15 or
+after Jan 15.
+
+================================================================================
+5. OUTSTANDING DELIVERABLES AND OPEN ITEMS
+================================================================================
+
+OPEN ITEMS AS OF CURRENT DATE:
+
+OI-001 [HIGH] Q4 Bonus configuration not started
+  - Approx. 2,400 employees receive Q4 discretionary bonus, payable Nov 30
+  - Workday Bonus Plans not configured
+  - Owner: GlobalBank Compensation Team / Lumina Consultant
+  - Target resolution: October 4, 2024
+  - RISK: If not resolved by Oct 4, Q4 bonuses cannot be processed in Workday at go-live
+
+OI-002 [HIGH] Canada payroll configuration not started
+  - Ontario and British Columbia payroll was originally Phase 1 scope
+  - No configuration activity has commenced
+  - Owner: GlobalBank HR Technology / Lumina Payroll Lead
+  - Target resolution: Requires immediate escalation
+  - RISK: Canada go-live may need to slip to Phase 2
+
+OI-003 [MEDIUM] 3 configuration workbooks not signed off
+  - Pending: Compensation Workbook, Absence Workbook, Reporting Workbook
+  - Owner: GlobalBank HR leadership
+  - Target resolution: September 6, 2024
+
+OI-004 [MEDIUM] UK payroll Phase 2 timeline undefined
+  - 734 UK employees remain on legacy ADP GlobalView system
+  - Phase 2 scope, timeline, and budget not yet approved
+  - Owner: Sarah Chen (CPO) / GlobalBank Finance
+  - Risk: UK employees excluded from Workday self-service indefinitely
+
+OI-005 [LOW] Training materials not yet reviewed by GlobalBank
+  - Draft training materials submitted August 1
+  - No feedback received from GlobalBank L&D team
+  - Target: GlobalBank review by September 13, 2024
+
+================================================================================
+6. ACCEPTANCE CRITERIA
+================================================================================
+
+Go-Live Acceptance Criteria (all must be met for December 2 go-live):
+1. All P1 and P2 UAT defects resolved and signed off by GlobalBank
+2. Parallel payroll runs for October and November match legacy system within 0.1%
+3. Data migration: 100% of active employee records successfully loaded
+4. All 8 integrations tested end-to-end and signed off
+5. Security roles tested and approved (no Segregation of Duties violations)
+6. Training completion rate: minimum 80% of all managers and HR staff
+7. Go-live readiness sign-off from GlobalBank CPO and CIO
+
+================================================================================
+7. ASSUMPTIONS AND CONSTRAINTS
+================================================================================
+
+KEY ASSUMPTIONS:
+A1. GlobalBank provides a dedicated technical resource for Oracle Financials GL integration
+A2. First Advantage API access provided to Lumina team by February 16, 2024
+A3. GlobalBank HR team provides at least 3 resources for UAT (full time, Sept 3 – Oct 18)
+A4. Legacy PeopleSoft data is available in the agreed extraction format by July 5, 2024
+A5. All BPD decisions made in Architect phase are final; changes post-signoff are out of scope
+
+CONSTRAINTS:
+C1. IT change freeze: November 15, 2024 – January 15, 2025 (no production changes)
+C2. Payroll go-live must coincide with start of a new pay period (Dec 2 = start of new cycle)
+C3. No access to Bloomberg or APEX trading systems by Lumina team (regulatory restriction)
+C4. All data must remain within AWS us-east-1 (GlobalBank data residency requirement)
+
+================================================================================
+8. FEES AND PAYMENT SCHEDULE
+================================================================================
+
+Phase 1 – Architect:       $950,000    Due on Phase 1 completion
+Phase 2 – Configure:       $1,425,000  Due on Phase 2 completion
+Phase 3 – Test:            $1,425,000  Due on Phase 3 completion
+Phase 4 – Deploy:          $712,500    Due on go-live
+Hypercare (2 months):      $237,500    Due on hypercare completion
+TOTAL:                     $4,750,000
+
+Change Order #1 (Aug 2024): Additional Kronos WFC integration scope: +$85,000
+
+================================================================================
+APPENDIX A – BUSINESS PROCESS DESIGN DOCUMENTS IN SCOPE
+================================================================================
+
+HCM CORE (12 BPDs):
+BPD-001: Organisation Management – Supervisory Org Structure
+BPD-002: Organisation Management – Cost Centre / Company Hierarchy
+BPD-003: Staffing – Position Management and Headcount Control
+BPD-004: Staffing – Hire Process (External Hires)
+BPD-005: Staffing – Hire Process (Internal Transfers and Promotions)
+BPD-006: Staffing – Job Requisition and Offer Management
+BPD-007: Staffing – Onboarding and Day 1 Provisioning
+BPD-008: Staffing – Termination and Off-boarding
+BPD-009: Staffing – Contingent Worker Management
+BPD-010: Talent – Performance Review Cycle
+BPD-011: Talent – Succession Planning
+BPD-012: Absence – Leave of Absence and FMLA
+
+PAYROLL (8 BPDs):
+BPD-013: Payroll – Pay Group and Pay Period Setup
+BPD-014: Payroll – Earnings and Deductions Configuration
+BPD-015: Payroll – Off-Cycle Payroll Processing
+BPD-016: Payroll – Bonus and Variable Pay Processing
+BPD-017: Payroll – Payroll Accounting and GL Posting
+BPD-018: Payroll – Year-End Processing (W-2, T4)
+BPD-019: Payroll – Tax Configuration (Federal, State, Local)
+BPD-020: Payroll – Canada Payroll Processing
+
+BENEFITS (7 BPDs):
+BPD-021: Benefits – Benefit Plan Configuration
+BPD-022: Benefits – New Hire Enrollment
+BPD-023: Benefits – Annual Open Enrollment
+BPD-024: Benefits – Life Event Processing
+BPD-025: Benefits – 401(k) Administration
+BPD-026: Benefits – HSA/FSA Administration
+BPD-027: Benefits – COBRA Administration
+
+COMPENSATION (8 BPDs):
+BPD-028: Compensation – Grade and Grade Profile Setup
+BPD-029: Compensation – Merit Review Cycle
+BPD-030: Compensation – Bonus Plan Administration
+BPD-031: Compensation – Deferred Compensation
+BPD-032: Compensation – Off-Cycle Compensation Changes
+BPD-033: Compensation – Total Rewards Statements
+BPD-034: Compensation – Executive Compensation
+BPD-035: Compensation – Market Data and Benchmarking
+
+INTEGRATIONS (8 BPDs):
+BPD-036 through BPD-043 (one per integration)
+
+SECURITY (4 BPDs):
+BPD-044: Security – Role Design and Assignment
+BPD-045: Security – Constrained Security and Delegations
+BPD-046: Security – Audit and Compliance Reporting
+BPD-047: Security – Segregation of Duties Matrix
+
+END OF DOCUMENT

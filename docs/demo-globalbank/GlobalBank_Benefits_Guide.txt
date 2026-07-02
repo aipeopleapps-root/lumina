@@ -1,0 +1,473 @@
+GLOBALBANK FINANCIAL SERVICES
+BENEFITS CONFIGURATION WORKBOOK & GUIDE
+Workday Benefits Implementation – US Employees
+Version: 2.7 | Date: October 15, 2024
+Author: Lumina Consulting – Benefits Workstream Lead
+Status: PARTIALLY CONFIGURED – UAT IN PROGRESS
+Document Reference: GB-BEN-WORKBOOK-v2.7
+
+================================================================================
+SECTION 1: BENEFITS OVERVIEW AND SCOPE
+================================================================================
+
+1.1 IMPLEMENTATION SCOPE
+
+IN SCOPE (Phase 1 – Go-Live December 2, 2024):
+  - Medical (BCBS – 3 plan options)
+  - Dental (Delta Dental)
+  - Vision (VSP)
+  - Life Insurance (Basic + Supplemental) – MetLife
+  - Accidental Death & Dismemberment (AD&D) – MetLife
+  - Short-Term Disability (Prudential)
+  - Long-Term Disability (Prudential)
+  - Employee Assistance Programme (Lyra Health)
+  - Health Savings Account (HSA) – HealthEquity
+  - Flexible Spending Account – Health and Dependent Care (WageWorks)
+  - 401(k) Plan (Fidelity Investments)
+  - Commuter Benefits (WageWorks)
+  - Tuition Reimbursement (manual process – no Workday integration)
+  - Fertility Treatment Benefit (Maven Clinic)
+  - Gym Reimbursement (Wellhub – formerly Gympass)
+
+OUT OF SCOPE (Phase 2):
+  - Canada Benefits (724 Canadian employees)
+  - UK Benefits (734 UK employees – Phase 2 separate project)
+  - Executive Benefits (Grade 13+ supplemental plans – not in Workday)
+  - Pension (UK only – Phase 2)
+
+TOTAL US BENEFITS-ELIGIBLE POPULATION: 7,300 active US employees
+Benefits Administration Effective Date in Workday: December 2, 2024
+Open Enrollment period: November 1–15, 2024 (COMPLETED IN LEGACY SYSTEM)
+  *** NOTE: 2025 Open Enrollment elections were captured in PeopleSoft.  ***
+  *** Elections must be migrated to Workday before December 2 go-live.   ***
+  *** Migration of 2025 benefit elections: IN PROGRESS (see Section 6)  ***
+
+================================================================================
+SECTION 2: MEDICAL PLANS – BCBS CONFIGURATION
+================================================================================
+
+2.1 PLAN OPTIONS
+
+PLAN 1: HDHP (High-Deductible Health Plan with HSA)
+  Carrier:               Blue Cross Blue Shield
+  Workday Plan Code:     GB_MED_HDHP_2025
+  Network:               BCBS National PPO
+  Individual Deductible:  $1,600 (in-network) / $3,200 (out-of-network)
+  Family Deductible:      $3,200 (in-network) / $6,400 (out-of-network)
+  Out-of-Pocket Max:      $4,000 individual / $8,000 family (in-network)
+  Primary Care Copay:     $0 (deductible applies)
+  Specialist Copay:       $0 (deductible applies)
+  Coinsurance (post-ded): 10% in-network / 30% out-of-network
+  Rx Coverage:            Integrated with medical (CVS Caremark)
+  HSA Eligible:           YES
+  2025 Monthly Premium:
+    Employee Only:        $0 employee / $620 employer
+    Employee + Spouse:    $312 employee / $820 employer
+    Employee + Child(ren): $288 employee / $796 employer
+    Family:               $458 employee / $992 employer
+  Configuration Status:   CONFIGURED
+
+PLAN 2: PPO Core
+  Carrier:               Blue Cross Blue Shield
+  Workday Plan Code:     GB_MED_PPO_CORE_2025
+  Network:               BCBS National PPO
+  Individual Deductible:  $500 (in-network) / $1,500 (out-of-network)
+  Family Deductible:      $1,000 (in-network) / $3,000 (out-of-network)
+  Out-of-Pocket Max:      $3,000 individual / $6,000 family (in-network)
+  Primary Care Copay:     $25 (after deductible)
+  Specialist Copay:       $50 (after deductible)
+  Coinsurance (post-ded): 20% in-network / 40% out-of-network
+  Rx Coverage:            CVS Caremark ($10/$30/$60 tier copays)
+  HSA Eligible:           NO
+  2025 Monthly Premium:
+    Employee Only:        $68 employee / $272 employer
+    Employee + Spouse:    $418 employee / $522 employer
+    Employee + Child(ren): $390 employee / $498 employer
+    Family:               $560 employee / $668 employer
+  Configuration Status:   CONFIGURED
+
+PLAN 3: PPO Premium
+  Carrier:               Blue Cross Blue Shield
+  Workday Plan Code:     GB_MED_PPO_PREM_2025
+  Network:               BCBS National PPO + Blue Card Worldwide
+  Individual Deductible:  $250 (in-network) / $1,000 (out-of-network)
+  Family Deductible:      $500 (in-network) / $2,000 (out-of-network)
+  Out-of-Pocket Max:      $1,500 individual / $3,000 family (in-network)
+  Primary Care Copay:     $15 (after deductible)
+  Specialist Copay:       $30 (after deductible)
+  Coinsurance (post-ded): 10% in-network / 30% out-of-network
+  Rx Coverage:            CVS Caremark ($5/$15/$35 tier copays)
+  HSA Eligible:           NO
+  2025 Monthly Premium:
+    Employee Only:        $148 employee / $592 employer
+    Employee + Spouse:    $648 employee / $848 employer
+    Employee + Child(ren): $618 employee / $822 employer
+    Family:               $852 employee / $1,048 employer
+  Configuration Status:   CONFIGURED
+
+2.2 EMPLOYER CONTRIBUTION RULE
+GlobalBank pays 80% of the employee-only premium across all three plans.
+Dependent premiums: Employee pays 100% of incremental dependent cost.
+(Formula: Employer contribution = 80% × Employee-Only Premium for the plan elected)
+
+2.3 BCBS INTEGRATION (EDI 834)
+  Integration type: EDI 834 (HIPAA-compliant benefits enrollment file)
+  Frequency: Daily eligibility update + weekly full file
+  SFTP destination: BCBS Employer Portal (sftp.bcbs-employer.com)
+  Status: *** INTEGRATION NOT CONFIGURED ***
+  Risk: Without EDI 834, BCBS will not have accurate enrollment data
+  from go-live. Manual enrollment submission required as interim.
+  Target go-live for integration: December 16, 2024 (2 weeks post go-live)
+  Owner: Lumina Integration Lead (David Okafor)
+
+================================================================================
+SECTION 3: DENTAL AND VISION
+================================================================================
+
+3.1 DENTAL – DELTA DENTAL
+
+Plan Code:             GB_DENT_2025
+Carrier:               Delta Dental Premier
+Individual Deductible:  $50/year (waived for preventive)
+Family Deductible:      $150/year
+Annual Maximum:         $1,500 per person
+
+Coverage Levels:
+  Preventive (Class I):  100% (cleanings, x-rays, exams) – no deductible
+  Basic Restorative (II): 80% after deductible (fillings, simple extractions)
+  Major Restorative (III): 50% after deductible (crowns, bridges, dentures)
+  Orthodontics:           50% up to $2,000 lifetime maximum (adults and children)
+
+2025 Monthly Premium:
+  Employee Only:        $8 employee / $32 employer
+  Employee + Spouse:    $18 employee / $52 employer
+  Employee + Child(ren): $22 employee / $58 employer
+  Family:               $32 employee / $74 employer
+
+Configuration Status:   CONFIGURED
+Delta Dental EDI 834:   *** NOT CONFIGURED *** (same risk as BCBS)
+
+3.2 VISION – VSP
+
+Plan Code:             GB_VIS_2025
+Carrier:               VSP Choice Network
+
+Coverage:
+  Exam:                $25 copay (every 12 months)
+  Frames:              $150 allowance (every 24 months)
+  Contact Lenses:      $150 allowance in lieu of frames
+  Lenses:              Covered after $25 copay (every 12 months)
+
+2025 Monthly Premium:
+  Employee Only:        $5 employee / $8 employer
+  Family:               $14 employee / $12 employer
+
+Configuration Status:   CONFIGURED
+
+================================================================================
+SECTION 4: LIFE INSURANCE AND DISABILITY
+================================================================================
+
+4.1 LIFE INSURANCE – METLIFE
+
+BASIC LIFE (Employer-Paid):
+  Coverage:             4x annual base salary
+  Maximum:              $1,000,000
+  Carrier:              MetLife
+  Plan Code:            GB_LIFE_BASIC_2025
+  Evidence of Insurability: Not required for basic benefit
+  Premium:              Fully employer-paid (taxable imputed income for coverage >$50K)
+  Configuration Status:  CONFIGURED
+
+SUPPLEMENTAL LIFE (Employee-Paid):
+  Coverage:             Electable in 1x increments up to 10x annual base salary
+  Guaranteed Issue:     Up to 4x base salary without Evidence of Insurability (EOI)
+  Above 4x:            EOI required (MetLife approval process)
+  Premium:              Employee-paid; rate varies by age band
+  Age Band Rates (per $1,000 of coverage per month):
+    Under 25:    $0.06
+    25-29:       $0.07
+    30-34:       $0.08
+    35-39:       $0.09
+    40-44:       $0.11
+    45-49:       $0.17
+    50-54:       $0.26
+    55-59:       $0.40
+    60-64:       $0.62
+    65+:         $0.94
+  Configuration Status:  CONFIGURED
+
+AD&D (Employer-Paid):
+  Coverage:             Equal to basic life amount (4x salary)
+  Maximum:              $1,000,000
+  Configuration Status:  CONFIGURED
+
+4.2 SHORT-TERM DISABILITY – PRUDENTIAL
+
+Plan Code:             GB_STD_2025
+Benefit:               100% of base salary for first 12 weeks
+Maximum benefit:       $4,000 per week
+Elimination period:    7 calendar days (waiting period)
+Integration:           Coordinates with NY/CA/NJ state disability programs
+Configuration Status:  CONFIGURED
+
+RISK BEN-001: New York State Disability (NY DBL) Integration
+  New York State requires employer-funded DBL (New York State Disability)
+  for non-exempt employees earning up to $120,000.
+  NYS DBL is a separate deduction (0.5% of wages, max $0.60/week).
+  Current status: *** NY DBL DEDUCTION NOT CONFIGURED IN WORKDAY PAYROLL ***
+  Employees with NY state income tax will have incorrect deductions.
+  Owner: Lumina Payroll Consultant
+  Target: October 25, 2024
+
+4.3 LONG-TERM DISABILITY – PRUDENTIAL
+
+Plan Code:             GB_LTD_2025
+Benefit:               60% of monthly base salary after 12-week elimination period
+Maximum benefit:       $25,000 per month
+Definition of disability: Own-occupation for first 24 months; any-occupation after
+COLA (Cost of Living):  3% annual adjustment while on claim (after 12 months)
+Pre-existing condition: 3/12 (conditions diagnosed in 3 months prior to enrollment;
+                         no benefit for 12 months from effective date)
+Configuration Status:  CONFIGURED
+
+================================================================================
+SECTION 5: RETIREMENT AND SAVINGS
+================================================================================
+
+5.1 401(k) PLAN – FIDELITY INVESTMENTS
+
+Plan Name:             GlobalBank Financial Services 401(k) Plan
+Plan Number:           54-3827651
+Fidelity Plan Code:    GB-401K-001
+Record keeper:         Fidelity Investments (NetBenefits)
+Plan Year:             Calendar Year (January 1 – December 31)
+Trust:                 Fidelity Management Trust Company
+
+CONTRIBUTION LIMITS (2025):
+  Employee Elective Deferral:  $23,500 (IRS limit; $31,000 if age 50+)
+  Employee Pre-Tax (Traditional): Up to $23,500
+  Employee Roth:                Up to $23,500 (combined with traditional)
+  Catch-Up Contribution (50+):  Additional $7,500
+
+EMPLOYER MATCH:
+  Formula: 50% of employee contributions up to 6% of base salary
+  Maximum employer match: 3% of base salary per year
+  Example: Employee earning $100,000 contributing 6% = $6,000 employee,
+           $3,000 employer match
+  Vesting Schedule: 3-year cliff vest
+    Year 1: 0% vested in employer match
+    Year 2: 0% vested in employer match
+    Year 3: 100% vested in employer match
+  Note: Employee contributions are always 100% vested immediately
+
+INVESTMENT OPTIONS (Fidelity): 22 investment options
+  - Target Date Funds (Fidelity Freedom Index series, 2025 through 2065)
+  - Large Cap: Fidelity 500 Index Fund (FXAIX)
+  - Small Cap: Fidelity Small Cap Index Fund (FSSNX)
+  - International: Fidelity International Index Fund (FSPSX)
+  - Bond: Fidelity U.S. Bond Index Fund (FXNAX)
+  - Money Market: Fidelity Government Money Market (SPAXX)
+  - GlobalBank Stock Fund: Restricted – Grade 11+ participation capped at 5%
+    of total account value per SEC Rule 10b-5 requirements
+  - Brokerage Window (BrokerageLink): Available to Grade 9+ employees
+
+SELF-DIRECTED BROKERAGE:
+  BrokerageLink available to employees in Grade 9 and above.
+  Minimum: $5,000 account balance required to activate.
+  Compliance restriction: Employees in regulated roles (IB, Markets) are
+  subject to pre-clearance requirements for individual security purchases.
+
+WORKDAY-FIDELITY INTEGRATION:
+  Integration type: SFTP flat file (contributions file daily, demographic weekly)
+  Status: CONFIGURED – tested in parallel run
+  Enrollment integration: CONFIGURED
+  Loan administration: Out of scope for Phase 1 (manual process)
+
+5.2 HEALTH SAVINGS ACCOUNT (HSA) – HEALTHEQUITY
+
+Eligibility:           HDHP plan members only
+Provider:              HealthEquity
+Workday Plan Code:     GB_HSA_2025
+2025 IRS Contribution Limits:
+  Individual:          $4,300
+  Family:              $8,550
+  Catch-Up (55+):      Additional $1,000
+
+EMPLOYER CONTRIBUTION:
+  Individual:          $500 per year (funded in January lump sum)
+  Family:              $1,000 per year (funded in January lump sum)
+
+WORKDAY-HEALTHEQUITY INTEGRATION:
+  Status: *** NOT CONFIGURED ***
+  Risk BEN-002: Without integration, employee payroll deductions for HSA
+  will not flow automatically to HealthEquity. Manual file transfer required
+  until integration is built. Target: December 16, 2024.
+
+5.3 FLEXIBLE SPENDING ACCOUNTS – WAGEWORKS
+
+HEALTH FSA:
+  Plan Code:           GB_FSA_HEALTH_2025
+  2025 Limit:          $3,300 (IRS limit)
+  Carryover:           Up to $660 (20% of limit) carries to next plan year
+  Grace Period:        None (carryover instead)
+  Configuration:       CONFIGURED
+
+DEPENDENT CARE FSA:
+  Plan Code:           GB_FSA_DEP_2025
+  2025 Limit:          $5,000 per household ($2,500 if married filing separately)
+  Use-It-or-Lose-It:  Yes (no carryover for dependent care FSA)
+  Configuration:       CONFIGURED
+
+COMMUTER BENEFITS:
+  Transit:             Up to $325/month (2025 IRS limit) – pre-tax
+  Parking:             Up to $325/month (2025 IRS limit) – pre-tax
+  Administrator:       WageWorks
+  Configuration:       CONFIGURED
+
+================================================================================
+SECTION 6: OPEN ENROLLMENT MIGRATION
+================================================================================
+
+CRITICAL ISSUE BEN-003: 2025 Open Enrollment Elections Must Be Migrated
+
+Background:
+  2025 Open Enrollment was conducted November 1–15, 2024 using the legacy
+  PeopleSoft self-service portal and administered through the benefits
+  administrator's portal (Businessolver). All 7,300 US employees made
+  (or defaulted) their 2025 benefit elections in the legacy system.
+
+  Since Workday go-live is December 2 (AFTER open enrollment), the 2025
+  benefit elections must be loaded into Workday from the legacy system.
+  This is a one-time data migration, not a standard OE process in Workday.
+
+Migration Status:
+  Total employees with 2025 elections: 7,300
+  Elections migrated to Workday: 4,847 (66.4%)
+  Remaining: 2,453 employees – elections NOT yet in Workday
+  Target completion: November 28, 2024
+
+Breakdown of remaining employees:
+  Medical elections missing:         1,840 employees
+  Dental elections missing:          2,100 employees
+  Vision elections missing:          2,200 employees
+  401k deferral elections missing:     890 employees
+  FSA elections missing:               612 employees
+
+  NOTE: An employee may appear in multiple categories above.
+
+Risk of incomplete migration:
+  Employees whose elections are not loaded by December 2 will appear in
+  Workday as having NO benefits. The system will default them to no coverage.
+  This means:
+  a) Incorrect payroll deductions from first Workday paycheck
+  b) Insurance carriers receive incorrect enrollment data
+  c) Employees may not have coverage if they have medical events in December
+
+  Owner: Jennifer Park (PM) + Lumina Benefits Lead
+  CRITICAL DEADLINE: November 28, 2024
+
+6.1 DEPENDENT MIGRATION
+
+  Dependent records: 5,847 dependents across 7,300 employees
+  Dependents migrated: 5,201 (89.0%)
+  Dependents not migrated: 646
+  Primary reason: Missing SSN or date of birth for dependents in legacy system
+  Manual resolution required: HR Benefits team to contact employees
+  Target: November 25, 2024
+
+================================================================================
+SECTION 7: SUPPLEMENTAL AND WELLBEING BENEFITS
+================================================================================
+
+7.1 EMPLOYEE ASSISTANCE PROGRAMME – LYRA HEALTH
+
+  Provider:            Lyra Health
+  Eligibility:         All US employees + immediate family members
+  Sessions:            6 free counselling sessions per year
+  Additional services: Legal consultation, financial advisory, work-life coaching
+  Integration:         SSO via Workday (SAML 2.0)
+  Status:              CONFIGURED (SSO tested)
+
+7.2 FERTILITY TREATMENT BENEFIT – MAVEN CLINIC
+
+  Provider:            Maven Clinic
+  Lifetime Maximum:    $30,000 per employee (covers employee and legal partner)
+  Eligible services:   IVF, IUI, egg freezing, adoption assistance, surrogacy
+  Eligibility:         All benefits-eligible employees (no service requirement)
+  Integration:         Eligibility file from Workday via SFTP
+  Status:              *** NOT CONFIGURED ***
+  Risk: Maven Clinic requires an eligibility feed to verify employee status.
+  Without the integration, employees cannot access the Maven benefit
+  directly. Manual verification process required at launch.
+  Target: December 9, 2024 (one week post go-live)
+  Owner: Lumina Integration Lead
+
+7.3 GYM REIMBURSEMENT – WELLHUB
+
+  Reimbursement amount:  $75 per month
+  Administrator:         Wellhub (formerly Gympass)
+  Process:               Employee submits receipt via Wellhub portal
+  Workday interaction:   Reimbursement processed as manual payroll entry (GYMREIM)
+  Status:                Earnings code GYMREIM configured; Wellhub integration
+                         *** NOT IN SCOPE *** – manual process maintained
+
+7.4 TUITION REIMBURSEMENT
+
+  Annual maximum:        $5,250 (IRS tax-free limit)
+  Eligible expenses:     Tuition, fees, books at accredited institutions
+  Approval process:      Manager + HR approval required before enrollment
+  Reimbursement timing:  Upon completion with passing grade
+  Workday process:       Manual earnings code (TUITION) – no integration
+  Status:                CONFIGURED (manual process)
+
+================================================================================
+SECTION 8: BENEFITS ADMINISTRATION – BUSINESSOLVER INTEGRATION
+
+================================================================================
+
+GlobalBank uses Businessolver as its benefits administration platform for
+carrier invoicing, eligibility hub, and COBRA administration.
+
+BUSINESSOLVER INTEGRATION STATUS:
+  Workday → Businessolver eligibility feed: *** NOT CONFIGURED ***
+  Businessolver → Carrier feeds (BCBS, Delta, VSP, MetLife): Configured in
+  legacy (PeopleSoft) integration – will need to be rerouted to Workday feed
+  after go-live.
+
+COBRA ADMINISTRATION:
+  COBRA notices triggered from Businessolver upon qualifying event
+  (termination, reduction in hours, etc.)
+  Workday COBRA trigger: On termination or benefits-ineligible status change
+  Benefits termination rule: End of month in which qualifying event occurs
+  Configuration Status: COBRA trigger CONFIGURED in Workday termination BPD
+  Businessolver COBRA integration: Dependent on eligibility feed (see above)
+
+================================================================================
+SECTION 9: RISKS AND OPEN ITEMS SUMMARY
+================================================================================
+
+Risk ID   Severity  Description                               Target Date
+──────────────────────────────────────────────────────────────────────────────────
+BEN-001   HIGH      NY State Disability (DBL) deduction       Oct 25, 2024
+                    not configured – affects all NY employees
+BEN-002   HIGH      HealthEquity HSA integration missing –    Dec 16, 2024
+                    HSA deductions not flowing automatically
+BEN-003   CRITICAL  2,453 employees' 2025 OE elections        Nov 28, 2024
+                    not yet migrated to Workday
+BEN-004   HIGH      BCBS/Delta/VSP EDI 834 not configured –   Dec 16, 2024
+                    carriers have no automated enrollment data
+BEN-005   MEDIUM    Maven Clinic eligibility feed missing      Dec 9, 2024
+BEN-006   MEDIUM    646 dependent records missing SSN/DOB      Nov 25, 2024
+BEN-007   MEDIUM    Businessolver eligibility feed missing –   Dec 16, 2024
+                    COBRA and invoicing will be manual
+BEN-008   LOW       Canada benefits completely out of scope    Phase 2 TBD
+BEN-009   LOW       Executive supplemental benefits (Gr 13+)  Phase 2 TBD
+                    not in Workday
+
+SIGN-OFF STATUS:
+  Benefits Configuration Workbook: PENDING GlobalBank sign-off
+  Sign-off required from: Marcus Webb (VP HR Technology) + Lisa Cheng (Benefits Director)
+  Target date: October 15, 2024 – *** 2 WEEKS OVERDUE ***
+
+END OF BENEFITS CONFIGURATION WORKBOOK

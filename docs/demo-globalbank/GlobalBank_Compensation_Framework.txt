@@ -1,0 +1,189 @@
+COMPENSATION FRAMEWORK AND CONFIGURATION WORKBOOK
+GlobalBank Financial Services – Workday Compensation Module
+Version: 2.1 | Date: August 30, 2024
+Status: DRAFT – Pending GlobalBank Sign-Off (OI-003)
+Author: Lumina Compensation Consultant
+
+================================================================================
+SECTION 1: COMPENSATION ARCHITECTURE
+================================================================================
+
+GlobalBank uses a Grade-based compensation structure with 15 grades.
+The grade architecture is designed to support investment banking and
+financial services compensation practices including variable pay, bonus
+plans, and deferred compensation programmes.
+
+GRADE STRUCTURE:
+
+Grade  Title                  US Base Range (USD)     Typical Population
+─────────────────────────────────────────────────────────────────────────────
+1      Analyst I               $65,000 – $80,000       Campus hires, 0-1 yr
+2      Analyst II              $75,000 – $95,000       1-2 years experience
+3      Analyst III             $90,000 – $115,000      2-3 years experience
+4      Associate I             $110,000 – $140,000     MBA hires / 3-5 yrs
+5      Associate II            $130,000 – $165,000     5-7 years experience
+6      Associate III           $155,000 – $195,000     7-9 years experience
+7      Vice President I        $190,000 – $240,000     9-12 years experience
+8      Vice President II       $230,000 – $290,000     12-15 years experience
+9      Director I              $280,000 – $360,000     Senior specialists
+10     Director II             $340,000 – $430,000     Business leaders
+11     Executive Director I    $410,000 – $520,000     Regional leaders
+12     Executive Director II   $490,000 – $640,000     Senior business heads
+13     Managing Director I     $600,000 – $780,000     Global business leaders
+14     Managing Director II    $720,000 – $950,000     Divisional heads
+15     Senior MD / Partner     $900,000 – $1,200,000   Most senior leaders
+
+NOTE: The ranges above are BASE SALARY only. Total compensation for
+Grade 9 and above typically includes a significant variable component.
+Total compensation at Grade 13+ may be 2x–5x base salary when including
+bonus, deferred stock, and other benefits.
+
+CRITICAL RISK COMP-001: Market Data Currency
+The compensation ranges above are based on Mercer Global Financial Services
+Survey 2022 data. The data is now 2 years old. Compensation in financial
+services, particularly for Grades 7–13, has increased significantly since
+2022. Estimated market movement: 8–15% for front-office roles.
+Recommendation: GlobalBank should commission a market data refresh before
+merit review in March 2025. Risk of significant talent attrition in 2025
+if ranges are not updated.
+
+================================================================================
+SECTION 2: MERIT REVIEW PROCESS
+================================================================================
+
+2.1 ANNUAL MERIT CYCLE
+
+Annual merit review is conducted in January-March each year:
+  January:    Managers receive compensation statements and guidelines
+  February:   Managers submit merit recommendations in Workday
+  March 1:    Compensation team reviews and calibrates
+  March 15:   CPO and Division Heads approve
+  April 1:    New salaries effective (first monthly payroll)
+  March 31:   Bonus payments made (same month as merit increases)
+
+2.2 MERIT BUDGET GUIDELINES (2024 cycle – for reference):
+  Overall budget: 4.0% of total base salary
+  Distribution guidance:
+    Rating 5 (Outstanding):     6.0% – 9.0% merit increase
+    Rating 4 (Exceeds):         4.0% – 6.0% merit increase
+    Rating 3 (Meets):           2.5% – 4.0% merit increase
+    Rating 2 (Developing):      0% – 2.0% merit increase (manager discretion)
+    Rating 1 (Below Expectations): 0% (no increase, may be on PIP)
+
+2.3 GRADE MINIMUM ENFORCEMENT
+If a merit increase would bring an employee's salary below the grade minimum,
+Workday will automatically flag this for HR review. Employees below grade
+minimum receive additional adjustment to reach the minimum.
+
+OPEN ISSUE COMP-OI-001: 89 employees from European subsidiary transfer
+89 employees transferred from GlobalBank European Subsidiary in Q2 2024.
+Their compensation grade assignments in PeopleSoft do not align to the
+new GlobalBank grade structure. Manual grade assignment review required.
+Impact: These employees cannot be included in merit review until grades
+are assigned. Target resolution: September 20, 2024.
+Owner: Rachel Torres, Director of HR Operations.
+
+================================================================================
+SECTION 3: BONUS PLAN CONFIGURATION
+================================================================================
+
+3.1 DISCRETIONARY BONUS PLAN
+
+GlobalBank Annual Incentive Plan:
+  Plan Name in Workday: GB_ANNUAL_INCENTIVE_2024
+  Plan Type: Discretionary Bonus
+  Effective Date: January 1, 2024
+  Payment Date: March (following year)
+  Currency: USD (separate CAD plan for Canada)
+
+Bonus targets by grade:
+  Grade 1-3:   10% of annual base salary   (maximum 20%)
+  Grade 4-6:   15% of annual base salary   (maximum 30%)
+  Grade 7-8:   30% of annual base salary   (maximum 60%)
+  Grade 9-10:  50% of annual base salary   (maximum 100%)
+  Grade 11-12: 75% of annual base salary   (maximum 150%)
+  Grade 13-15: 100% of annual base salary  (maximum 200%)
+
+CRITICAL RISK COMP-002: Q4 Discretionary Bonus Configuration
+Approximately 2,400 employees in Investment Banking and Global Markets
+are expected to receive a Q4 discretionary bonus payment on November 30, 2024.
+This is a separate ad-hoc payment from the annual bonus cycle.
+The Q4 bonus plan (GB_Q4_DISCRETIONARY_2024) has NOT been configured
+in Workday. Given the go-live date of December 2, this bonus must be
+paid before go-live via the legacy system OR the bonus plan must be
+configured and processed in the parallel environment.
+Decision required by: October 4, 2024
+Owner: Marcus Webb (VP HR Technology) / Global Markets HR Team.
+
+3.2 LONG-TERM INCENTIVE PLAN (LTIP)
+
+Eligibility: Grade 11 and above
+Award type: Restricted Stock Units (RSUs)
+Vesting schedule: 3-year ratable (33.3% per year)
+Performance condition: Relative TSR vs peer group (50% weighting)
+  + Return on Equity (50% weighting)
+
+WORKDAY CONFIGURATION STATUS: PENDING
+GlobalBank Compensation team to provide award details by September 15, 2024.
+LTIP plan configuration in Workday has not begun.
+
+================================================================================
+SECTION 4: DEFERRED COMPENSATION
+================================================================================
+
+4.1 MANDATORY DEFERRAL POLICY
+
+Applicable to: Grade 12 and above
+Deferral rate: 30% of any bonus exceeding $100,000
+Deferral vehicle: RSUs or deferred cash (employee election)
+Vesting period: 3 years
+Clawback: Awards subject to clawback for regulatory violations or
+  gross misconduct for 5 years from award date
+
+Estimated population affected: ~340 employees (Grade 12+)
+
+4.2 WORKDAY CONFIGURATION STATUS
+Deferred compensation plan in Workday: NOT CONFIGURED
+Target configuration date: October 15, 2024
+Risk: If not configured, deferral processing will be manual for Grade 12+ employees.
+
+================================================================================
+SECTION 5: COMPENSATION REPORTING
+================================================================================
+
+5.1 STANDARD REPORTS REQUIRED
+
+  - Headcount and Salary Report by Division/Department
+  - Pay Equity Analysis (gender and ethnicity pay gap reporting)
+  - Compensation Range Penetration Report
+  - Annual Bonus Budget vs Actual
+  - Deferred Compensation Award Register
+  - Grade Minimum/Maximum Exception Report
+
+5.2 PAY EQUITY OBLIGATIONS
+
+GlobalBank is subject to UK Gender Pay Gap Reporting (>250 employees in UK).
+US requirements: Illinois Equal Pay Act registration required.
+California SB 1162: Pay data reporting to California DFEH required.
+Configuration: Custom Workday reports being developed by Lumina team.
+Status: 4 of 12 reports complete. Target: All reports complete by November 1, 2024.
+
+================================================================================
+SECTION 6: RISKS AND OPEN ITEMS SUMMARY
+================================================================================
+
+Risk ID  Severity  Description                              Target Date
+────────────────────────────────────────────────────────────────────────────────
+COMP-001 HIGH      Market data (Mercer 2022) outdated       March 2025 refresh
+COMP-002 CRITICAL  Q4 bonus plan not configured             Oct 4, 2024
+COMP-003 HIGH      Deferred compensation not configured     Oct 15, 2024
+COMP-004 HIGH      LTIP plan not configured                 Nov 1, 2024
+COMP-005 MEDIUM    89 European transfer employees ungraded  Sept 20, 2024
+COMP-006 MEDIUM    3 of 12 comp reports not built           Nov 1, 2024
+
+SIGN-OFF STATUS:
+  GlobalBank Compensation Workbook sign-off: PENDING (open item OI-003)
+  Sign-off required from: James Liu (CFO) and Sarah Chen (CPO)
+  Target sign-off date: September 6, 2024 – OVERDUE
+
+END OF COMPENSATION FRAMEWORK DOCUMENT

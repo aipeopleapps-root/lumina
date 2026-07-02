@@ -1,0 +1,288 @@
+BUSINESS PROCESS DESIGN DOCUMENT
+GlobalBank Financial Services – Workday HCM Core
+Hire to Retire (End-to-End Process)
+Document Reference: BPD-001 through BPD-012
+Version: 2.0 – SIGNED OFF March 29, 2024
+Workday Consultant: David Okafor, Lumina Consulting
+Client Owner: Rachel Torres, Director of HR Operations
+
+================================================================================
+1. ORGANISATION DESIGN
+================================================================================
+
+1.1 SUPERVISORY ORGANISATION STRUCTURE
+
+GlobalBank uses a Position Management staffing model. All positions must
+exist before a hire can be initiated. Position Management is mandatory
+because it enables headcount control, job requisition workflow, and
+compensation grade enforcement.
+
+Top-Level Org:     GlobalBank Financial Services (Company)
+Second Level:      Business Divisions (6 divisions)
+Third Level:       Departments (approx. 180 departments)
+Fourth Level:      Teams (approx. 420 teams)
+
+Maximum hierarchy depth: 4 levels below Company
+Single supervisory organisation limit: 1 worker per org as manager
+Cost Centre assignment: At the Department level (third level)
+
+DIVISIONS:
+1. Investment Banking (IB)
+2. Global Markets & Trading
+3. Asset Management
+4. Consumer & Private Banking
+5. Technology & Operations
+6. Corporate Functions (Finance, Legal, HR, Risk, Compliance)
+
+NOTE FOR CONFIGURATION: Investment Banking and Global Markets divisions
+require additional security restrictions (Constrained Security Groups)
+to prevent cross-division data visibility. Regulatory requirement under
+information barrier (Chinese Wall) policy.
+
+1.2 JOB ARCHITECTURE
+
+GlobalBank has implemented a new job architecture as part of this project:
+- Job Families: 24 (aligned to business function)
+- Job Profiles: 312 (mapped from legacy 489 job codes – 177 consolidated)
+- Job Grades: 15 (Grade 1 = Analyst, Grade 15 = Managing Director)
+
+Grade Mapping:
+  Grade 1-3:    Analyst
+  Grade 4-6:    Associate
+  Grade 7-8:    Vice President (Financial Services title convention)
+  Grade 9-10:   Director
+  Grade 11-12:  Executive Director
+  Grade 13-14:  Managing Director
+  Grade 15:     Partner / Senior Managing Director
+
+NOTE: Financial Services grade titles differ from other industries.
+"Vice President" at Grade 7-8 does NOT carry the approval authority
+typically associated with the VP title in other sectors.
+
+================================================================================
+2. HIRE PROCESS
+================================================================================
+
+2.1 EXTERNAL HIRE WORKFLOW
+
+Step 1: Job Requisition Creation
+  - Initiated by Hiring Manager
+  - Requires position to exist and be open (Position Management)
+  - Grade 1-8 positions: Auto-approved after HR Recruiter review
+  - Grade 9-12 positions: Requires Division Head approval
+  - Grade 13+ positions: Requires CPO approval (Sarah Chen)
+  - Target SLA: 2 business days for Grade 1-8; 5 days for Grade 9+
+
+Step 2: Candidate Selection and Offer
+  - Workday Recruiting is OUT OF SCOPE for this implementation
+  - Offer initiation in Workday is triggered manually by HR once candidate
+    selected in legacy ATS (iCIMS)
+  - Offer Letter template: 3 standard templates (Permanent, Fixed-Term, Contractor)
+
+Step 3: Background Check
+  - Triggered automatically when offer status = "Accepted"
+  - Integration with First Advantage for standard background check
+  - Financial services enhanced check (credit check, FINRA BrokerCheck) for
+    Grade 9+ and all roles with market access
+  *** NOTE: First Advantage integration not yet in scope for FINRA BrokerCheck ***
+  *** API access for BrokerCheck requires separate FINRA data agreement ***
+  *** This is a GAP – manual process required for FINRA checks at go-live ***
+
+Step 4: Hire in Workday
+  - HR Coordinator initiates hire once background check cleared
+  - Required fields: Legal name, DoB, SSN, address, I-9 documentation date
+  - System auto-creates Workday account, triggers Azure AD provisioning
+  - Equipment request triggered via ServiceNow integration (IT ticket)
+  - Pay calculation effective Date 1 of next pay period after start date
+
+Step 5: Onboarding
+  - Day 0 (before start): Welcome email from Workday
+  - Day 1: Manager pre-boarding checklist (IT setup, access, desk allocation)
+  - Week 1: FINRA compliance orientation (mandatory for all employees)
+  - Day 30: MANDATORY GlobalBank Code of Conduct e-learning completion
+    (Regulatory requirement – tracked in Workday Learning – OUT OF SCOPE)
+    *** RISK: Workday Learning is out of scope. Code of Conduct completion ***
+    *** tracking will require manual Excel tracker until Phase 2.         ***
+  - Day 90: Benefits enrollment deadline (90-day waiting period)
+
+2.2 INTERNAL TRANSFER WORKFLOW (BPD-005)
+
+  Transfer types handled:
+  a) Lateral Transfer (same grade, different department)
+  b) Promotion (grade increase)
+  c) Demotion (grade decrease) – requires CHRO approval
+  d) Inter-company Transfer (between legal entities, e.g. US to Canada)
+
+  DECISION POINT (confirmed March 2024):
+  Cross-border transfers (US to Canada or vice versa) require:
+  - New hire in the receiving legal entity
+  - Termination in the originating legal entity
+  *** RISK: Cross-border transfers are very common in Investment Banking ***
+  *** (estimated 30-50 per year). The separate terminate/hire process    ***
+  *** will generate tax implications (final paycheck, PTO payout) that   ***
+  *** are not yet documented. GlobalBank Legal to provide guidance.      ***
+
+================================================================================
+3. ABSENCE MANAGEMENT
+================================================================================
+
+3.1 ABSENCE PLAN CONFIGURATION
+
+ANNUAL LEAVE:
+  Grade 1-8:   15 days per year
+  Grade 9-12:  20 days per year
+  Grade 13+:   25 days per year
+  Carry-over:  Maximum 5 days carry-over into new calendar year (Jan 1)
+  Payout:      No payout on unused leave at year-end; terminated employees
+               receive payout of accrued balance at termination
+
+SICK LEAVE:
+  All grades:  10 days per year (non-accruing, resets Jan 1)
+  Serious medical: Unlimited (requires medical certification after 5 days)
+
+PARENTAL LEAVE:
+  Primary caregiver (birth, adoption):  20 weeks fully paid
+  Secondary caregiver:                   10 weeks fully paid
+  Eligibility: 6 months continuous employment
+  Return to work: Employee must return for minimum 3 months or repay leave
+
+COMPASSIONATE LEAVE: 5 days (immediate family), 3 days (extended family)
+
+JURY DUTY: Full pay for duration of jury service (US only)
+
+UNPAID LEAVE OF ABSENCE (LOA): Available for approved purposes, max 52 weeks
+
+FMLA: Configured per US federal requirements (12 weeks unpaid, job-protected)
+
+3.2 HOLIDAY CALENDARS
+
+US Federal Holidays (all US employees): 11 days
+New York additional: None (state holidays match federal)
+Illinois additional: None
+California additional: None
+Texas additional: None
+
+TRADING FLOORS NOTE: Employees in Global Markets may work on some public
+holidays (markets may be open in other time zones). Holiday premium pay
+configuration for this group: *** PENDING DECISION FROM GLOBALBANK ***
+
+================================================================================
+4. PERFORMANCE MANAGEMENT
+================================================================================
+
+4.1 ANNUAL PERFORMANCE REVIEW CYCLE
+
+Timeline:
+  Sept 1:     Self-evaluations open (all employees)
+  Oct 15:     Self-evaluations due
+  Oct 16:     Manager evaluations open
+  Nov 15:     Manager evaluations due
+  Nov 15-30:  Calibration sessions (by division)
+  Dec 1:      Final ratings communicated to employees
+  March:      Bonus payouts aligned to performance ratings
+
+Rating Scale (5-point):
+  5 – Outstanding       (top 5% of population)
+  4 – Exceeds           (next 20%)
+  3 – Meets             (target population: ~60%)
+  2 – Developing        (10%)
+  1 – Below Expectations (5%)
+
+Forced distribution is a guideline, not a hard constraint in Workday.
+
+================================================================================
+5. TERMINATION / OFF-BOARDING
+================================================================================
+
+5.1 VOLUNTARY TERMINATION
+
+Notice periods (by grade):
+  Grade 1-8:    2 weeks written notice
+  Grade 9-12:   4 weeks written notice
+  Grade 13+:    3 months written notice (or pay in lieu)
+
+Garden leave: Grade 11+ employees placed on garden leave during notice period
+(paid, restricted from client contact and systems access)
+
+TERMINATION CHECKLIST (Workday Tasks):
+  - HR initiates termination in Workday (sets effective date, reason code)
+  - Manager completes exit interview (optional)
+  - IT access revocation: Immediate for sensitive systems (trading, email)
+    via Azure AD integration
+  - PTO balance payout: Automatic via payroll on final paycheck
+  - Benefits termination: End of month in which termination falls (COBRA auto-triggered)
+  - Equipment return: Tracked via ServiceNow
+
+REGULATORY REQUIREMENT – FINRA DOCUMENTATION:
+For employees who held FINRA-registered licenses (Series 7, 63, 65, etc.):
+  - U5 filing required with FINRA within 30 days of termination
+  - All performance reviews, complaints, and disciplinary records must be
+    retained for 7 years (FINRA Rule 4511)
+  *** RISK: Workday off-boarding workflow does NOT include a step to trigger ***
+  *** FINRA U5 filing. This is a manual process. Must be documented as     ***
+  *** a compliance gap and tracked manually until a solution is designed.  ***
+
+5.2 INVOLUNTARY TERMINATION
+
+  Requires: HR Business Partner approval + Legal sign-off for Grade 9+
+  Severance: Calculated per UK/US/Canada Severance Policy (separate document)
+  *** NOTE: Severance calculation is NOT automated in Workday for this impl ***
+
+================================================================================
+6. SECURITY CONSIDERATIONS (HCM)
+================================================================================
+
+INFORMATION BARRIERS (Chinese Walls):
+  Investment Banking and Global Markets divisions require strict data separation.
+  - IB HR Business Partners can only see IB employees
+  - Markets HR Business Partners can only see Markets employees
+  - Cross-division reporting requires CHRO approval
+  - Configuration: Constrained Security Groups (worker-based security)
+
+SENSITIVE WORKER DATA:
+  - Compensation data: Restricted to HR BPs, HRDs, and Compensation team
+  - Medical/health data: Restricted to Benefits team and employee only
+  - FINRA licensing data: Restricted to Compliance and Legal
+
+SEGREGATION OF DUTIES POLICY:
+  - No single user may initiate AND approve a hire/termination
+  - No single user may maintain payroll AND approve payroll
+  - No single user may manage compensation AND process payroll
+  SOD matrix approved April 5, 2024.
+
+================================================================================
+7. KNOWN GAPS AND OPEN ISSUES
+================================================================================
+
+GAP-HCM-001 [HIGH]: FINRA U5 Filing Not Automated
+  Description: No automated trigger for FINRA U5 when registered rep terminates
+  Risk: Manual process failure could result in FINRA regulatory action
+  Workaround: Manual checklist maintained by Compliance team
+  Resolution: Phase 2 scope item to build custom integration with FINRA system
+
+GAP-HCM-002 [HIGH]: Cross-Border Transfer Tax Implications
+  Description: US-Canada inter-company transfers trigger tax events not modelled
+  Risk: Incorrect final pay calculations, employee tax complaints
+  Workaround: Each cross-border transfer reviewed manually by payroll team
+  Target: GlobalBank Legal to provide guidance by September 20, 2024
+
+GAP-HCM-003 [MEDIUM]: Code of Conduct Completion Tracking
+  Description: Workday Learning out of scope; 30-day mandatory training cannot
+    be tracked in Workday at go-live
+  Risk: Regulatory compliance gap (FINRA, SEC requirements)
+  Workaround: Manual Excel tracker maintained by HR Compliance
+  Resolution: Addressed in Phase 2 when Workday Learning is implemented
+
+GAP-HCM-004 [MEDIUM]: Contingent Worker Payroll
+  Description: 1,247 contingent workers are in Workday as view-only workers
+    but their pay is managed by agencies. No Workday Payroll for these workers.
+  Risk: Inconsistent worker data between Workday and vendor management system
+  Accepted risk: Documented and accepted by Marcus Webb, VP HR Technology
+
+GAP-HCM-005 [LOW]: Holiday Premium Pay for Trading Floor Employees
+  Description: Decision on holiday pay for Global Markets employees pending
+  Risk: Incorrect pay calculations for ~300 trading floor employees on holidays
+  Owner: GlobalBank Compensation & Markets HR
+  Target: Decision required by October 1, 2024
+
+END OF HCM BPD DOCUMENT

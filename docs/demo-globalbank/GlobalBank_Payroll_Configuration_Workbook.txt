@@ -1,0 +1,253 @@
+WORKDAY PAYROLL CONFIGURATION WORKBOOK
+GlobalBank Financial Services – US & Canada Payroll
+Version: 3.4 (DRAFT – pending GlobalBank sign-off)
+Last Updated: August 28, 2024
+Author: Lumina Consulting – Payroll Workstream Lead
+Status: OPEN ITEMS REQUIRE RESOLUTION BEFORE UAT
+
+================================================================================
+SECTION 1: PAY GROUPS
+================================================================================
+
+PAY GROUP: GB_US_MONTHLY_EXEMPT
+  Description:     US Monthly Salaried Exempt Employees
+  Frequency:       Monthly
+  Pay Date:        Last business day of the month
+  Population:      ~5,200 employees (Grade 9 and above)
+  Currency:        USD
+  Tax Company:     GlobalBank FS USA Inc.
+  States covered:  NY, CT, NJ, IL, CA, TX, MA, FL
+  Status:          CONFIGURED
+
+PAY GROUP: GB_US_BIWEEKLY_NONEXEMPT
+  Description:     US Bi-Weekly Non-Exempt (Hourly) Employees
+  Frequency:       Bi-Weekly (every other Friday)
+  Population:      ~2,100 employees (Operations, Support, Grade 1–5)
+  Currency:        USD
+  Tax Company:     GlobalBank FS USA Inc.
+  Status:          CONFIGURED
+
+PAY GROUP: GB_CANADA_BIWEEKLY
+  Description:     Canada Bi-Weekly All Employees
+  Frequency:       Bi-Weekly (every other Friday)
+  Population:      ~724 employees (Ontario and British Columbia)
+  Currency:        CAD
+  Tax Company:     GlobalBank FS Canada Ltd.
+  Status:          *** NOT STARTED – SEE RISK GB-PAY-001 ***
+
+================================================================================
+SECTION 2: PAY CALENDAR 2024 – US MONTHLY EXEMPT
+================================================================================
+
+Period  Period Start   Period End     Pay Date       Notes
+01      Jan 1, 2024    Jan 31, 2024   Jan 31, 2024   First live payroll
+02      Feb 1, 2024    Feb 29, 2024   Feb 29, 2024   Leap year
+03      Mar 1, 2024    Mar 31, 2024   Mar 28, 2024   (Last business day = Thurs)
+...
+11      Nov 1, 2024    Nov 30, 2024   Nov 29, 2024   CRITICAL: Q4 bonus payout date
+12      Dec 1, 2024    Dec 31, 2024   Dec 31, 2024   First live Workday payroll
+
+NOTE: Dec 2 go-live means pay period 12 (Dec 1–31) will be the first
+live payroll processed entirely in Workday.
+
+================================================================================
+SECTION 3: EARNINGS CODES
+================================================================================
+
+Code    Description                    Taxable    Calculates On    Status
+─────────────────────────────────────────────────────────────────────────────
+REG     Regular Salary                 Yes        Period Pay        CONFIGURED
+OT      Overtime (1.5x)                Yes        Hourly Rate       CONFIGURED
+DBLOT   Double Time (2.0x)             Yes        Hourly Rate       CONFIGURED
+HOLPAY  Holiday Pay                    Yes        Period Pay        CONFIGURED
+SICK    Sick Pay                       Yes        Period Pay        CONFIGURED
+VACPAY  Vacation Pay Payout            Yes        Accrual Balance   CONFIGURED
+BONUS   Discretionary Bonus            Yes        Manual Entry      *** NOT CONFIGURED ***
+DEFCOMP Deferred Compensation          No         Calculated        *** NOT CONFIGURED ***
+RETRO   Retroactive Pay Adjustment     Yes        Manual Entry      CONFIGURED
+SIGBON  Sign-On Bonus                  Yes        Manual Entry      CONFIGURED
+RELOC   Relocation Allowance           Yes        Manual Entry      CONFIGURED
+REFER   Referral Bonus                 Yes        Manual Entry      CONFIGURED
+COMMUT  Commuter Benefit (pre-tax)     No         Manual Entry      CONFIGURED
+TUITION Tuition Reimbursement          No         Manual Entry      CONFIGURED
+
+CRITICAL GAP: BONUS and DEFCOMP earnings codes not configured.
+Approximately 2,400 employees are expected to receive Q4 discretionary
+bonuses on November 30, 2024. Deferred compensation affects ~340
+employees at Grade 12 and above. Both must be configured and tested
+before the November parallel payroll run.
+
+================================================================================
+SECTION 4: DEDUCTION CODES
+================================================================================
+
+Code        Description                        Pre-Tax   Status
+──────────────────────────────────────────────────────────────────────────────
+401K_EE     Employee 401(k) Traditional        Yes       CONFIGURED (6% max)
+401K_ROTH   Employee 401(k) Roth               No        CONFIGURED
+401K_ER     Employer 401(k) Match              N/A       CONFIGURED (50% of EE up to 6%)
+HSA_EE      Employee HSA Contribution          Yes       CONFIGURED
+HSA_ER      Employer HSA Contribution          N/A       CONFIGURED ($500/year)
+MED_EE      Medical Premium (Employee)         Yes       CONFIGURED
+MED_ER      Medical Premium (Employer)         N/A       CONFIGURED
+DENT_EE     Dental Premium (Employee)          Yes       CONFIGURED
+VIS_EE      Vision Premium (Employee)          Yes       CONFIGURED
+LIFE_BASIC  Basic Life Insurance Premium       No        CONFIGURED (employer paid)
+LIFE_SUPP   Supplemental Life Premium          No        CONFIGURED
+LTD         Long-Term Disability               Yes       CONFIGURED
+GARNISH     Wage Garnishment                   No        CONFIGURED (manual)
+CHILDSUPP   Child Support Order                No        CONFIGURED (manual)
+COMMUTER    Commuter Benefit Deduction         Yes       CONFIGURED
+FSA_HEALTH  Health FSA                         Yes       CONFIGURED
+FSA_DEPEND  Dependent Care FSA                 Yes       CONFIGURED
+UNION_DUES  Union Dues (Operations staff)      No        *** PENDING UNION APPROVAL ***
+
+================================================================================
+SECTION 5: TAX CONFIGURATION
+================================================================================
+
+FEDERAL TAXES – CONFIGURED:
+- Federal Income Tax (W-4 withholding)
+- Social Security (OASDI): 6.2% employee, 6.2% employer (wage base $168,600)
+- Medicare: 1.45% employee, 1.45% employer
+- Additional Medicare (>$200K): 0.9% employee only
+- Federal Unemployment (FUTA): 6.0% employer (wage base $7,000)
+
+STATE TAXES – US STATES:
+
+State   Income Tax        Unemployment     SUI Wage Base    Status
+NY      Graduated         2.1%-9.9%        $12,500          CONFIGURED
+CT      Graduated         1.9%-6.9%        $25,000          CONFIGURED
+NJ      Graduated         1.4%-10.75%      $42,300          CONFIGURED
+IL      Flat 4.95%        2.75%-4.75%      $13,590          CONFIGURED
+TX      None              0.23%-6.23%      $9,000           CONFIGURED
+MA      Flat 5%           1.05%-10.5%      $15,000          CONFIGURED
+FL      None              0.1%-5.4%        $7,000           CONFIGURED
+CA      Graduated         1%-13.3%         $7,000           CONFIGURED *
+
+* RISK GB-PAY-002: California Supplemental Wage Rate not configured.
+California requires supplemental wages (bonuses, commissions) to be
+withheld at 10.23% state + 1.1% SDI for supplemental payments, OR at
+the aggregate method. Currently configured at standard rate only.
+This affects ~180 California-based employees who receive bonuses.
+
+LOCAL TAXES – CRITICAL GAP:
+
+NYC Local Tax: *** NOT CONFIGURED ***
+  - New York City personal income tax applies to NYC residents
+  - Estimated ~1,200 employees are NYC residents
+  - Tax rates: 3.078% to 3.876% depending on income
+  - If not configured before go-live, GlobalBank faces penalties and
+    employee tax shortfall on all NYC-resident paychecks from Dec 2
+
+Yonkers Tax: *** NOT CONFIGURED ***
+  - Approximately 85 employees are Yonkers residents
+  - Yonkers resident surcharge: 16.75% of New York State tax
+  - Yonkers non-resident earnings tax: 0.5% of wages
+
+Philadelphia Wage Tax: NOT APPLICABLE (no Philadelphia employees confirmed)
+
+CANADA TAXES: *** NOT STARTED ***
+  - CPP/EI configuration not begun
+  - Ontario provincial tax tables not loaded
+  - BC provincial tax tables not loaded
+  - T4 configuration not started
+
+================================================================================
+SECTION 6: PAY CALCULATION RULES
+================================================================================
+
+OVERTIME RULES:
+- Federal FLSA: 1.5x after 40 hours per week (all non-exempt employees)
+- California: 1.5x after 8 hours per day; 2.0x after 12 hours per day
+  *** RISK: California daily OT rules not yet configured in Workday ***
+- New York: No daily overtime (follows federal weekly rule)
+
+MINIMUM WAGE COMPLIANCE (as of Jan 2024):
+- Federal: $7.25/hr (superseded by all state minimums below)
+- New York State: $16.00/hr (NYC: $16.00/hr)
+- California: $16.00/hr
+- New Jersey: $15.13/hr
+- Illinois: $14.00/hr
+- Massachusetts: $15.00/hr
+- Connecticut: $15.69/hr
+Configuration status: CONFIGURED for all states listed above
+
+PAID SICK LEAVE ACCRUAL:
+- NY: 1 hour per 30 hours worked, max 56 hours (employers 100+)
+- CA: 1 hour per 30 hours worked, max 80 hours (AB 2123 2024)
+- NJ: 1 hour per 30 hours worked, max 40 hours
+- CT: 1 hour per 40 hours worked
+Status: CONFIGURED for NY, CA, NJ, CT; PENDING for IL, MA
+
+================================================================================
+SECTION 7: PAYROLL INTEGRATION – GL POSTING
+================================================================================
+
+Target System:     Oracle Financials Cloud (EBS R12 migration in progress)
+Posting Method:    Summary by Cost Centre and Account Code
+File Format:       Oracle Journal Import CSV
+Transfer Method:   SFTP to Oracle Integration Cloud
+
+Cost Centre Mapping: 1,247 unique cost centres in legacy system
+  - 1,089 mapped successfully to Oracle COA (87.4%)
+  - 158 cost centres unmapped – require GlobalBank Finance input
+    *** RISK: GL posting will fail for 158 cost centres at go-live ***
+  - Escalation: Marcus Webb (VP HR Tech) and James Liu (VP Finance)
+
+GL mapping document reference: GB-INT-017-GL-Mapping-v2.xlsx
+
+================================================================================
+SECTION 8: RISKS AND OPEN ITEMS
+================================================================================
+
+RISK GB-PAY-001 [CRITICAL] – Canada Payroll Not Started
+  Impact: 724 Canadian employees cannot be paid through Workday at go-live
+  Probability: HIGH
+  Date Identified: August 15, 2024
+  Recommended Action: Immediately assess if Canada can be expedited or
+    formally defer to Phase 2 with client sign-off.
+  Owner: Jennifer Park (PM) / Marcus Webb (Client)
+  Target Resolution: September 10, 2024
+
+RISK GB-PAY-002 [HIGH] – Q4 Bonus Processing Not Configured
+  Impact: 2,400 employees cannot receive discretionary bonus via Workday
+  Bonus payout date: November 30, 2024 (before go-live)
+  Recommended Action: Configure BONUS earnings code and Bonus Plan by Oct 4.
+    If not completed, Q4 bonus must be paid via legacy system (off-cycle risk).
+  Owner: David Okafor / GlobalBank Compensation Team
+  Target Resolution: October 4, 2024
+
+RISK GB-PAY-003 [HIGH] – NYC Local Tax Not Configured
+  Impact: ~1,200 NYC residents undertaxed from Dec 2 go-live
+  Penalty risk: IRS/NYDTF late deposit penalties (2%-15% of underpayment)
+  Recommended Action: Configure NYC local tax tables as immediate priority.
+  Owner: Lumina Payroll Consultant
+  Target Resolution: September 20, 2024
+
+RISK GB-PAY-004 [HIGH] – 158 GL Cost Centres Unmapped
+  Impact: GL posting will fail for employees in those cost centres.
+    Payroll will process but journal entry will not post to Oracle Financials.
+  Recommended Action: GlobalBank Finance to complete mapping by Sept 27.
+  Owner: James Liu (VP Finance) / Lumina Integration Lead
+  Target Resolution: September 27, 2024
+
+RISK GB-PAY-005 [MEDIUM] – California Supplemental Withholding Rate
+  Impact: ~180 CA employees under-withheld on bonus payments
+  Recommended Action: Configure CA supplemental rate (10.23% + 1.1% SDI).
+  Target Resolution: October 11, 2024
+
+RISK GB-PAY-006 [MEDIUM] – Deferred Compensation Not Configured
+  Impact: ~340 Grade 12+ employees' deferred comp elections cannot be processed
+  Recommended Action: Align with Comp team on deferral percentages and configure.
+  Target Resolution: October 4, 2024
+
+RISK GB-PAY-007 [MEDIUM] – November Parallel Run Failed for 47 Employees
+  UPDATED: November parallel run completed Nov 22. Results:
+  - 7,977 employees matched within 0.1% tolerance – PASS
+  - 47 employees failed reconciliation (variance > $50)
+  - Root causes: 23 retroactive pay adjustments, 14 mid-month hires, 10 unknown
+  - 10 unexplained variances under investigation by Lumina
+  Acceptance criteria requires 0 unexplained variances before go-live sign-off.
+
+END OF PAYROLL CONFIGURATION WORKBOOK
