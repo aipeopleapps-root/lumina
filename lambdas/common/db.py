@@ -4,8 +4,14 @@ Database connection helper for Aurora Postgres using Data API
 
 import os
 import json
+import re
 import boto3
 from contextlib import contextmanager
+
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
 
 _rds_data = boto3.client('rds-data')
 _DB_CLUSTER_ARN = os.environ.get('DB_CLUSTER_ARN', '')
@@ -81,6 +87,8 @@ class Cursor:
                     param['value'] = {'doubleValue': value}
                 else:
                     param['value'] = {'stringValue': str(value)}
+                    if isinstance(value, str) and _UUID_RE.match(value):
+                        param['typeHint'] = 'UUID'
                 parameters.append(param)
             
             # Replace %s with :param0, :param1, etc
