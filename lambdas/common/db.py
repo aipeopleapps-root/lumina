@@ -87,8 +87,15 @@ class Cursor:
                     param['value'] = {'doubleValue': value}
                 else:
                     param['value'] = {'stringValue': str(value)}
-                    if isinstance(value, str) and _UUID_RE.match(value):
-                        param['typeHint'] = 'UUID'
+                    if isinstance(value, str):
+                        if _UUID_RE.match(value):
+                            param['typeHint'] = 'UUID'
+                        elif value[:1] in ('{', '['):
+                            try:
+                                json.loads(value)
+                                param['typeHint'] = 'JSON'
+                            except (ValueError, TypeError):
+                                pass
                 parameters.append(param)
             
             # Replace %s with :param0, :param1, etc
