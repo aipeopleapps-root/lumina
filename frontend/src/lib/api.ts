@@ -508,12 +508,18 @@ export interface PiSwimLane {
   position: number;
 }
 
+export type PiAiOpportunity =
+  | 'illuminate_agent' | 'digital_employee' | 'workday_native'
+  | 'partial_ai' | 'human_only';
+
 export interface PiStep {
   step_id: string;
   lane_id: string | null;
   label: string;
   type: string | null;
   systems_touched: string[];
+  ai_opportunity: PiAiOpportunity | null;
+  ai_rationale: string | null;
   avg_cycle_time_hrs: number | null;
   notes: string | null;
   position_x: number | null;
@@ -548,6 +554,7 @@ export interface PiStepPatch {
   step_type?: string;
   lane_id?: string | null;
   systems_touched?: string[];
+  ai_opportunity?: PiAiOpportunity;
 }
 
 export interface PiLanePatch {

@@ -6,6 +6,7 @@ import {
   putFileToS3,
   triggerParseDiagram,
   uploadProcessDiagram,
+  type PiAiOpportunity,
   type PiDomain,
   type PiGraph,
   type PiLanePatch,
@@ -22,7 +23,13 @@ const DOMAINS: { value: PiDomain; label: string }[] = [
   { value: 'performance',      label: 'Performance' },
 ];
 
-const STEP_TYPES = ['manual', 'system', 'decision', 'approval', 'wait'];
+const AI_OPP_META: Record<PiAiOpportunity, { label: string; colors: string }> = {
+  illuminate_agent: { label: 'Illuminate Agent',   colors: 'bg-teal-100 text-teal-800 border-teal-200' },
+  digital_employee: { label: 'Digital Employee',   colors: 'bg-blue-100 text-blue-800 border-blue-200' },
+  workday_native:   { label: 'Workday Native',      colors: 'bg-green-100 text-green-800 border-green-200' },
+  partial_ai:       { label: 'Partial AI',          colors: 'bg-amber-100 text-amber-800 border-amber-200' },
+  human_only:       { label: 'Human Only',          colors: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
 
 type Phase = 'upload' | 'uploading' | 'parsing' | 'review' | 'error';
 
@@ -119,7 +126,13 @@ export default function ProcessIntelligence({ clientName }: Props) {
     setSaving(true);
     try {
       const step_patches: PiStepPatch[] = Object.entries(stepEdits).map(
-        ([step_id, edits]) => ({ step_id, ...edits })
+        ([step_id, edits]) => ({
+          step_id,
+          ...(edits.label !== undefined ? { label: edits.label } : {}),
+          ...(edits.lane_id !== undefined ? { lane_id: edits.lane_id } : {}),
+          ...(edits.systems_touched !== undefined ? { systems_touched: edits.systems_touched } : {}),
+          ...(edits.ai_opportunity != null ? { ai_opportunity: edits.ai_opportunity } : {}),
+        })
       );
       const lane_patches: PiLanePatch[] = Object.entries(laneEdits).map(
         ([lane_id, edits]) => ({ lane_id, ...edits })
@@ -413,7 +426,7 @@ function ReviewScreen(p: ReviewScreenProps) {
             <tr className="border-b border-slate-200">
               <th className="px-3 py-2 text-left font-medium text-slate-500 w-48">Lane / Persona</th>
               <th className="px-3 py-2 text-left font-medium text-slate-500">Step</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500 w-32">Type</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500 w-40">AI Opportunity</th>
               <th className="px-3 py-2 text-left font-medium text-slate-500 w-36">Systems</th>
               <th className="px-3 py-2 text-left font-medium text-slate-500 w-16">Conf</th>
             </tr>
@@ -444,7 +457,7 @@ function ReviewScreen(p: ReviewScreenProps) {
                         step={step}
                         isWarned={isWarned}
                         onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                        onTypeChange={v => patchStep(step.step_id, 'type' as keyof PiStep, v)}
+                        onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)}
                       />
                     );
                   })}
@@ -466,7 +479,7 @@ function ReviewScreen(p: ReviewScreenProps) {
                       step={step}
                       isWarned={false}
                       onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                      onTypeChange={v => patchStep(step.step_id, 'type' as keyof PiStep, v)}
+                      onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)}
                     />
                   );
                 })}
@@ -491,19 +504,21 @@ const LANE_COLORS = [
   'bg-pink-400', 'bg-teal-400', 'bg-red-400', 'bg-yellow-400',
 ];
 
-function StepRow({ step, isWarned, onLabelChange, onTypeChange }: {
+function StepRow({ step, isWarned, onLabelChange, onAiChange }: {
   step: PiStep;
   isWarned: boolean;
   onLabelChange: (v: string) => void;
-  onTypeChange: (v: string) => void;
+  onAiChange: (v: PiAiOpportunity) => void;
 }) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft]     = useState(step.label);
   const confPct = Math.round(step.parse_confidence * 100);
+  const opp = step.ai_opportunity;
+  const oppMeta = opp ? AI_OPP_META[opp] : null;
 
   return (
     <tr className={`border-b border-slate-100 hover:bg-slate-50 ${isWarned ? 'bg-amber-50' : ''}`}>
-      <td className="px-3 py-1.5 text-slate-400">
+      <td className="px-3 py-1.5 text-slate-400 text-xs">
         {isWarned && <span className="mr-1 text-amber-500" title="Low confidence">!</span>}
         {step.step_id}
       </td>
@@ -518,26 +533,37 @@ function StepRow({ step, isWarned, onLabelChange, onTypeChange }: {
             className="w-full border border-slate-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
           />
         ) : (
-          <span
-            onClick={() => { setLabelDraft(step.label); setEditingLabel(true); }}
-            className="cursor-pointer hover:underline text-slate-700"
-            title="Click to edit"
-          >
-            {step.label}
-          </span>
+          <div>
+            <span
+              onClick={() => { setLabelDraft(step.label); setEditingLabel(true); }}
+              className="cursor-pointer hover:underline text-slate-700 text-xs"
+              title="Click to edit"
+            >
+              {step.label}
+            </span>
+            {step.ai_rationale && (
+              <p className="text-slate-400 mt-0.5 leading-snug" style={{ fontSize: '10px' }}>
+                {step.ai_rationale}
+              </p>
+            )}
+          </div>
         )}
       </td>
       <td className="px-3 py-1.5">
         <select
-          value={step.type || ''}
-          onChange={e => onTypeChange(e.target.value)}
-          className="border-0 bg-transparent text-xs text-slate-600 focus:outline-none cursor-pointer"
+          value={opp || ''}
+          onChange={e => { if (e.target.value) onAiChange(e.target.value as PiAiOpportunity); }}
+          className={`border rounded px-1.5 py-0.5 text-xs font-medium focus:outline-none cursor-pointer ${
+            oppMeta ? oppMeta.colors : 'bg-slate-50 text-slate-400 border-slate-200'
+          }`}
         >
-          <option value="">—</option>
-          {STEP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          <option value="">— not classified —</option>
+          {(Object.keys(AI_OPP_META) as PiAiOpportunity[]).map(k => (
+            <option key={k} value={k}>{AI_OPP_META[k].label}</option>
+          ))}
         </select>
       </td>
-      <td className="px-3 py-1.5 text-slate-500">
+      <td className="px-3 py-1.5 text-slate-500 text-xs">
         {step.systems_touched.length > 0
           ? step.systems_touched.join(', ')
           : <span className="text-slate-300">—</span>}

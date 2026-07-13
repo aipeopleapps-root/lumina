@@ -167,9 +167,10 @@ def store_graph(
                     """
                     INSERT INTO pi.steps
                       (process_id, step_id, lane_id, label, step_type,
-                       systems_touched, avg_cycle_time_hrs, notes,
+                       systems_touched, ai_opportunity, ai_rationale,
+                       avg_cycle_time_hrs, notes,
                        position_x, position_y, parse_confidence)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         process_id,
@@ -178,6 +179,8 @@ def store_graph(
                         step["label"],
                         step.get("step_type"),
                         json.dumps(step.get("systems_touched") or []),
+                        step.get("ai_opportunity"),
+                        step.get("ai_rationale"),
                         step.get("avg_cycle_time_hrs"),
                         step.get("notes"),
                         step.get("position_x"),
@@ -264,6 +267,7 @@ def get_full_graph(*, process_id: str, tenant_id: str) -> dict | None:
             cur.execute(
                 """
                 SELECT step_id, lane_id, label, step_type, systems_touched,
+                       ai_opportunity, ai_rationale,
                        avg_cycle_time_hrs, notes, position_x, position_y,
                        parse_confidence
                 FROM pi.steps WHERE process_id = %s ORDER BY step_id
@@ -277,11 +281,13 @@ def get_full_graph(*, process_id: str, tenant_id: str) -> dict | None:
                     "label":              r[2],
                     "type":               r[3],
                     "systems_touched":    json.loads(r[4]) if r[4] else [],
-                    "avg_cycle_time_hrs": r[5],
-                    "notes":              r[6],
-                    "position_x":         r[7],
-                    "position_y":         r[8],
-                    "parse_confidence":   r[9],
+                    "ai_opportunity":     r[5],
+                    "ai_rationale":       r[6],
+                    "avg_cycle_time_hrs": r[7],
+                    "notes":              r[8],
+                    "position_x":         r[9],
+                    "position_y":         r[10],
+                    "parse_confidence":   r[11],
                 }
                 for r in cur.fetchall()
             ]
@@ -368,6 +374,11 @@ def patch_graph(
                     cur.execute(
                         "UPDATE pi.steps SET systems_touched=%s WHERE process_id=%s AND step_id=%s",
                         [patch["systems_touched"], process_id, step_id],
+                    )
+                if "ai_opportunity" in patch:
+                    cur.execute(
+                        "UPDATE pi.steps SET ai_opportunity=%s WHERE process_id=%s AND step_id=%s",
+                        [patch["ai_opportunity"], process_id, step_id],
                     )
 
             for patch in lane_patches or []:

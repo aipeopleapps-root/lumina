@@ -67,6 +67,8 @@ Classify the diagram and return a JSON object with this exact structure:
       "step_type": "manual|system|decision|approval|wait",
       "systems_touched": ["Workday", "ServiceNow"],
       "lane_shape_id": "parent group shape_id or null if unassigned",
+      "ai_opportunity": "illuminate_agent|digital_employee|workday_native|partial_ai|human_only",
+      "ai_rationale": "1-2 sentence explanation of the AI opportunity or why human involvement is required",
       "parse_confidence": 0.95
     }
   ],
@@ -82,6 +84,19 @@ Rules:
 - systems_touched: extract Workday module names or other system names from the label.
   Common: Workday HCM, Workday Payroll, ServiceNow, DocuSign, Greenhouse, etc.
   Return empty array [] if none mentioned.
+- ai_opportunity: assess the automation potential of each step:
+    'illuminate_agent'  — A Workday Illuminate AI Agent can autonomously execute this step end-to-end
+                         (e.g. policy-driven approvals, data entry from structured inputs, notifications)
+    'digital_employee'  — A Workday Digital Employee or AI Assistant can handle conversational/self-service
+                         elements (e.g. answering queries, guiding employees, initiating transactions)
+    'workday_native'    — Standard Workday Business Process Framework automation handles this without
+                         additional AI (e.g. rule-based routing, automatic calculations, system updates)
+    'partial_ai'        — AI can assist or pre-populate but a human decision is still required
+                         (e.g. complex approvals, exceptions, judgment calls with AI-prepared context)
+    'human_only'        — Requires irreplaceable human judgment, relationship, or physical action
+- ai_rationale: specific, actionable 1-2 sentence explanation referencing the step's actual content.
+  For illuminate_agent/digital_employee: name the Workday capability or agent type and what it would do.
+  For human_only: explain what makes automation inappropriate here.
 - parse_confidence per step: 1.0 = certain, 0.7 = some ambiguity, <0.7 = flag as warning
 - overall_confidence: weighted average of step confidences
 - warnings: only for steps where parse_confidence < 0.7"""
@@ -218,6 +233,8 @@ def worker_handler(event: dict, context: object) -> None:
                 "label":              step["label"],
                 "step_type":          step.get("step_type"),
                 "systems_touched":    step.get("systems_touched", []),
+                "ai_opportunity":     step.get("ai_opportunity"),
+                "ai_rationale":       step.get("ai_rationale"),
                 "avg_cycle_time_hrs": None,
                 "notes":              None,
                 "position_x":         pos[0],
@@ -487,25 +504,33 @@ def _heuristic_classify(raw: dict) -> dict:
         for i, g in enumerate(raw["groups"])
     ]
 
-    parent_map = {g["shape_id"]: g for g in raw["groups"]}
     classified_steps = []
     for s in raw["steps"]:
         label_lower = s["label"].lower()
         if "?" in s["label"] or "decision" in label_lower or "approve" in label_lower:
             stype = "decision"
+            opp, rationale = "partial_ai", "Approval logic may be AI-assisted; human sign-off still required pending full classification."
         elif "wait" in label_lower or "hold" in label_lower:
             stype = "wait"
+            opp, rationale = "workday_native", "Wait states are typically handled by Workday's built-in Business Process Framework timers."
         elif "workday" in label_lower or "system" in label_lower:
             stype = "system"
+            opp, rationale = "workday_native", "System-driven step likely handled natively by Workday; full classification requires Bedrock."
+        elif "notify" in label_lower or "email" in label_lower or "alert" in label_lower:
+            stype = "system"
+            opp, rationale = "illuminate_agent", "Notification steps are strong candidates for Illuminate AI Agent automation."
         else:
             stype = "manual"
+            opp, rationale = "partial_ai", "Manual step; AI opportunity requires full classification via Bedrock."
         classified_steps.append({
             "shape_id":        s["shape_id"],
             "label":           s["label"],
             "step_type":       stype,
             "systems_touched": [],
+            "ai_opportunity":  opp,
+            "ai_rationale":    rationale,
             "lane_shape_id":   s.get("parent_group_id"),
-            "parse_confidence": 0.6,  # lower confidence for heuristic
+            "parse_confidence": 0.6,
         })
 
     return {
