@@ -6,6 +6,7 @@ import { UploadModal } from './UploadModal';
 import { PolicyAdvisor } from './PolicyAdvisor';
 import { ConsultantChat } from './ConsultantChat';
 import { Toast } from './Toast';
+import ProcessIntelligence from './ProcessIntelligence';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 interface Document {
@@ -48,7 +49,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [bulkModalAction, setBulkModalAction] = useState<BulkAction | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
-  const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy'>('documents');
+  const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy' | 'process-intelligence'>('documents');
   const [toast, setToast] = useState<{ message: string; id: number } | null>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
@@ -280,6 +281,14 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         >
           PolicyBot
         </button>
+        {canIngest && (
+          <button
+            onClick={() => setActiveTab('process-intelligence')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'process-intelligence' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+          >
+            Process Intelligence
+          </button>
+        )}
         {clientName && (
           <div className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
             <span className="w-1.5 h-1.5 rounded-full bg-[#86BC25]" />
@@ -288,7 +297,11 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         )}
       </div>
 
-      {activeTab === 'policy' ? (
+      {activeTab === 'process-intelligence' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ProcessIntelligence clientName={clientName} />
+        </div>
+      ) : activeTab === 'policy' ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <PolicyAdvisor policyDocs={policyDocs} clientName={clientName} />
         </div>

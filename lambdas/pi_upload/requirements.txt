@@ -1,0 +1,2 @@
+# All dependencies (boto3, common/) are available from the Lambda runtime
+# and the bundled common/ directory respectively.

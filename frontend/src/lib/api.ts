@@ -467,3 +467,194 @@ export async function requestMfaReset(email: string): Promise<void> {
   });
   if (!response.ok) throw new Error('Failed to submit reset request');
 }
+
+// ── Process Intelligence ──────────────────────────────────────────────────────
+
+export type PiDomain =
+  | 'recruiting' | 'onboarding' | 'self_service'
+  | 'payroll' | 'job_architecture' | 'performance';
+
+export type PiParseStatus =
+  | 'uploading' | 'parsing' | 'needs_review' | 'ready' | 'failed';
+
+export interface PiUploadResponse {
+  process_id: string;
+  upload_url: string;
+  s3_key: string;
+}
+
+export interface PiParseWarning {
+  field: string;
+  item_id: string;
+  message: string;
+}
+
+export interface PiStatusResponse {
+  process_id: string;
+  parse_status: PiParseStatus;
+  parse_confidence: number | null;
+  parse_warnings: PiParseWarning[];
+  parse_error: string | null;
+  domain: string;
+  source_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PiSwimLane {
+  lane_id: string;
+  label: string;
+  persona: string | null;
+  position: number;
+}
+
+export interface PiStep {
+  step_id: string;
+  lane_id: string | null;
+  label: string;
+  type: string | null;
+  systems_touched: string[];
+  avg_cycle_time_hrs: number | null;
+  notes: string | null;
+  position_x: number | null;
+  position_y: number | null;
+  parse_confidence: number;
+}
+
+export interface PiConnector {
+  connector_id: number;
+  from: string;
+  to: string;
+  condition: string | null;
+  parse_confidence: number;
+}
+
+export interface PiGraph {
+  process_id: string;
+  domain: string;
+  source_name: string;
+  parse_status: PiParseStatus;
+  parse_confidence: number | null;
+  parse_warnings: PiParseWarning[];
+  created_at: string;
+  swimlanes: PiSwimLane[];
+  steps: PiStep[];
+  connectors: PiConnector[];
+}
+
+export interface PiStepPatch {
+  step_id: string;
+  label?: string;
+  step_type?: string;
+  lane_id?: string | null;
+  systems_touched?: string[];
+}
+
+export interface PiLanePatch {
+  lane_id: string;
+  label?: string;
+  persona?: string;
+}
+
+/** Step 1: get a presigned PUT URL + create Aurora record. */
+export async function uploadProcessDiagram(params: {
+  filename: string;
+  domain: PiDomain;
+  source_name?: string;
+}): Promise<PiUploadResponse> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/upload`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Upload failed');
+  }
+  return res.json();
+}
+
+/** Step 2: PUT the file bytes directly to S3 using the presigned URL. */
+export async function putFileToS3(uploadUrl: string, file: File): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  if (!res.ok) throw new Error('S3 upload failed');
+}
+
+/** Step 3: trigger async Visio parsing. */
+export async function triggerParseDiagram(processId: string): Promise<{ process_id: string; status: string }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/parse`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Parse trigger failed');
+  }
+  return res.json();
+}
+
+/** Poll parse status. Call repeatedly until parse_status is not 'parsing'. */
+export async function getGraphStatus(processId: string): Promise<PiStatusResponse> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/status`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Status fetch failed');
+  }
+  return res.json();
+}
+
+/** Fetch the full parsed graph (swimlanes + steps + connectors). */
+export async function getProcessGraph(processId: string): Promise<PiGraph> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/graph`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Graph fetch failed');
+  }
+  return res.json();
+}
+
+/** Apply consultant corrections to the parsed graph. */
+export async function patchProcessGraph(
+  processId: string,
+  patches: { step_patches?: PiStepPatch[]; lane_patches?: PiLanePatch[] }
+): Promise<void> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/graph`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+    body: JSON.stringify(patches),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Patch failed');
+  }
+}

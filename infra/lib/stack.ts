@@ -287,6 +287,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     }));
     generateTestsFn.addEnvironment('GENERATE_TESTS_WORKER_FUNCTION_ARN', generateTestsWorkerFn.functionArn);
     const testScriptsStatusFn = makeFn('TestScriptsStatusFn', 'test_scripts_status', 15);
+    // Process Intelligence functions
+    const piUploadFn      = makeFn('PiUploadFn',      'pi_upload', 30);
+    const piParseFn       = makeFn('PiParseFn',       'pi_parse',  29);
+    const piParseWorkerFn = makeFn('PiParseWorkerFn', 'pi_parse',  300, 'handler.worker_handler');
+    const piGraphFn       = makeFn('PiGraphFn',       'pi_graph',  30);
+    piParseFn.addEnvironment('PI_PARSE_WORKER_FUNCTION_ARN', piParseWorkerFn.functionArn);
     const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
 
     // Bootstrap — runs on every deploy, idempotent
@@ -309,7 +315,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
       corsPreflight: {
         allowOrigins: ['*'],
-        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
+        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.PATCH, apigwv2.CorsHttpMethod.OPTIONS],
         allowHeaders: ['Content-Type', 'Authorization', 'X-Client-Tenant'],
       },
     });
@@ -506,6 +512,32 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/admin/mfa-reset-requests',
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('AdminMfaResetRequestsInt', mfaResetRequestFn),
+      authorizer,
+    });
+
+    // Process Intelligence routes
+    httpApi.addRoutes({
+      path: '/process-intelligence/upload',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiUploadInt', piUploadFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/parse',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiParseInt', piParseFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/status',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiStatusInt', piGraphFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/graph',
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiGraphInt', piGraphFn),
       authorizer,
     });
 
