@@ -67,8 +67,8 @@ Classify the diagram and return a JSON object with this exact structure:
       "step_type": "manual|system|decision|approval|wait",
       "systems_touched": ["Workday", "ServiceNow"],
       "lane_shape_id": "parent group shape_id or null if unassigned",
-      "ai_opportunity": "illuminate_agent|digital_employee|workday_native|partial_ai|human_only",
-      "ai_rationale": "1-2 sentence explanation of the AI opportunity or why human involvement is required",
+      "ai_opportunity": "sana_agent|workday_native|partial_ai|human_only",
+      "ai_rationale": "1-2 sentence explanation naming the specific Sana agent or why human involvement is required",
       "parse_confidence": 0.95
     }
   ],
@@ -84,18 +84,22 @@ Rules:
 - systems_touched: extract Workday module names or other system names from the label.
   Common: Workday HCM, Workday Payroll, ServiceNow, DocuSign, Greenhouse, etc.
   Return empty array [] if none mentioned.
-- ai_opportunity: assess the automation potential of each step:
-    'illuminate_agent'  — A Workday Illuminate AI Agent can autonomously execute this step end-to-end
-                         (e.g. policy-driven approvals, data entry from structured inputs, notifications)
-    'digital_employee'  — A Workday Digital Employee or AI Assistant can handle conversational/self-service
-                         elements (e.g. answering queries, guiding employees, initiating transactions)
-    'workday_native'    — Standard Workday Business Process Framework automation handles this without
-                         additional AI (e.g. rule-based routing, automatic calculations, system updates)
-    'partial_ai'        — AI can assist or pre-populate but a human decision is still required
-                         (e.g. complex approvals, exceptions, judgment calls with AI-prepared context)
-    'human_only'        — Requires irreplaceable human judgment, relationship, or physical action
+- ai_opportunity: assess the automation potential of each step using CURRENT Workday AI terminology.
+  Workday's AI brand is now "Sana" (Illuminate is retired). Sana agents include: Talent Acquisition Agent,
+  Payroll Agent, Self-Service Agent, Talent Mobility Agent, and others embedded in HCM/Finance.
+    'sana_agent'      — A specific Sana agent can autonomously execute this step end-to-end, OR
+                        the Self-Service Agent handles it conversationally/as self-service.
+                        Use this for: automated approvals, data entry, notifications, screening,
+                        payroll actions, candidate routing, employee self-service queries, PTO requests,
+                        benefit lookups, and any step a named Workday agent can run without human input.
+    'workday_native'  — Standard Workday Business Process Framework automation handles this without
+                        additional AI (rule-based routing, automatic calculations, system updates).
+    'partial_ai'      — A Sana agent can assist or pre-populate but a human decision is still required
+                        (complex approvals, exceptions, judgment calls with AI-prepared context).
+    'human_only'      — Requires irreplaceable human judgment, relationship, or physical action.
 - ai_rationale: specific, actionable 1-2 sentence explanation referencing the step's actual content.
-  For illuminate_agent/digital_employee: name the Workday capability or agent type and what it would do.
+  For sana_agent: name the specific Sana agent (e.g. "Talent Acquisition Agent", "Self-Service Agent",
+  "Payroll Agent") and exactly what it would do for this step. Do NOT say "Illuminate".
   For human_only: explain what makes automation inappropriate here.
 - parse_confidence per step: 1.0 = certain, 0.7 = some ambiguity, <0.7 = flag as warning
 - overall_confidence: weighted average of step confidences
@@ -518,7 +522,7 @@ def _heuristic_classify(raw: dict) -> dict:
             opp, rationale = "workday_native", "System-driven step likely handled natively by Workday; full classification requires Bedrock."
         elif "notify" in label_lower or "email" in label_lower or "alert" in label_lower:
             stype = "system"
-            opp, rationale = "illuminate_agent", "Notification steps are strong candidates for Illuminate AI Agent automation."
+            opp, rationale = "sana_agent", "Notification steps are strong candidates for Self-Service Agent automation via Sana."
         else:
             stype = "manual"
             opp, rationale = "partial_ai", "Manual step; AI opportunity requires full classification via Bedrock."

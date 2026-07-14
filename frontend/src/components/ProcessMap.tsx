@@ -14,11 +14,10 @@ const ARROW_SIZE = 7;
 
 // ── AI opportunity colours ─────────────────────────────────────────────────────
 const OPP_STYLE: Record<string, { fill: string; stroke: string; text: string }> = {
-  illuminate_agent: { fill: '#f0fdfa', stroke: '#0d9488', text: '#0f766e' },
-  digital_employee: { fill: '#eff6ff', stroke: '#3b82f6', text: '#1d4ed8' },
-  workday_native:   { fill: '#f0fdf4', stroke: '#16a34a', text: '#15803d' },
-  partial_ai:       { fill: '#fffbeb', stroke: '#d97706', text: '#92400e' },
-  human_only:       { fill: '#f8fafc', stroke: '#94a3b8', text: '#475569' },
+  sana_agent:     { fill: '#f0fdfa', stroke: '#0d9488', text: '#0f766e' },
+  workday_native: { fill: '#f0fdf4', stroke: '#16a34a', text: '#15803d' },
+  partial_ai:     { fill: '#fffbeb', stroke: '#d97706', text: '#92400e' },
+  human_only:     { fill: '#f8fafc', stroke: '#94a3b8', text: '#475569' },
 };
 const DEFAULT_STYLE = OPP_STYLE.human_only;
 
@@ -196,7 +195,7 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
 
         {/* Lane bands */}
         {lanes.map((lane, i) => {
-          const isAiLane = lane.lane_id === 'ai_lane' || lane.label.toLowerCase().includes('workday ai');
+          const isAiLane = lane.lane_id === 'ai_lane' || lane.label.toLowerCase().includes('sana');
           const bg = isAiLane ? AI_LANE_BG : LANE_BG[i % LANE_BG.length];
           const y = PAD_Y + i * LANE_H;
           return (

@@ -27,11 +27,10 @@ const DOMAINS: { value: PiDomain; label: string }[] = [
 ];
 
 const AI_OPP_META: Record<PiAiOpportunity, { label: string; colors: string }> = {
-  illuminate_agent: { label: 'Illuminate Agent',   colors: 'bg-teal-100 text-teal-800 border-teal-200' },
-  digital_employee: { label: 'Digital Employee',   colors: 'bg-blue-100 text-blue-800 border-blue-200' },
-  workday_native:   { label: 'Workday Native',      colors: 'bg-green-100 text-green-800 border-green-200' },
-  partial_ai:       { label: 'Partial AI',          colors: 'bg-amber-100 text-amber-800 border-amber-200' },
-  human_only:       { label: 'Human Only',          colors: 'bg-slate-100 text-slate-600 border-slate-200' },
+  sana_agent:     { label: '⚡ Sana Agent',    colors: 'bg-teal-100 text-teal-800 border-teal-200' },
+  workday_native: { label: '🔄 Workday Native', colors: 'bg-green-100 text-green-800 border-green-200' },
+  partial_ai:     { label: '🤖 AI-Assisted',   colors: 'bg-amber-100 text-amber-800 border-amber-200' },
+  human_only:     { label: '👤 Human Only',    colors: 'bg-slate-100 text-slate-600 border-slate-200' },
 };
 
 type Phase = 'upload' | 'uploading' | 'parsing' | 'review' | 'error';
@@ -580,7 +579,7 @@ function ReviewScreen(p: ReviewScreenProps) {
                   <div className="flex flex-wrap gap-2">
                     {p.tobeGraph.ai_stats.steps_automated != null && (
                       <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-xs font-medium">
-                        ⚡ {p.tobeGraph.ai_stats.steps_automated} steps fully automated
+                        ⚡ {p.tobeGraph.ai_stats.steps_automated} steps automated by Sana
                       </span>
                     )}
                     {p.tobeGraph.ai_stats.steps_assisted != null && (
@@ -605,11 +604,10 @@ function ReviewScreen(p: ReviewScreenProps) {
               {/* Legend */}
               <div className="shrink-0 px-4 py-2 border-b border-slate-100 bg-white flex flex-wrap gap-3">
                 {[
-                  { key: 'illuminate_agent', label: '⚡ Illuminate Agent', colors: 'bg-teal-100 text-teal-800' },
-                  { key: 'digital_employee', label: '💬 Digital Employee', colors: 'bg-blue-100 text-blue-800' },
-                  { key: 'workday_native',   label: '🔄 Workday Native',   colors: 'bg-green-100 text-green-800' },
-                  { key: 'partial_ai',       label: '🤖 AI-Assisted',      colors: 'bg-amber-100 text-amber-800' },
-                  { key: 'human_only',       label: '👤 Human Only',       colors: 'bg-slate-100 text-slate-600' },
+                  { key: 'sana_agent',     label: '⚡ Sana Agent',     colors: 'bg-teal-100 text-teal-800' },
+                  { key: 'workday_native', label: '🔄 Workday Native', colors: 'bg-green-100 text-green-800' },
+                  { key: 'partial_ai',     label: '🤖 AI-Assisted',   colors: 'bg-amber-100 text-amber-800' },
+                  { key: 'human_only',     label: '👤 Human Only',    colors: 'bg-slate-100 text-slate-600' },
                 ].map(l => (
                   <span key={l.key} className={`px-2 py-0.5 rounded text-xs font-medium ${l.colors}`}>
                     {l.label}

@@ -509,8 +509,7 @@ export interface PiSwimLane {
 }
 
 export type PiAiOpportunity =
-  | 'illuminate_agent' | 'digital_employee' | 'workday_native'
-  | 'partial_ai' | 'human_only';
+  | 'sana_agent' | 'workday_native' | 'partial_ai' | 'human_only';
 
 export interface PiStep {
   step_id: string;

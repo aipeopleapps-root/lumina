@@ -22,7 +22,7 @@ import json
 import logging
 import os
 
-from common import tenant_from_event, TenantError, audit_events, bedrock, http
+from common import tenant_from_event, TenantError, audit_events, bedrock, vectors, http
 from common.pi_aurora import (
     get_process_graph_status,
     get_full_graph,
@@ -36,18 +36,21 @@ log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 _GRAPH_READABLE = {"needs_review", "ready"}
 
-_TOBE_SYSTEM = """You are a Workday AI transformation architect. You will receive a JSON object describing \
-an as-is Workday implementation process, with each step's AI opportunity classification already assessed.
+_TOBE_SYSTEM = """You are a Workday AI transformation architect. You will receive an as-is process graph \
+with AI opportunity classifications, plus relevant Workday AI capability context retrieved from the knowledge base.
+
+Use the capability context to name specific Sana agents accurately (e.g. Talent Acquisition Agent, \
+Payroll Agent, Self-Service Agent, Talent Mobility Agent). Do NOT use the deprecated "Illuminate" brand.
 
 Redesign the process for the AI-enabled future state and return a single JSON object with this exact structure:
 
 {
-  "transformation_summary": "2-3 sentence narrative: which categories of steps were automated, what the net effect is",
+  "transformation_summary": "2-3 sentence narrative: which Sana agents take over which steps, what the net effect is",
   "ai_stats": {
-    "steps_automated": <integer>,
-    "steps_assisted": <integer>,
-    "steps_unchanged": <integer>,
-    "cycle_time_reduction_pct": <integer 0-85>
+    "steps_automated": <integer — steps fully handled by a Sana agent>,
+    "steps_assisted": <integer — steps where Sana assists but human decides>,
+    "steps_unchanged": <integer — human_only steps kept as-is>,
+    "cycle_time_reduction_pct": <integer 0-85, realistic estimate>
   },
   "swimlanes": [
     {"lane_id": "string", "label": "string", "persona": "string or null", "position": 0}
@@ -56,11 +59,11 @@ Redesign the process for the AI-enabled future state and return a single JSON ob
     {
       "step_id": "string",
       "lane_id": "string matching a swimlane lane_id",
-      "label": "string — prefix: ⚡ illuminate_agent, 💬 digital_employee, 🔄 workday_native, 🤖 partial_ai, no prefix for human_only",
+      "label": "string — prefix: ⚡ for sana_agent, 🔄 for workday_native, 🤖 for partial_ai, no prefix for human_only",
       "step_type": "system|manual|decision|approval|wait",
-      "ai_opportunity": "illuminate_agent|digital_employee|workday_native|partial_ai|human_only",
+      "ai_opportunity": "sana_agent|workday_native|partial_ai|human_only",
       "systems_touched": [],
-      "transformation_note": "what changed vs as-is (omit for human_only unchanged steps)"
+      "transformation_note": "Name the specific Sana agent and what it does here (omit for human_only unchanged steps)"
     }
   ],
   "connectors": [
@@ -69,18 +72,18 @@ Redesign the process for the AI-enabled future state and return a single JSON ob
 }
 
 Transformation rules:
-1. illuminate_agent steps → move to a new "Workday AI" lane (lane_id="ai_lane", position=0, persona="Illuminate AI Agent"). Prefix label ⚡. Fully automated.
-2. digital_employee steps → keep in original lane, prefix label 💬. Digital Employee replaces manual initiation.
-3. workday_native steps → keep in original lane, prefix label 🔄. Automated — no human action.
-4. partial_ai steps → keep in original lane, prefix label 🤖. Human still decides; AI prepares context.
-5. human_only steps → keep exactly as-is, no prefix.
-6. Create the "Workday AI" lane only if ≥1 illuminate_agent step exists; place it at position 0 (top).
-7. If consecutive illuminate_agent steps have no human steps between them, you MAY merge them into one consolidated step.
-8. Preserve ALL decision steps and their branching connectors exactly.
-9. Do NOT duplicate steps — each as-is step maps to exactly one to-be step (or is merged).
-10. Keep original step_ids for unchanged steps. Use "tobe_001", "tobe_002"… for moved/merged steps.
-11. ALL connectors must reference valid step_ids that appear in your steps array — validate before returning.
-12. Every step must be reachable in the flow. No orphaned steps."""
+1. sana_agent steps → move to a new "Sana AI" lane (lane_id="ai_lane", position=0, persona="Sana Agent").
+   Prefix label ⚡. Include the specific agent name in transformation_note.
+   If consecutive sana_agent steps have no human steps between them, merge them into one step.
+2. workday_native steps → keep in original lane, prefix label 🔄. Automated — no human action.
+3. partial_ai steps → keep in original lane, prefix label 🤖. Human still decides; Sana prepares context.
+4. human_only steps → keep exactly as-is, no prefix, no transformation_note.
+5. Create the "Sana AI" lane only if ≥1 sana_agent step exists; place it at position 0 (top).
+6. Preserve ALL decision steps and their branching connectors exactly.
+7. Do NOT duplicate steps — each as-is step maps to exactly one to-be step (or is merged).
+8. Keep original step_ids for unchanged steps. Use "tobe_001", "tobe_002"… for moved/merged steps.
+9. ALL connectors must reference valid step_ids in your steps array — validate before returning.
+10. Every step must be reachable in the flow. No orphaned steps."""
 
 
 # ── GET /process-intelligence/{process_id}/status ────────────────────────────
@@ -235,10 +238,37 @@ def tobe_handler(event: dict, context: object) -> dict:
         ],
     }
 
+    # RAG: retrieve relevant Workday AI capability content from the knowledge base
+    kb_text = ""
+    try:
+        step_labels = ", ".join(s["label"] for s in graph["steps"][:10])
+        query = (
+            f"Workday Sana AI agents capabilities for {graph['domain']} process. "
+            f"Steps include: {step_labels}. "
+            f"Which specific Sana agents apply and what can they automate?"
+        )
+        qv = bedrock.embed(query)
+        kb_hits = vectors.search(ctx, qv, top_k=5, doc_type="kb")
+        if kb_hits:
+            kb_text = "\n\n".join(
+                f"[{h.get('source_name', 'knowledge base')}]\n{h['text']}"
+                for h in kb_hits
+            )
+            log.info("tobe RAG: retrieved %d chunks for process_id=%s", len(kb_hits), process_id)
+    except Exception as exc:
+        log.warning("tobe RAG retrieval failed (non-fatal): %s", exc)
+
+    kb_block = (
+        f"<workday_ai_capabilities>\n{kb_text}\n</workday_ai_capabilities>\n\n"
+        if kb_text else
+        "<workday_ai_capabilities>No capability documents indexed yet — use general Workday Sana knowledge.</workday_ai_capabilities>\n\n"
+    )
+    user_prompt = kb_block + "<as_is_process>\n" + json.dumps(as_is, indent=2) + "\n</as_is_process>"
+
     try:
         tobe = bedrock.generate_json(
             system=_TOBE_SYSTEM,
-            user_prompt=json.dumps(as_is, indent=2),
+            user_prompt=user_prompt,
             max_tokens=4096,
         )
     except Exception as exc:
