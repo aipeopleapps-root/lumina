@@ -82,10 +82,17 @@ function tobeToMapGraph(tobe: PiTobeGraph): MapGraph {
 type LoadPhase = 'upload' | 'uploading' | 'parsing' | 'error';
 type WorkPhase = 'asis' | 'review' | 'tobe';
 
-export default function ProcessIntelligence({ clientName }: { clientName?: string }) {
-  const [loadPhase, setLoadPhase] = useState<LoadPhase>('upload');
-  const [domain, setDomain]       = useState<PiDomain>('onboarding');
-  const [file, setFile]           = useState<File | null>(null);
+export default function ProcessIntelligence({
+  clientName, initialFile, initialDomain, onBack,
+}: {
+  clientName?: string;
+  initialFile?: File;
+  initialDomain?: PiDomain;
+  onBack?: () => void;
+}) {
+  const [loadPhase, setLoadPhase] = useState<LoadPhase>(initialFile ? 'uploading' : 'upload');
+  const [domain, setDomain]       = useState<PiDomain>(initialDomain ?? 'onboarding');
+  const [file, setFile]           = useState<File | null>(initialFile ?? null);
   const [dragOver, setDragOver]   = useState(false);
   const [errorMsg, setErrorMsg]   = useState('');
   const [parseMsg, setParseMsg]   = useState('');
@@ -192,6 +199,14 @@ export default function ProcessIntelligence({ clientName }: { clientName?: strin
     setSaved(false); setTobeGraph(null); setWorkPhase('asis');
   }
 
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (initialFile && !autoStarted.current) {
+      autoStarted.current = true;
+      handleUpload();
+    }
+  }, []);
+
   // ── Render ──────────────────────────────────────────────────────────────────
   if (loadPhase !== 'error' && graph) {
     return (
@@ -206,6 +221,7 @@ export default function ProcessIntelligence({ clientName }: { clientName?: strin
         onGenerateTobe={handleGenerateTobe}
         setTobeError={setTobeError}
         clientName={clientName}
+        onBack={onBack}
       />
     );
   }
@@ -394,6 +410,7 @@ interface WorkspaceProps {
   tobeGraph: PiTobeGraph | null; tobeLoading: boolean; tobeError: string;
   onGenerateTobe: () => void; setTobeError: (e: string) => void;
   clientName?: string;
+  onBack?: () => void;
 }
 
 function WorkspaceScreen(p: WorkspaceProps) {
@@ -482,11 +499,19 @@ function WorkspaceScreen(p: WorkspaceProps) {
               transition: 'all 0.15s', fontFamily: FONT }}>
             {p.saving ? 'Saving…' : 'Save corrections'}
           </button>
-          <button onClick={p.onReset}
-            style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
-              border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
-            New upload
-          </button>
+          {p.onBack ? (
+            <button onClick={p.onBack}
+              style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+                border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
+              ← Workspace
+            </button>
+          ) : (
+            <button onClick={p.onReset}
+              style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+                border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
+              New upload
+            </button>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, getTestScriptJob, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream, type GenerateTestsResponse } from '../lib/api';
+import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, getTestScriptJob, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream, type GenerateTestsResponse, type PiDomain } from '../lib/api';
 import { FileExplorer, type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import { UploadModal } from './UploadModal';
@@ -49,7 +49,11 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [bulkModalAction, setBulkModalAction] = useState<BulkAction | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
-  const [activeTab, setActiveTab] = useState<'documents' | 'coach' | 'policy' | 'process-intelligence'>('documents');
+  const [activeTab, setActiveTab] = useState<'library' | 'assistant'>('library');
+  const [assistantMode, setAssistantMode] = useState<'coach' | 'policy'>('coach');
+  const [showPi, setShowPi] = useState(false);
+  const [piInitialFile, setPiInitialFile] = useState<File | null>(null);
+  const [piInitialDomain, setPiInitialDomain] = useState<PiDomain | undefined>(undefined);
   const [toast, setToast] = useState<{ message: string; id: number } | null>(null);
 
   const canIngest = role === 'consultant' || role === 'admin';
@@ -173,6 +177,31 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     }
   }
 
+  function inferDomain(doc: Document): PiDomain {
+    const ctx = (doc.source_name + ' ' + doc.folder_path + ' ' + doc.module).toLowerCase();
+    if (ctx.includes('recruit'))                            return 'recruiting';
+    if (ctx.includes('onboard'))                           return 'onboarding';
+    if (ctx.includes('payroll'))                           return 'payroll';
+    if (ctx.includes('perform'))                           return 'performance';
+    if (ctx.includes('job') || ctx.includes('architect'))  return 'job_architecture';
+    if (ctx.includes('self') || ctx.includes('ess'))       return 'self_service';
+    return 'onboarding';
+  }
+
+  async function handleMapProcesses(doc: Document) {
+    try {
+      const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
+      const resp = await fetch(r.url);
+      const blob = await resp.blob();
+      const f = new File([blob], doc.source_name, { type: blob.type || 'application/octet-stream' });
+      setPiInitialFile(f);
+      setPiInitialDomain(inferDomain(doc));
+      setShowPi(true);
+    } catch {
+      alert('Could not load document for process mapping');
+    }
+  }
+
   async function handleBulkAction(action: BulkAction, docs: Document[]) {
     switch (action) {
       case 'download':
@@ -264,31 +293,17 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
       {/* ── Tab Toggle ── */}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-200 bg-white shrink-0">
         <button
-          onClick={() => setActiveTab('documents')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'documents' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+          onClick={() => { setActiveTab('library'); setShowPi(false); }}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'library' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
         >
-          Documents
+          Workspace
         </button>
         <button
-          onClick={() => setActiveTab('coach')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'coach' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+          onClick={() => setActiveTab('assistant')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'assistant' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
         >
-          Coach
+          Assistant
         </button>
-        <button
-          onClick={() => setActiveTab('policy')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'policy' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
-        >
-          PolicyBot
-        </button>
-        {canIngest && (
-          <button
-            onClick={() => setActiveTab('process-intelligence')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'process-intelligence' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
-          >
-            Process Intelligence
-          </button>
-        )}
         {clientName && (
           <div className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
             <span className="w-1.5 h-1.5 rounded-full bg-[#86BC25]" />
@@ -297,17 +312,41 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         )}
       </div>
 
-      {activeTab === 'process-intelligence' ? (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <ProcessIntelligence clientName={clientName} />
+      {activeTab === 'assistant' ? (
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-100 bg-white shrink-0">
+            <button
+              onClick={() => setAssistantMode('coach')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${assistantMode === 'coach' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+            >
+              Workday Coach
+            </button>
+            <button
+              onClick={() => setAssistantMode('policy')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${assistantMode === 'policy' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+            >
+              Policy Advisor
+            </button>
+            <p className="ml-auto text-xs text-slate-400">
+              {assistantMode === 'policy'
+                ? `${policyDocs.length} policy doc${policyDocs.length !== 1 ? 's' : ''} in context`
+                : 'Workday implementation guidance'}
+            </p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {assistantMode === 'coach'
+              ? <ConsultantChat clientName={clientName} />
+              : <PolicyAdvisor policyDocs={policyDocs} clientName={clientName} />}
+          </div>
         </div>
-      ) : activeTab === 'policy' ? (
+      ) : showPi ? (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <PolicyAdvisor policyDocs={policyDocs} clientName={clientName} />
-        </div>
-      ) : activeTab === 'coach' ? (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <ConsultantChat clientName={clientName} />
+          <ProcessIntelligence
+            clientName={clientName}
+            initialFile={piInitialFile ?? undefined}
+            initialDomain={piInitialDomain}
+            onBack={() => { setShowPi(false); setPiInitialFile(null); setPiInitialDomain(undefined); }}
+          />
         </div>
       ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -317,7 +356,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
         {/* ── Header: title + actions + upload + refresh ── */}
         <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex items-center gap-2 shrink-0">
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900">Document Library</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Workspace</h2>
             <p className="text-xs text-slate-400 mt-0.5">{documents.length} document{documents.length !== 1 ? 's' : ''}</p>
           </div>
 
@@ -509,6 +548,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
             doc={previewDoc}
             onAnalyse={onAnalyse}
             onValidateSow={onValidateSow}
+            onMapProcesses={handleMapProcesses}
             onPublish={(doc, published) => {
               if (published) {
                 setPendingPublishDoc(doc);
@@ -1116,12 +1156,19 @@ function BulkActionModal({
 
 // ── Document Preview Panel ────────────────────────────────────────────────────
 
+function isProcessable(doc: Document): boolean {
+  if (doc.doc_type === 'process-diagram') return true;
+  const name = doc.source_name.toLowerCase();
+  return name.endsWith('.vsdx') || name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg');
+}
+
 function DocumentPreviewPanel({
-  doc, onAnalyse, onValidateSow, onPublish, onDownload, onDelete,
+  doc, onAnalyse, onValidateSow, onMapProcesses, onPublish, onDownload, onDelete,
 }: {
   doc: Document;
   onAnalyse?: (d: Document) => void;
   onValidateSow?: (d: Document) => void;
+  onMapProcesses?: (d: Document) => void;
   onPublish?: (d: Document, published: boolean) => void;
   onDownload: (d: Document) => void;
   onDelete?: (d: Document) => void;
@@ -1202,6 +1249,14 @@ function DocumentPreviewPanel({
               className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
             >
               🔍 Analyse
+            </button>
+          )}
+          {onMapProcesses && isProcessable(doc) && (
+            <button
+              onClick={() => onMapProcesses(doc)}
+              className="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
+            >
+              Map Processes
             </button>
           )}
           {onPublish && (

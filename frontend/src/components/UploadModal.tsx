@@ -5,6 +5,7 @@ import type { FolderTemplate } from './FolderTemplateSelector';
 
 // Keyword hints per category name — only strong/distinctive patterns
 const FOLDER_HINTS: [string, string[]][] = [
+  ['Process Diagrams', ['vsdx', 'visio', 'process_map', 'swimlane', 'flow_diagram']],
   ['Configuration Workbooks', ['config', 'workbook', 'wb_', '_wb.', 'hcm_wb', 'payroll_wb', 'benefit_wb']],
   ['Business Process Documents', ['bpd', '_bpd', 'business_process', 'process_flow', 'workflow_']],
   ['Integration Design', ['integration', 'interface_', 'api_', '_api.', 'connector_', 'middleware', 'idoc_', 'sftp_']],
@@ -27,9 +28,21 @@ function detectMismatch(filename: string, selectedName: string): string | null {
 
 // Virtual categories that always appear, with explicit doc_type
 const VIRTUAL_CATEGORIES = [
-  { id: 'sow',           name: 'Statement of Work',      docType: 'sow',           subfolders: [] as {id:string;name:string}[] },
-  { id: 'test-script',   name: 'Test Scripts',           docType: 'test-script',   subfolders: [] as {id:string;name:string}[] },
-  { id: 'status-report', name: 'Status Reports',         docType: 'status-report', subfolders: [] as {id:string;name:string}[] },
+  { id: 'sow',             name: 'Statement of Work',      docType: 'sow',             subfolders: [] as {id:string;name:string}[] },
+  {
+    id: 'process-diagram',
+    name: 'Process Diagrams',
+    docType: 'process-diagram',
+    subfolders: [
+      { id: 'hcm',          name: 'HCM & Core HR' },
+      { id: 'payroll',      name: 'Payroll' },
+      { id: 'talent',       name: 'Talent & Performance' },
+      { id: 'recruiting',   name: 'Recruiting' },
+      { id: 'integrations', name: 'Integrations' },
+    ] as {id:string;name:string}[],
+  },
+  { id: 'test-script',     name: 'Test Scripts',           docType: 'test-script',     subfolders: [] as {id:string;name:string}[] },
+  { id: 'status-report',   name: 'Status Reports',         docType: 'status-report',   subfolders: [] as {id:string;name:string}[] },
   {
     id: 'hr_policy',
     name: 'HR Policies & Knowledge',
@@ -50,6 +63,7 @@ const VIRTUAL_NAMES = new Set<string>(VIRTUAL_CATEGORIES.map(c => c.name));
 
 const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   'Statement of Work':       'Contracts and scoped deliverable agreements',
+  'Process Diagrams':        'Visio files, process flows, and workflow images — used for Process Intelligence (.vsdx, .png, .jpg)',
   'Test Scripts':            'SIT / UAT test cases and scenario scripts',
   'Status Reports':          'Weekly or milestone project status updates',
   'HR Policies & Knowledge': 'Company policies, handbooks, and HR guidance',
@@ -94,9 +108,9 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Build unified category list: SOW first, then template folders, then Test Scripts + Status Reports
+  // Build unified category list: SOW + Process Diagrams first, then template folders, then the rest
   const allCategories: Category[] = [
-    { ...VIRTUAL_CATEGORIES[0] },
+    ...VIRTUAL_CATEGORIES.slice(0, 2).map(c => ({ ...c })),
     ...template.folders
       .filter(f => !VIRTUAL_NAMES.has(f.name))
       .map(f => ({
@@ -105,14 +119,20 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
         docType: docTypeFromFolderName(f.name),
         subfolders: f.subfolders,
       })),
-    { ...VIRTUAL_CATEGORIES[1] },
-    { ...VIRTUAL_CATEGORIES[2] },
-    { ...VIRTUAL_CATEGORIES[3] },
+    ...VIRTUAL_CATEGORIES.slice(2).map(c => ({ ...c })),
   ];
 
+  const DIAGRAM_EXTS = new Set(['.vsdx', '.png', '.jpg', '.jpeg']);
+  const DOC_EXTS     = new Set(['.xlsx', '.xlsm', '.pdf', '.docx', '.txt', '.md']);
+
   function addFiles(incoming: File[]) {
+    const isDiagramCat = selected?.docType === 'process-diagram';
+    const allowed = incoming.filter(f => {
+      const ext = '.' + f.name.split('.').pop()!.toLowerCase();
+      return isDiagramCat ? DIAGRAM_EXTS.has(ext) : DOC_EXTS.has(ext);
+    });
     const merged = [...files];
-    for (const f of incoming) {
+    for (const f of allowed) {
       if (!merged.find(x => x.name === f.name && x.size === f.size)) merged.push(f);
     }
     setFiles(merged);
@@ -240,7 +260,9 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xlsm,.pdf,.docx,.txt,.md"
+                accept={selected?.docType === 'process-diagram'
+                  ? '.vsdx,.png,.jpg,.jpeg'
+                  : '.xlsx,.xlsm,.pdf,.docx,.txt,.md'}
                 multiple
                 className="hidden"
                 onChange={e => {
@@ -257,7 +279,11 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                 <p className="text-sm text-slate-600">
                   <span className="font-medium text-slate-800">Drop files</span> or click to browse
                 </p>
-                <p className="text-xs text-slate-400">.xlsx · .xlsm · .pdf · .docx · .txt · .md</p>
+                <p className="text-xs text-slate-400">
+                  {selected?.docType === 'process-diagram'
+                    ? '.vsdx · .png · .jpg · .jpeg'
+                    : '.xlsx · .xlsm · .pdf · .docx · .txt · .md'}
+                </p>
               </div>
             </div>
 

@@ -64,7 +64,19 @@ def handler(event, context):
     data = obj["Body"].read()
 
     ext = source_name.lower().rsplit(".", 1)[-1]
-    if ext in ("xlsx", "xlsm"):
+    _PROCESS_DIAGRAM_EXTS = {"vsdx", "png", "jpg", "jpeg"}
+    if ext in _PROCESS_DIAGRAM_EXTS:
+        # Visual process diagrams: store metadata only, no text extraction.
+        # Always normalise doc_type so they surface correctly in the Workspace.
+        doc_type = "process-diagram"
+        chunks = [{
+            "text": source_name,
+            "doc_type": doc_type,
+            "source_name": source_name,
+            "module": module or "",
+            "chunk_index": 0,
+        }]
+    elif ext in ("xlsx", "xlsm"):
         chunks = chunking.chunk_xlsx_workbook(
             data, doc_type=doc_type, source_name=source_name, module=module
         )
