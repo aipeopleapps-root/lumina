@@ -1,9 +1,74 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ingestDoc, api } from '../lib/api';
 import { SectionIcon } from './SectionIcon';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
-// Keyword hints per category name — only strong/distinctive patterns
+// ── Client name PII detection ─────────────────────────────────────────────────
+// Add or remove company names here to control what triggers the upload warning.
+const CLIENT_NAMES = [
+  'Acme Corporation', 'Acme Corp',
+  'GlobalBank', 'Global Bank',
+  'Meridian Health',
+  'United Tech Solutions', 'UTS',
+];
+
+async function extractFileText(file: File): Promise<string> {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  // Plain text: read directly
+  if (ext === 'txt' || ext === 'md') {
+    return new Promise(resolve => {
+      const r = new FileReader();
+      r.onload = e => resolve((e.target?.result as string) ?? '');
+      r.onerror = () => resolve('');
+      r.readAsText(file);
+    });
+  }
+  // All other formats (PDF, DOCX, XLSX, VSDX…): binary ASCII scan.
+  // PDFs store text as readable runs; DOCX/XLSX metadata is also scannable.
+  // Limit to first 8 MB to keep the UI responsive.
+  return new Promise(resolve => {
+    const r = new FileReader();
+    r.onload = e => {
+      const buf = e.target?.result as ArrayBuffer;
+      if (!buf) { resolve(''); return; }
+      const bytes = new Uint8Array(buf, 0, Math.min(buf.byteLength, 8_000_000));
+      const parts: string[] = [];
+      let run = '';
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (b >= 0x20 && b < 0x7F) {
+          run += String.fromCharCode(b);
+        } else {
+          if (run.length >= 4) parts.push(run);
+          run = '';
+        }
+      }
+      if (run.length >= 4) parts.push(run);
+      resolve(parts.join(' '));
+    };
+    r.onerror = () => resolve('');
+    r.readAsArrayBuffer(file);
+  });
+}
+
+async function scanForClientNames(
+  fileList: File[],
+): Promise<{ file: string; names: string[] }[]> {
+  const hits: { file: string; names: string[] }[] = [];
+  for (const file of fileList) {
+    const text = await extractFileText(file);
+    const found = CLIENT_NAMES.filter(name =>
+      new RegExp(
+        `\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+        'i',
+      ).test(text),
+    );
+    if (found.length > 0) hits.push({ file: file.name, names: found });
+  }
+  return hits;
+}
+
+// ── Keyword hints per category name — only strong/distinctive patterns
 const FOLDER_HINTS: [string, string[]][] = [
   ['Process Diagrams', ['vsdx', 'visio', 'process_map', 'swimlane', 'flow_diagram']],
   ['Configuration Workbooks', ['config', 'workbook', 'wb_', '_wb.', 'hcm_wb', 'payroll_wb', 'benefit_wb']],
@@ -103,10 +168,28 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
   const [selectedSubfolder, setSelectedSubfolder] = useState('');
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
   const [confirmedMismatch, setConfirmedMismatch] = useState(false);
+  const [clientNameHits, setClientNameHits] = useState<{ file: string; names: string[] }[]>([]);
+  const [confirmedClientNames, setConfirmedClientNames] = useState(false);
+  const [scanningNames, setScanningNames] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number; current: string; step: 'uploading' | 'indexing' } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Scan for client names whenever the file list changes
+  useEffect(() => {
+    if (files.length === 0) {
+      setClientNameHits([]);
+      setConfirmedClientNames(false);
+      return;
+    }
+    setScanningNames(true);
+    setConfirmedClientNames(false);
+    scanForClientNames(files).then(hits => {
+      setClientNameHits(hits);
+      setScanningNames(false);
+    });
+  }, [files]);
 
   // Build unified category list: SOW + Process Diagrams first, then template folders, then the rest
   const allCategories: Category[] = [
@@ -210,7 +293,13 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
     }
   }
 
-  const canUpload = files.length > 0 && !!selected && !uploading && (!mismatchWarning || confirmedMismatch);
+  const canUpload =
+    files.length > 0 &&
+    !!selected &&
+    !uploading &&
+    !scanningNames &&
+    (!mismatchWarning || confirmedMismatch) &&
+    (clientNameHits.length === 0 || confirmedClientNames);
 
   return (
     <div
@@ -362,6 +451,56 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {/* Scanning indicator */}
+          {scanningNames && (
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="w-3 h-3 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin flex-shrink-0" />
+              Checking for client names…
+            </div>
+          )}
+
+          {/* Client name PII warning */}
+          {!scanningNames && clientNameHits.length > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-orange-900 mb-1">
+                    Client names detected
+                  </p>
+                  <p className="text-xs text-orange-700 leading-relaxed mb-3">
+                    The following files appear to contain confidential client information.
+                    Make sure you are authorised to upload them to this platform.
+                  </p>
+                  <ul className="space-y-1.5 mb-4">
+                    {clientNameHits.map(hit => (
+                      <li key={hit.file} className="text-xs">
+                        <span className="font-medium text-orange-900 truncate block">{hit.file}</span>
+                        <span className="text-orange-600">
+                          Found: {hit.names.map(n => `"${n}"`).join(', ')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={confirmedClientNames}
+                      onChange={e => setConfirmedClientNames(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-orange-300 text-orange-600 focus:ring-orange-500 cursor-pointer flex-shrink-0"
+                    />
+                    <span className="text-xs text-orange-800 leading-relaxed">
+                      I confirm this document may contain client information and I am authorised
+                      to upload it to this platform.
+                    </span>
+                  </label>
+                </div>
+              </div>
             </div>
           )}
 
