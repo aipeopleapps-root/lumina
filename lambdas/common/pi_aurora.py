@@ -328,6 +328,41 @@ def get_full_graph(*, process_id: str, tenant_id: str) -> dict | None:
     }
 
 
+def store_tobe_graph(*, process_id: str, tenant_id: str, tobe_graph: dict) -> None:
+    """Persist a Bedrock-generated to-be graph against a process record."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            if not cur.fetchone():
+                raise PermissionError("process graph not found or access denied")
+            cur.execute(
+                """
+                UPDATE pi.process_graphs
+                SET tobe_graph = %s, updated_at = NOW()
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [json.dumps(tobe_graph), process_id, tenant_id],
+            )
+
+
+def get_tobe_graph(*, process_id: str, tenant_id: str) -> dict | None:
+    """Return the stored to-be graph, or None if not yet generated."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT tobe_graph FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            row = cur.fetchone()
+    if not row or not row[0]:
+        return None
+    raw = row[0]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
 def patch_graph(
     *,
     process_id: str,

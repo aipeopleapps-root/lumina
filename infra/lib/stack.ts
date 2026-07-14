@@ -291,7 +291,7 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const piUploadFn      = makeFn('PiUploadFn',      'pi_upload', 30);
     const piParseFn       = makeFn('PiParseFn',       'pi_parse',  29);
     const piParseWorkerFn = makeFn('PiParseWorkerFn', 'pi_parse',  300, 'handler.worker_handler');
-    const piGraphFn       = makeFn('PiGraphFn',       'pi_graph',  30);
+    const piGraphFn       = makeFn('PiGraphFn',       'pi_graph',  60);
     piParseFn.addEnvironment('PI_PARSE_WORKER_FUNCTION_ARN', piParseWorkerFn.functionArn);
     const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
 
@@ -538,6 +538,12 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
       path: '/process-intelligence/{process_id}/graph',
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
       integration: new apigwv2_integrations.HttpLambdaIntegration('PiGraphInt', piGraphFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/tobe',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiTobeInt', piGraphFn),
       authorizer,
     });
 

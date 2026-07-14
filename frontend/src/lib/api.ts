@@ -563,6 +563,42 @@ export interface PiLanePatch {
   persona?: string;
 }
 
+export interface PiTobeSwimLane {
+  lane_id: string;
+  label: string;
+  persona: string | null;
+  position: number;
+}
+
+export interface PiTobeStep {
+  step_id: string;
+  lane_id: string | null;
+  label: string;
+  step_type: string | null;
+  ai_opportunity: PiAiOpportunity | null;
+  systems_touched: string[];
+  transformation_note?: string | null;
+}
+
+export interface PiTobeConnector {
+  from: string;
+  to: string;
+  condition?: string | null;
+}
+
+export interface PiTobeGraph {
+  transformation_summary?: string;
+  ai_stats?: {
+    steps_automated?: number;
+    steps_assisted?: number;
+    steps_unchanged?: number;
+    cycle_time_reduction_pct?: number;
+  };
+  swimlanes: PiTobeSwimLane[];
+  steps: PiTobeStep[];
+  connectors: PiTobeConnector[];
+}
+
 /** Step 1: get a presigned PUT URL + create Aurora record. */
 export async function uploadProcessDiagram(params: {
   filename: string;
@@ -643,6 +679,24 @@ export async function getProcessGraph(processId: string): Promise<PiGraph> {
     throw new Error(err.error || 'Graph fetch failed');
   }
   return res.json();
+}
+
+/** Generate (or regenerate) a to-be process map via Bedrock. */
+export async function generateTobeGraph(processId: string): Promise<PiTobeGraph> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/tobe`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'To-be generation failed');
+  }
+  const data = await res.json();
+  return data.tobe as PiTobeGraph;
 }
 
 /** Apply consultant corrections to the parsed graph. */

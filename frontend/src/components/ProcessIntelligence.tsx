@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  generateTobeGraph,
   getGraphStatus,
   getProcessGraph,
   patchProcessGraph,
@@ -12,7 +13,9 @@ import {
   type PiLanePatch,
   type PiStep,
   type PiStepPatch,
+  type PiTobeGraph,
 } from '../lib/api';
+import { ProcessMap } from './ProcessMap';
 
 const DOMAINS: { value: PiDomain; label: string }[] = [
   { value: 'recruiting',       label: 'Recruiting' },
@@ -52,6 +55,7 @@ export default function ProcessIntelligence({ clientName }: Props) {
   const [laneEdits, setLaneEdits]     = useState<Record<string, { label?: string; persona?: string }>>({});
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
+  const [tobeGraph, setTobeGraph]     = useState<PiTobeGraph | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -158,6 +162,7 @@ export default function ProcessIntelligence({ clientName }: Props) {
     setStepEdits({});
     setLaneEdits({});
     setSaved(false);
+    setTobeGraph(null);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -201,6 +206,8 @@ export default function ProcessIntelligence({ clientName }: Props) {
       saving={saving} saved={saved}
       onSave={handleSaveReview}
       onReset={reset}
+      tobeGraph={tobeGraph}
+      setTobeGraph={setTobeGraph}
     />;
   }
 
@@ -323,12 +330,31 @@ interface ReviewScreenProps {
   saved: boolean;
   onSave: () => void;
   onReset: () => void;
+  tobeGraph: PiTobeGraph | null;
+  setTobeGraph: (g: PiTobeGraph | null) => void;
 }
 
 function ReviewScreen(p: ReviewScreenProps) {
   const conf = p.graph.parse_confidence ?? 0;
   const confPct = Math.round(conf * 100);
   const warnings = p.graph.parse_warnings || [];
+  const [tab, setTab] = useState<'review' | 'tobe'>('review');
+  const [tobeLoading, setTobeLoading] = useState(false);
+  const [tobeError, setTobeError] = useState('');
+
+  async function handleGenerateTobe() {
+    setTobeLoading(true);
+    setTobeError('');
+    try {
+      const result = await generateTobeGraph(p.graph.process_id);
+      p.setTobeGraph(result);
+      setTab('tobe');
+    } catch (err: any) {
+      setTobeError(err.message || 'Generation failed');
+    } finally {
+      setTobeLoading(false);
+    }
+  }
 
   function patchStep(step_id: string, field: keyof PiStep, value: unknown) {
     p.setStepEdits({ ...p.stepEdits, [step_id]: { ...p.stepEdits[step_id], [field]: value } });
@@ -393,10 +419,17 @@ function ReviewScreen(p: ReviewScreenProps) {
             {p.saving ? 'Saving…' : 'Save corrections'}
           </button>
           <button
-            title="Generate recommendations (Phase 2 — coming soon)"
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-slate-100 text-slate-400 cursor-not-allowed"
+            onClick={handleGenerateTobe}
+            disabled={tobeLoading}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+              ${tobeLoading
+                ? 'bg-teal-50 text-teal-400 cursor-not-allowed'
+                : 'bg-teal-600 text-white hover:bg-teal-700'
+              }`}
           >
-            Generate recommendations
+            {tobeLoading
+              ? 'Generating…'
+              : p.tobeGraph ? 'Regenerate To-Be' : '⚡ Generate To-Be Map'}
           </button>
           <button onClick={p.onReset} className="text-xs text-slate-400 hover:text-slate-600">
             New upload
@@ -404,97 +437,200 @@ function ReviewScreen(p: ReviewScreenProps) {
         </div>
       </div>
 
-      {/* Warnings banner */}
-      {warnings.length > 0 && (
-        <div className="shrink-0 px-4 py-2 bg-amber-50 border-b border-amber-100">
-          <p className="text-xs text-amber-700 font-medium mb-1">
-            {warnings.length} item{warnings.length !== 1 ? 's' : ''} flagged for review
-          </p>
-          <ul className="text-xs text-amber-600 space-y-0.5">
-            {warnings.slice(0, 3).map((w, i) => (
-              <li key={i}>{w.item_id}: {w.message}</li>
-            ))}
-            {warnings.length > 3 && <li>…and {warnings.length - 3} more</li>}
-          </ul>
+      {/* Tab bar */}
+      <div className="shrink-0 flex border-b border-slate-100 bg-white px-4">
+        <button
+          onClick={() => setTab('review')}
+          className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+            tab === 'review'
+              ? 'border-slate-800 text-slate-800'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Review Table
+        </button>
+        <button
+          onClick={() => { if (p.tobeGraph) setTab('tobe'); }}
+          className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+            tab === 'tobe'
+              ? 'border-teal-600 text-teal-700'
+              : p.tobeGraph
+                ? 'border-transparent text-slate-400 hover:text-teal-600'
+                : 'border-transparent text-slate-200 cursor-not-allowed'
+          }`}
+        >
+          ⚡ To-Be Process Map
+          {p.tobeGraph && <span className="ml-1 text-teal-500">●</span>}
+        </button>
+      </div>
+
+      {tobeError && (
+        <div className="shrink-0 px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-600">
+          {tobeError}
         </div>
       )}
 
-      {/* Graph table */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-slate-50 z-10">
-            <tr className="border-b border-slate-200">
-              <th className="px-3 py-2 text-left font-medium text-slate-500 w-48">Lane / Persona</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500">Step</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500 w-40">AI Opportunity</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500 w-36">Systems</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500 w-16">Conf</th>
-            </tr>
-          </thead>
-          <tbody>
-            {p.graph.swimlanes.map((lane, laneIdx) => {
-              const steps = stepsByLane.get(lane.lane_id) || [];
-              if (steps.length === 0) return null;
-              return (
-                <React.Fragment key={lane.lane_id}>
-                  <tr className="bg-slate-50 border-t border-b border-slate-200">
-                    <td colSpan={5} className="px-3 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${LANE_COLORS[laneIdx % LANE_COLORS.length]}`} />
-                        <span className="font-semibold text-slate-700">{lane.label}</span>
-                        {lane.persona && lane.persona !== lane.label && (
-                          <span className="text-slate-400">· {lane.persona}</span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {steps.map(rawStep => {
-                    const step = getStep(rawStep);
-                    const isWarned = warnings.some(w => w.item_id === step.step_id);
-                    return (
-                      <StepRow
-                        key={step.step_id}
-                        step={step}
-                        isWarned={isWarned}
-                        onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                        onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)}
-                      />
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-            {unassigned.length > 0 && (
-              <>
-                <tr className="bg-slate-50 border-t border-b border-slate-200">
-                  <td colSpan={5} className="px-3 py-1.5 text-slate-500 font-medium italic">
-                    Unassigned steps
-                  </td>
+      {/* ── Review Table tab ─────────────────────────────────────────────────── */}
+      {tab === 'review' && (
+        <>
+          {warnings.length > 0 && (
+            <div className="shrink-0 px-4 py-2 bg-amber-50 border-b border-amber-100">
+              <p className="text-xs text-amber-700 font-medium mb-1">
+                {warnings.length} item{warnings.length !== 1 ? 's' : ''} flagged for review
+              </p>
+              <ul className="text-xs text-amber-600 space-y-0.5">
+                {warnings.slice(0, 3).map((w, i) => (
+                  <li key={i}>{w.item_id}: {w.message}</li>
+                ))}
+                {warnings.length > 3 && <li>…and {warnings.length - 3} more</li>}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-50 z-10">
+                <tr className="border-b border-slate-200">
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 w-48">Lane / Persona</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500">Step</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 w-40">AI Opportunity</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 w-36">Systems</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-500 w-16">Conf</th>
                 </tr>
-                {unassigned.map(rawStep => {
-                  const step = getStep(rawStep);
+              </thead>
+              <tbody>
+                {p.graph.swimlanes.map((lane, laneIdx) => {
+                  const steps = stepsByLane.get(lane.lane_id) || [];
+                  if (steps.length === 0) return null;
                   return (
-                    <StepRow
-                      key={step.step_id}
-                      step={step}
-                      isWarned={false}
-                      onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                      onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)}
-                    />
+                    <React.Fragment key={lane.lane_id}>
+                      <tr className="bg-slate-50 border-t border-b border-slate-200">
+                        <td colSpan={5} className="px-3 py-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${LANE_COLORS[laneIdx % LANE_COLORS.length]}`} />
+                            <span className="font-semibold text-slate-700">{lane.label}</span>
+                            {lane.persona && lane.persona !== lane.label && (
+                              <span className="text-slate-400">· {lane.persona}</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {steps.map(rawStep => {
+                        const step = getStep(rawStep);
+                        const isWarned = warnings.some(w => w.item_id === step.step_id);
+                        return (
+                          <StepRow
+                            key={step.step_id}
+                            step={step}
+                            isWarned={isWarned}
+                            onLabelChange={v => patchStep(step.step_id, 'label', v)}
+                            onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)}
+                          />
+                        );
+                      })}
+                    </React.Fragment>
                   );
                 })}
-              </>
-            )}
-          </tbody>
-        </table>
-      </div>
+                {unassigned.length > 0 && (
+                  <>
+                    <tr className="bg-slate-50 border-t border-b border-slate-200">
+                      <td colSpan={5} className="px-3 py-1.5 text-slate-500 font-medium italic">
+                        Unassigned steps
+                      </td>
+                    </tr>
+                    {unassigned.map(rawStep => {
+                      const step = getStep(rawStep);
+                      return (
+                        <StepRow
+                          key={step.step_id}
+                          step={step}
+                          isWarned={false}
+                          onLabelChange={v => patchStep(step.step_id, 'label', v)}
+                          onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)}
+                        />
+                      );
+                    })}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      {/* Connector summary footer */}
-      <div className="shrink-0 border-t border-slate-100 px-4 py-2 bg-white">
-        <p className="text-xs text-slate-400">
-          {p.graph.steps.length} steps · {p.graph.swimlanes.length} lanes · {p.graph.connectors.length} connectors
-        </p>
-      </div>
+          <div className="shrink-0 border-t border-slate-100 px-4 py-2 bg-white">
+            <p className="text-xs text-slate-400">
+              {p.graph.steps.length} steps · {p.graph.swimlanes.length} lanes · {p.graph.connectors.length} connectors
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* ── To-Be Process Map tab ──────────────────────────────────────────────── */}
+      {tab === 'tobe' && (
+        <>
+          {p.tobeGraph ? (
+            <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              {/* Summary + stats */}
+              <div className="shrink-0 px-4 py-3 border-b border-slate-100 bg-teal-50 space-y-2">
+                {p.tobeGraph.transformation_summary && (
+                  <p className="text-xs text-teal-800 leading-relaxed">
+                    {p.tobeGraph.transformation_summary}
+                  </p>
+                )}
+                {p.tobeGraph.ai_stats && (
+                  <div className="flex flex-wrap gap-2">
+                    {p.tobeGraph.ai_stats.steps_automated != null && (
+                      <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-xs font-medium">
+                        ⚡ {p.tobeGraph.ai_stats.steps_automated} steps fully automated
+                      </span>
+                    )}
+                    {p.tobeGraph.ai_stats.steps_assisted != null && (
+                      <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs font-medium">
+                        🤖 {p.tobeGraph.ai_stats.steps_assisted} AI-assisted
+                      </span>
+                    )}
+                    {p.tobeGraph.ai_stats.steps_unchanged != null && (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+                        👤 {p.tobeGraph.ai_stats.steps_unchanged} human-only
+                      </span>
+                    )}
+                    {p.tobeGraph.ai_stats.cycle_time_reduction_pct != null && (
+                      <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-medium">
+                        ⏱ ~{p.tobeGraph.ai_stats.cycle_time_reduction_pct}% cycle time reduction
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Legend */}
+              <div className="shrink-0 px-4 py-2 border-b border-slate-100 bg-white flex flex-wrap gap-3">
+                {[
+                  { key: 'illuminate_agent', label: '⚡ Illuminate Agent', colors: 'bg-teal-100 text-teal-800' },
+                  { key: 'digital_employee', label: '💬 Digital Employee', colors: 'bg-blue-100 text-blue-800' },
+                  { key: 'workday_native',   label: '🔄 Workday Native',   colors: 'bg-green-100 text-green-800' },
+                  { key: 'partial_ai',       label: '🤖 AI-Assisted',      colors: 'bg-amber-100 text-amber-800' },
+                  { key: 'human_only',       label: '👤 Human Only',       colors: 'bg-slate-100 text-slate-600' },
+                ].map(l => (
+                  <span key={l.key} className={`px-2 py-0.5 rounded text-xs font-medium ${l.colors}`}>
+                    {l.label}
+                  </span>
+                ))}
+                <span className="text-xs text-slate-400 ml-auto self-center">Hover steps for details</span>
+              </div>
+
+              {/* SVG diagram */}
+              <div className="flex-1 min-h-0 overflow-auto p-4">
+                <ProcessMap graph={p.tobeGraph} />
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+              <span className="text-3xl">⚡</span>
+              <p className="text-sm">Click <strong>Generate To-Be Map</strong> to see the AI-enabled future state</p>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
