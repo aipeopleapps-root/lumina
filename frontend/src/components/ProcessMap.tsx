@@ -1,5 +1,12 @@
 import React, { useMemo } from 'react';
-import type { PiTobeGraph } from '../lib/api';
+
+// ── Shared graph shape ─────────────────────────────────────────────────────────
+// Both PiGraph (as-is) and PiTobeGraph (to-be) are mapped to this before rendering.
+export interface MapGraph {
+  swimlanes: { lane_id: string; label: string; persona?: string | null; position: number }[];
+  steps: { step_id: string; lane_id: string | null; label: string; ai_opportunity?: string | null; tooltip?: string | null }[];
+  connectors: { from: string; to: string; condition?: string | null }[];
+}
 
 // ── Layout constants ───────────────────────────────────────────────────────────
 const LANE_LABEL_W = 126;
@@ -79,7 +86,6 @@ function topoColumns(
     }
   }
 
-  // Steps in cycles or unreachable get column after the max
   let max = 0;
   for (const c of col.values()) max = Math.max(max, c);
   for (const id of ids) if (!col.has(id)) col.set(id, ++max);
@@ -88,7 +94,7 @@ function topoColumns(
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
+export function ProcessMap({ graph }: { graph: MapGraph }) {
   const layout = useMemo(() => {
     const lanes = [...graph.swimlanes].sort((a, b) => a.position - b.position);
     const laneRowMap = new Map(lanes.map((l, i) => [l.lane_id, i]));
@@ -97,8 +103,7 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
     let maxCol = 0;
     for (const c of cols.values()) maxCol = Math.max(maxCol, c);
 
-    // Resolve same-lane column collisions: shift later steps right
-    const occupancy = new Map<string, number>(); // "laneId:col" → count
+    const occupancy = new Map<string, number>();
     const finalCols = new Map<string, number>();
     const stepsSorted = [...graph.steps].sort((a, b) =>
       (cols.get(a.step_id) ?? 0) - (cols.get(b.step_id) ?? 0)
@@ -106,14 +111,12 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
     for (const step of stepsSorted) {
       const laneKey = step.lane_id ?? '__none__';
       let c = cols.get(step.step_id) ?? 0;
-      // Bump forward if slot occupied in this lane
       while (occupancy.get(`${laneKey}:${c}`)) c++;
       occupancy.set(`${laneKey}:${c}`, 1);
       finalCols.set(step.step_id, c);
       if (c > maxCol) maxCol = c;
     }
 
-    // Step pixel coords
     const stepPos = new Map<string, { x: number; y: number }>();
     for (const step of graph.steps) {
       const c = finalCols.get(step.step_id) ?? 0;
@@ -124,12 +127,7 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
       });
     }
 
-    // Connector paths
-    type ConnPath = {
-      d: string; markerId: string;
-      condition?: string | null;
-      labelX: number; labelY: number;
-    };
+    type ConnPath = { d: string; condition?: string | null; labelX: number; labelY: number };
     const connPaths: ConnPath[] = [];
     for (const conn of graph.connectors) {
       const from = stepPos.get(conn.from);
@@ -142,10 +140,7 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
       const y2 = to.y + STEP_H / 2;
 
       let d: string;
-      const isBackward = x2 < x1 + 10;
-
-      if (isBackward) {
-        // Loop: arc above the diagram
+      if (x2 < x1 + 10) {
         const above = PAD_Y - 20;
         d = `M ${x1} ${y1} L ${x1 + 10} ${above} L ${x2 - 10} ${above} L ${x2} ${y2}`;
       } else {
@@ -153,13 +148,7 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
         d = `M ${x1} ${y1} C ${cx} ${y1} ${cx} ${y2} ${x2} ${y2}`;
       }
 
-      connPaths.push({
-        d,
-        markerId: 'arrow',
-        condition: conn.condition,
-        labelX: (x1 + x2) / 2,
-        labelY: (y1 + y2) / 2 - 6,
-      });
+      connPaths.push({ d, condition: conn.condition, labelX: (x1 + x2) / 2, labelY: (y1 + y2) / 2 - 6 });
     }
 
     const svgW = LANE_LABEL_W + PAD_X + (maxCol + 1) * COL_W - COL_GAP + PAD_X;
@@ -171,56 +160,37 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
   const { lanes, stepPos, connPaths, svgW, svgH } = layout;
 
   return (
-    <div style={{ overflowX: 'auto', overflowY: 'auto' }}>
-      <svg
-        width={svgW}
-        height={svgH}
-        style={{ display: 'block', minWidth: svgW }}
-      >
+    <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
+      <svg width={svgW} height={svgH} style={{ display: 'block', minWidth: svgW }}>
         <defs>
-          <marker
-            id="arrow"
-            markerWidth={ARROW_SIZE}
-            markerHeight={ARROW_SIZE}
-            refX={ARROW_SIZE - 1}
-            refY={ARROW_SIZE / 2}
-            orient="auto"
-          >
-            <path
-              d={`M0,0 L0,${ARROW_SIZE} L${ARROW_SIZE},${ARROW_SIZE / 2} z`}
-              fill="#94a3b8"
-            />
+          <marker id="map-arrow" markerWidth={ARROW_SIZE} markerHeight={ARROW_SIZE}
+            refX={ARROW_SIZE - 1} refY={ARROW_SIZE / 2} orient="auto">
+            <path d={`M0,0 L0,${ARROW_SIZE} L${ARROW_SIZE},${ARROW_SIZE / 2} z`} fill="#94a3b8" />
           </marker>
         </defs>
 
-        {/* Lane bands */}
         {lanes.map((lane, i) => {
           const isAiLane = lane.lane_id === 'ai_lane' || lane.label.toLowerCase().includes('sana');
           const bg = isAiLane ? AI_LANE_BG : LANE_BG[i % LANE_BG.length];
           const y = PAD_Y + i * LANE_H;
           return (
             <g key={lane.lane_id}>
-              <rect x={0} y={y} width={svgW} height={LANE_H}
-                fill={bg} stroke="#e2e8f0" strokeWidth={1} />
-              {/* Lane label sidebar */}
+              <rect x={0} y={y} width={svgW} height={LANE_H} fill={bg} stroke="#e2e8f0" strokeWidth={1} />
               <rect x={0} y={y} width={LANE_LABEL_W} height={LANE_H}
                 fill={isAiLane ? '#ccfbf1' : '#f1f5f9'} stroke="#e2e8f0" strokeWidth={1} />
-              <text
-                x={LANE_LABEL_W / 2} y={y + LANE_H / 2 - (lane.persona && lane.persona !== lane.label ? 8 : 0)}
+              <text x={LANE_LABEL_W / 2}
+                y={y + LANE_H / 2 - (lane.persona && lane.persona !== lane.label ? 8 : 0)}
                 textAnchor="middle" dominantBaseline="middle"
                 fontSize={11} fontWeight="600"
                 fill={isAiLane ? '#0f766e' : '#475569'}
-                style={{ userSelect: 'none' }}
-              >
+                style={{ userSelect: 'none' }}>
                 {lane.label.length > 15 ? lane.label.slice(0, 14) + '…' : lane.label}
               </text>
               {lane.persona && lane.persona !== lane.label && (
-                <text
-                  x={LANE_LABEL_W / 2} y={y + LANE_H / 2 + 10}
+                <text x={LANE_LABEL_W / 2} y={y + LANE_H / 2 + 10}
                   textAnchor="middle" dominantBaseline="middle"
                   fontSize={9} fill={isAiLane ? '#5eead4' : '#94a3b8'}
-                  style={{ userSelect: 'none' }}
-                >
+                  style={{ userSelect: 'none' }}>
                   {lane.persona.length > 17 ? lane.persona.slice(0, 16) + '…' : lane.persona}
                 </text>
               )}
@@ -228,30 +198,18 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
           );
         })}
 
-        {/* Connectors (drawn behind step boxes) */}
         {connPaths.map((p, i) => (
           <g key={i}>
-            <path
-              d={p.d}
-              fill="none"
-              stroke="#94a3b8"
-              strokeWidth={1.5}
-              markerEnd={`url(#${p.markerId})`}
-            />
+            <path d={p.d} fill="none" stroke="#94a3b8" strokeWidth={1.5} markerEnd="url(#map-arrow)" />
             {p.condition && (
-              <text
-                x={p.labelX} y={p.labelY}
-                textAnchor="middle"
-                fontSize={9} fill="#94a3b8"
-                style={{ userSelect: 'none' }}
-              >
+              <text x={p.labelX} y={p.labelY} textAnchor="middle"
+                fontSize={9} fill="#94a3b8" style={{ userSelect: 'none' }}>
                 {p.condition}
               </text>
             )}
           </g>
         ))}
 
-        {/* Step boxes */}
         {graph.steps.map(step => {
           const pos = stepPos.get(step.step_id);
           if (!pos) return null;
@@ -260,45 +218,23 @@ export function ProcessMap({ graph }: { graph: PiTobeGraph }) {
           const hasTwo = Boolean(line2);
           const textY1 = pos.y + (hasTwo ? STEP_H / 2 - 9 : STEP_H / 2);
           const textY2 = pos.y + STEP_H / 2 + 9;
-
           return (
             <g key={step.step_id}>
-              <rect
-                x={pos.x} y={pos.y}
-                width={STEP_W} height={STEP_H}
-                rx={7} ry={7}
-                fill={style.fill}
-                stroke={style.stroke}
-                strokeWidth={1.5}
-              />
-              <text
-                x={pos.x + STEP_W / 2}
-                y={textY1}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize={11}
-                fontWeight="500"
-                fill={style.text}
-                style={{ userSelect: 'none' }}
-              >
+              <rect x={pos.x} y={pos.y} width={STEP_W} height={STEP_H} rx={7} ry={7}
+                fill={style.fill} stroke={style.stroke} strokeWidth={1.5} />
+              <text x={pos.x + STEP_W / 2} y={textY1}
+                textAnchor="middle" dominantBaseline="middle"
+                fontSize={11} fontWeight="500" fill={style.text} style={{ userSelect: 'none' }}>
                 {line1}
               </text>
               {hasTwo && (
-                <text
-                  x={pos.x + STEP_W / 2}
-                  y={textY2}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize={11}
-                  fontWeight="500"
-                  fill={style.text}
-                  style={{ userSelect: 'none' }}
-                >
+                <text x={pos.x + STEP_W / 2} y={textY2}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fontSize={11} fontWeight="500" fill={style.text} style={{ userSelect: 'none' }}>
                   {line2}
                 </text>
               )}
-              {/* Tooltip via <title> */}
-              <title>{step.label}{step.transformation_note ? `\n\n${step.transformation_note}` : ''}</title>
+              <title>{step.label}{step.tooltip ? `\n\n${step.tooltip}` : ''}</title>
             </g>
           );
         })}

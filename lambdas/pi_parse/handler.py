@@ -13,6 +13,7 @@ Worker:   direct Lambda invocation (InvocationType=Event)
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import logging
@@ -45,6 +46,40 @@ _TAG = lambda name: f"{{{_NS}}}{name}"  # noqa: E731
 
 # Statuses from which re-parse is allowed
 _REPARSEABLE = {"uploading", "needs_review", "failed", "ready"}
+
+_IMAGE_PARSE_SYSTEM = """You are a process diagram analyst. You will receive an image of a process flow diagram — it may be a swimlane / cross-functional flowchart, a simple flowchart, or a hand-drawn diagram.
+
+Extract the full diagram structure and return a single JSON object with this exact format:
+{
+  "groups": [
+    {"shape_id": "g1", "label": "swimlane name", "position_x": 0, "position_y": 0}
+  ],
+  "steps": [
+    {
+      "shape_id": "s1",
+      "label": "step label text",
+      "parent_group_id": "g1",
+      "position_x": 0,
+      "position_y": 0
+    }
+  ],
+  "connectors": [
+    {"from": "s1", "to": "s2", "condition": "Yes"}
+  ]
+}
+
+Rules:
+- groups = swimlane rows or columns. Use "g1", "g2"... as shape_ids. Empty array if no swimlanes.
+- steps = process boxes, decisions, tasks, approvals. Use "s1", "s2"... as shape_ids.
+  - Read ALL text in each shape carefully, capturing the full label.
+  - parent_group_id = the shape_id of the swimlane this step belongs to (null if no swimlanes).
+  - position_x = column index left-to-right, 0-based.
+  - position_y = row index top-to-bottom within the lane, 0-based.
+- connectors = every arrow between steps.
+  - condition = text label on the arrow if present (e.g. "Yes", "No", "Approved", "Rejected"), else null.
+  - Use the shape_ids you assigned above — never reference labels.
+- Include every visible step; do not omit any.
+- Respond with raw JSON only — no preamble, no markdown fences."""
 
 _CLASSIFY_SYSTEM = """You are a Workday process intelligence specialist. \
 You will receive a list of shapes and connectors extracted from a Visio swimlane \
@@ -188,14 +223,21 @@ def worker_handler(event: dict, context: object) -> None:
 
     t0 = time.time()
     try:
-        # 1. Download .vsdx from S3
+        # 1. Download file from S3
         obj = _s3.get_object(Bucket=_BUCKET, Key=s3_key)
-        vsdx_bytes = obj["Body"].read()
+        file_bytes = obj["Body"].read()
 
-        # 2. Parse Visio XML structure
-        raw = _parse_vsdx(vsdx_bytes)
+        # 2. Parse — route by magic bytes (PNG/JPEG) or fall back to VSDX
+        image_mime = _detect_image_mime(file_bytes)
+        if image_mime:
+            raw = _parse_image(file_bytes, image_mime)
+            image_parse = True
+        else:
+            raw = _parse_vsdx(file_bytes)
+            image_parse = False
+
         if not raw["steps"] and not raw["groups"]:
-            raise ValueError("No shapes found in diagram — file may be empty or malformed")
+            raise ValueError("No shapes found in diagram — file may be empty or unreadable")
 
         # 3. Classify with Bedrock
         classified = _classify_with_bedrock(domain, raw)
@@ -204,7 +246,8 @@ def worker_handler(event: dict, context: object) -> None:
         steps      = classified["steps"]
         connectors = raw["connectors"]
         warnings   = classified.get("warnings", [])
-        overall_conf = classified.get("overall_confidence", 0.85)
+        # Image-extracted structure is inherently less precise than XML parsing
+        overall_conf = min(classified.get("overall_confidence", 0.85), 0.65 if image_parse else 1.0)
 
         # Preserve raw position data — Bedrock response doesn't include it
         raw_positions = {
@@ -307,6 +350,7 @@ def worker_handler(event: dict, context: object) -> None:
                 "warnings":      len(aurora_warnings),
                 "confidence":    overall_conf,
                 "latency_ms":    latency_ms,
+                "parse_mode":    "image" if image_parse else "vsdx",
             },
         )
 
@@ -323,6 +367,70 @@ def worker_handler(event: dict, context: object) -> None:
             status="failed",
             parse_error=str(exc),
         )
+
+
+# ── Image detection + parsing ─────────────────────────────────────────────────
+
+def _detect_image_mime(data: bytes) -> str | None:
+    """Return MIME type if bytes look like a supported image, else None."""
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    return None
+
+
+def _parse_image(data: bytes, mime_type: str) -> dict:
+    """
+    Extract process diagram structure from a PNG/JPEG using Claude vision.
+    Returns the same {groups, steps, connectors} shape as _parse_vsdx.
+    """
+    b64 = base64.b64encode(data).decode("utf-8")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": mime_type, "data": b64},
+                },
+                {
+                    "type": "text",
+                    "text": "Extract the complete process diagram structure from this image. Return the JSON as instructed.",
+                },
+            ],
+        }
+    ]
+
+    raw_text = bedrock.generate(
+        system=_IMAGE_PARSE_SYSTEM,
+        messages=messages,
+        max_tokens=4000,
+        temperature=0.0,
+    ).strip()
+
+    # Strip accidental code fences
+    if raw_text.startswith("```"):
+        raw_text = raw_text.strip("`")
+        if raw_text.lower().startswith("json"):
+            raw_text = raw_text[4:].lstrip()
+
+    result = json.loads(raw_text)
+
+    groups = result.get("groups", [])
+    steps  = result.get("steps", [])
+    connectors = [
+        {
+            "from":             c["from"],
+            "to":               c["to"],
+            "condition":        c.get("condition"),
+            "parse_confidence": 0.7,
+        }
+        for c in result.get("connectors", [])
+        if c.get("from") and c.get("to")
+    ]
+
+    return {"groups": groups, "steps": steps, "connectors": connectors}
 
 
 # ── Visio XML parser ─────────────────────────────────────────────────────────
@@ -397,19 +505,21 @@ def _walk_shapes(
         nested_shapes = shape.find(_TAG("Shapes"))
         has_children  = nested_shapes is not None and len(list(nested_shapes)) > 0
 
-        if shape_type == "Group" and depth == 0 and has_children:
-            # Top-level Group: treat as swimlane candidate
+        # At depth 0, prefer structure (has_children) over the Type attribute.
+        # Visio cross-functional flowcharts and some templates don't set Type="Group"
+        # on swimlane containers; detecting by children is reliable in practice.
+        if depth == 0 and has_children:
+            # Top-level container: treat as swimlane candidate regardless of Type
             groups.append({
                 "shape_id": shape_id,
                 "label":    text or f"Lane {len(groups)+1}",
                 "position_x": pin_x,
                 "position_y": pin_y,
             })
-            # Recurse into child shapes as steps in this lane
             _walk_shapes(nested_shapes, groups, steps, parent_group_id=shape_id, depth=depth + 1)
 
-        elif shape_type not in ("Group",) and text:
-            # Leaf shape with text: process step candidate
+        elif depth == 0 and text:
+            # Flat top-level leaf shape: no swimlane structure, treat as step
             steps.append({
                 "shape_id":        shape_id,
                 "label":           text,
@@ -417,13 +527,22 @@ def _walk_shapes(
                 "position_x":      pin_x,
                 "position_y":      pin_y,
             })
-            # Some shapes may still have nested shapes (e.g. label sub-shapes); skip them
 
-        elif shape_type == "Group" and depth > 0 and has_children:
-            # Nested group inside a lane — treat as a sub-process step for now
+        elif depth > 0 and has_children:
+            # Nested container inside a lane — sub-process step
             steps.append({
                 "shape_id":        shape_id,
                 "label":           text or f"Sub-process {shape_id}",
+                "parent_group_id": parent_group_id,
+                "position_x":      pin_x,
+                "position_y":      pin_y,
+            })
+
+        elif depth > 0 and text:
+            # Leaf shape inside a lane: process step
+            steps.append({
+                "shape_id":        shape_id,
+                "label":           text,
                 "parent_group_id": parent_group_id,
                 "position_x":      pin_x,
                 "position_y":      pin_y,
@@ -434,14 +553,20 @@ def _get_text(shape: ET.Element) -> str:
     text_elem = shape.find(_TAG("Text"))
     if text_elem is None:
         return ""
-    # Text content may be in child <cp> or directly
+    # Collect all text content: direct text, child element tails, and nested
+    # <cp>/<pp>/<tp>/<fld> run/paragraph nodes that some Visio versions emit.
     parts = []
     if text_elem.text:
         parts.append(text_elem.text.strip())
     for child in text_elem:
+        # Inline runs: the text node itself
+        if child.text:
+            parts.append(child.text.strip())
+        # Tail text after the closing tag of each child
         if child.tail:
             parts.append(child.tail.strip())
-    return " ".join(p for p in parts if p)
+    result = " ".join(p for p in parts if p)
+    return result
 
 
 def _get_pin(shape: ET.Element) -> tuple[float | None, float | None]:
