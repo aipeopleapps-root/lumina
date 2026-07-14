@@ -4,51 +4,131 @@ import { SectionIcon } from './SectionIcon';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 // ── Client name PII detection ─────────────────────────────────────────────────
-// Add or remove company names here to control what triggers the upload warning.
-const CLIENT_NAMES = [
-  'Acme Corporation', 'Acme Corp',
-  'GlobalBank', 'Global Bank',
-  'Meridian Health',
-  'United Tech Solutions', 'UTS',
-];
+// Detects company names dynamically — no hardcoded list needed.
+// Matches patterns like "Acme Corporation", "GlobalBank Ltd", "Meridian Health Group".
+const COMPANY_SUFFIX_RE =
+  /\b([A-Z][A-Za-z0-9]*(?:[\s\-][A-Z][A-Za-z0-9&]*){0,4})\s+(?:Corporation|Corp\.?|Incorporated|Inc\.?|LLC|L\.L\.C\.|Ltd\.?|Limited|Group|Holdings|Company|Co\.?|Partners?|Solutions|Services|International|Technologies|Tech|Systems|Consulting|Associates?|Enterprises?|Foundation|Institute|Bank|Healthcare|Health|Medical|Financial|Capital|Ventures?|Industries?)\b/g;
+
+// Also catch names labelled explicitly in SOW / contract language
+const LABELLED_CLIENT_RE =
+  /(?:Client|Company|Customer|Employer|Organization)\s*:\s*([A-Z][^\n,\.]{2,60})/gi;
+
+function detectCompanyNames(text: string): string[] {
+  const found = new Set<string>();
+  let m: RegExpExecArray | null;
+
+  COMPANY_SUFFIX_RE.lastIndex = 0;
+  while ((m = COMPANY_SUFFIX_RE.exec(text)) !== null) found.add(m[0].trim());
+
+  LABELLED_CLIENT_RE.lastIndex = 0;
+  while ((m = LABELLED_CLIENT_RE.exec(text)) !== null) {
+    const name = m[1].trim();
+    if (name.length > 3) found.add(name);
+  }
+
+  return [...found].slice(0, 10); // cap at 10 to keep the UI readable
+}
+
+// Extract text from ZIP-based Office formats (DOCX, XLSX, XLSM) using the
+// native browser DecompressionStream — no extra dependencies needed.
+const ZIP_TARGETS = new Set([
+  'word/document.xml',      // DOCX body
+  'xl/sharedStrings.xml',   // XLSX shared string table (where cell values live)
+  'xl/worksheets/sheet1.xml',
+]);
+
+async function extractZipXmlText(buf: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(buf);
+  const texts: string[] = [];
+  let i = 0;
+
+  while (i < bytes.length - 30) {
+    // Local file header: PK\x03\x04
+    if (bytes[i] !== 0x50 || bytes[i+1] !== 0x4B || bytes[i+2] !== 0x03 || bytes[i+3] !== 0x04) {
+      i++; continue;
+    }
+    const compression  = bytes[i+8]  | (bytes[i+9]  << 8);
+    const compSize     = (bytes[i+18] | (bytes[i+19] << 8) | (bytes[i+20] << 16) | (bytes[i+21] << 24)) >>> 0;
+    const filenameLen  = bytes[i+26] | (bytes[i+27] << 8);
+    const extraLen     = bytes[i+28] | (bytes[i+29] << 8);
+    const filename     = new TextDecoder().decode(bytes.subarray(i + 30, i + 30 + filenameLen));
+    const dataStart    = i + 30 + filenameLen + extraLen;
+
+    if (ZIP_TARGETS.has(filename) && compSize > 0) {
+      try {
+        let xmlBytes: Uint8Array;
+        if (compression === 0) {
+          xmlBytes = bytes.subarray(dataStart, dataStart + compSize);
+        } else {
+          // Deflate (method 8) — decompress with native API
+          const ds      = new DecompressionStream('deflate-raw');
+          const writer  = ds.writable.getWriter();
+          const reader  = ds.readable.getReader();
+          writer.write(buf.slice(dataStart, dataStart + compSize));
+          writer.close();
+          const chunks: Uint8Array[] = [];
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          const total = chunks.reduce((n, c) => n + c.length, 0);
+          xmlBytes = new Uint8Array(total);
+          let off = 0;
+          for (const c of chunks) { xmlBytes.set(c, off); off += c.length; }
+        }
+        const xml = new TextDecoder().decode(xmlBytes);
+        texts.push(xml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+      } catch { /* skip entry */ }
+    }
+
+    i = compSize > 0 ? dataStart + compSize : i + 1;
+  }
+
+  return texts.join(' ');
+}
+
+function binaryAsciiScan(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf, 0, Math.min(buf.byteLength, 8_000_000));
+  const parts: string[] = [];
+  let run = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b >= 0x20 && b < 0x7F) {
+      run += String.fromCharCode(b);
+    } else {
+      if (run.length >= 4) parts.push(run);
+      run = '';
+    }
+  }
+  if (run.length >= 4) parts.push(run);
+  return parts.join(' ');
+}
 
 async function extractFileText(file: File): Promise<string> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  // Plain text: read directly
+
   if (ext === 'txt' || ext === 'md') {
     return new Promise(resolve => {
       const r = new FileReader();
-      r.onload = e => resolve((e.target?.result as string) ?? '');
+      r.onload  = e => resolve((e.target?.result as string) ?? '');
       r.onerror = () => resolve('');
       r.readAsText(file);
     });
   }
-  // All other formats (PDF, DOCX, XLSX, VSDX…): binary ASCII scan.
-  // PDFs store text as readable runs; DOCX/XLSX metadata is also scannable.
-  // Limit to first 8 MB to keep the UI responsive.
-  return new Promise(resolve => {
-    const r = new FileReader();
-    r.onload = e => {
-      const buf = e.target?.result as ArrayBuffer;
-      if (!buf) { resolve(''); return; }
-      const bytes = new Uint8Array(buf, 0, Math.min(buf.byteLength, 8_000_000));
-      const parts: string[] = [];
-      let run = '';
-      for (let i = 0; i < bytes.length; i++) {
-        const b = bytes[i];
-        if (b >= 0x20 && b < 0x7F) {
-          run += String.fromCharCode(b);
-        } else {
-          if (run.length >= 4) parts.push(run);
-          run = '';
-        }
-      }
-      if (run.length >= 4) parts.push(run);
-      resolve(parts.join(' '));
-    };
-    r.onerror = () => resolve('');
-    r.readAsArrayBuffer(file);
-  });
+
+  const buf = await file.arrayBuffer();
+
+  // DOCX / XLSX / XLSM: properly decompress ZIP entries and strip XML tags
+  if (ext === 'docx' || ext === 'xlsx' || ext === 'xlsm') {
+    try {
+      const text = await extractZipXmlText(buf);
+      if (text.trim()) return text;
+    } catch { /* fall through */ }
+  }
+
+  // PDF and everything else: readable ASCII runs
+  return binaryAsciiScan(buf);
 }
 
 async function scanForClientNames(
@@ -57,13 +137,8 @@ async function scanForClientNames(
   const hits: { file: string; names: string[] }[] = [];
   for (const file of fileList) {
     const text = await extractFileText(file);
-    const found = CLIENT_NAMES.filter(name =>
-      new RegExp(
-        `\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
-        'i',
-      ).test(text),
-    );
-    if (found.length > 0) hits.push({ file: file.name, names: found });
+    const names = detectCompanyNames(text);
+    if (names.length > 0) hits.push({ file: file.name, names });
   }
   return hits;
 }
@@ -471,11 +546,11 @@ export function UploadModal({ template, onClose, onUploaded }: Props) {
                 </svg>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-orange-900 mb-1">
-                    Client names detected
+                    Company names detected
                   </p>
                   <p className="text-xs text-orange-700 leading-relaxed mb-3">
-                    The following files appear to contain confidential client information.
-                    Make sure you are authorised to upload them to this platform.
+                    The following files appear to contain company or client names.
+                    Ensure you are authorised to upload documents with this information.
                   </p>
                   <ul className="space-y-1.5 mb-4">
                     {clientNameHits.map(hit => (
