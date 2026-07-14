@@ -32,12 +32,12 @@ const DOMAINS: { value: PiDomain; label: string }[] = [
   { value: 'performance',      label: 'Performance Management' },
 ];
 
-type OppDef = { emoji: string; label: string; activeBg: string; activeText: string };
+type OppDef = { label: string; activeBg: string; activeText: string; dot: string };
 const OPP_DEFS: Record<PiAiOpportunity, OppDef> = {
-  sana_agent:     { emoji: '⚡', label: 'Sana Agent',  activeBg: '#0d9488', activeText: '#fff' },
-  workday_native: { emoji: '↺',  label: 'WD Native',   activeBg: '#16a34a', activeText: '#fff' },
-  partial_ai:     { emoji: '◑',  label: 'AI-Assisted', activeBg: '#d97706', activeText: '#fff' },
-  human_only:     { emoji: '○',  label: 'Human Only',  activeBg: '#64748b', activeText: '#fff' },
+  sana_agent:     { label: 'Agentic AI',       activeBg: '#0d9488', activeText: '#fff', dot: '#0d9488' },
+  workday_native: { label: 'Workday Native AI', activeBg: '#16a34a', activeText: '#fff', dot: '#16a34a' },
+  partial_ai:     { label: 'AI-Assisted',       activeBg: '#d97706', activeText: '#fff', dot: '#d97706' },
+  human_only:     { label: 'Human Only',         activeBg: '#64748b', activeText: '#fff', dot: '#94a3b8' },
 };
 const OPP_ORDER: PiAiOpportunity[] = ['sana_agent', 'workday_native', 'partial_ai', 'human_only'];
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
@@ -265,13 +265,12 @@ function UploadScreen(p: {
       <div style={{ maxWidth: 440, width: '100%' }} className="flex flex-col gap-6">
 
         <div className="text-center" style={{ marginBottom: 4 }}>
-          <div style={{ fontSize: 44, marginBottom: 12 }}>⚡</div>
           <h1 style={{ color: '#1D1D1F', fontSize: 26, fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
             Process Intelligence
           </h1>
           <p style={{ color: '#6E6E73', marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
             Upload a process diagram — Visio or image — to extract steps,<br />
-            classify AI opportunities, and preview your Sana-enabled future.
+            classify AI opportunities, and preview the agentic future state.
           </p>
         </div>
 
@@ -553,9 +552,9 @@ function AsIsPhase({ graph, asIsGraph, oppCounts, aiCount, confPct, onNext }: {
                 const def = OPP_DEFS[k];
                 return (
                   <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
-                    borderRadius: 20, background: `${def.activeBg}15`, border: `1px solid ${def.activeBg}35` }}>
-                    <span style={{ fontSize: 12 }}>{def.emoji}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: def.activeBg }}>{oppCounts[k]}</span>
+                    borderRadius: 20, background: `${def.activeBg}12`, border: `1px solid ${def.activeBg}30` }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: def.dot, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: def.activeBg }}>{oppCounts[k]}</span>
                     <span style={{ fontSize: 11, color: '#6E6E73' }}>{def.label}</span>
                   </div>
                 );
@@ -635,17 +634,18 @@ function ReviewPhase({ graph, stepEdits, getStep, patchStep, hasEdits, saving, s
           <div style={{ flex: 1 }}>
             <p style={{ color: '#1D1D1F', fontSize: 15, fontWeight: 700, margin: 0 }}>AI Opportunity Review</p>
             <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 2 }}>
-              Confirm or adjust each step's classification. Click any label to rename it.
+              Confirm or adjust each step's classification. Agentic AI steps will recommend whether Sana or a custom agent is the better fit.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             {OPP_ORDER.filter(k => oppCounts[k] > 0).map(k => {
               const def = OPP_DEFS[k];
               return (
-                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px',
-                  borderRadius: 20, background: `${def.activeBg}15`, border: `1px solid ${def.activeBg}35` }}>
-                  <span style={{ fontSize: 12 }}>{def.emoji}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: def.activeBg }}>{oppCounts[k]}</span>
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+                  borderRadius: 20, background: `${def.activeBg}12`, border: `1px solid ${def.activeBg}30` }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: def.dot, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: def.activeBg }}>{oppCounts[k]}</span>
+                  <span style={{ fontSize: 11, color: '#6E6E73' }}>{def.label}</span>
                 </div>
               );
             })}
@@ -734,7 +734,7 @@ function ReviewPhase({ graph, stepEdits, getStep, patchStep, hasEdits, saving, s
               display: 'flex', alignItems: 'center', gap: 6, fontFamily: FONT }}
             onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
             onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
-            Generate To-Be Map ⚡
+            Generate To-Be Map
           </button>
         </div>
       </div>
@@ -813,11 +813,24 @@ function OpportunityCard({ step, warned, laneColor, onLabelChange, onAiChange }:
                 border: active ? 'none' : '1px solid #E5E5EA', cursor: 'pointer', transition: 'all 0.15s',
                 background: active ? def.activeBg : '#F5F5F7',
                 color: active ? def.activeText : '#6E6E73', fontFamily: FONT }}>
-              {def.emoji} {def.label}
+              {def.label}
             </button>
           );
         })}
       </div>
+
+      {/* Sana vs custom agent note — shown when classified as agentic AI */}
+      {opp === 'sana_agent' && (
+        <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
+          background: '#F0FDF9', border: '1px solid #A7F3D0' }}>
+          <p style={{ margin: 0, fontSize: 11, color: '#065f46', lineHeight: 1.5 }}>
+            <strong>Sana recommended</strong> if this step involves guided user interaction, document review, or
+            conversational workflows.{' '}
+            <span style={{ color: '#6E6E73' }}>For backend automation or API orchestration, a custom developer agent
+            may be more appropriate.</span>
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -854,17 +867,16 @@ function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTob
           <div style={{ textAlign: 'center' }}>
             <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 700, margin: 0 }}>Generating To-Be Process</p>
             <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 6 }}>
-              Redesigning your process for the Sana-enabled future state…
+              Redesigning for the agentic AI future state…
             </p>
           </div>
         </div>
       ) : !tobeMapGraph && !tobeError ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40, textAlign: 'center' }}>
-          <span style={{ fontSize: 48 }}>⚡</span>
           <div>
             <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 700, margin: 0 }}>Ready to generate</p>
             <p style={{ color: '#6E6E73', fontSize: 14, marginTop: 6 }}>
-              Generate the Sana-enabled To-Be process map based on your AI classifications.
+              Generate the agentic To-Be process map based on your AI classifications.
             </p>
           </div>
           <button onClick={onRegenerate}
@@ -872,7 +884,7 @@ function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTob
               border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff', marginTop: 8, fontFamily: FONT }}
             onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
             onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
-            Generate To-Be Map ⚡
+            Generate To-Be Map
           </button>
         </div>
       ) : tobeMapGraph && (
@@ -882,7 +894,7 @@ function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTob
             <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '18px 28px', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
-                  {stats.steps_automated != null && <StatBlock value={stats.steps_automated} label="Steps by Sana" color="#0d9488" />}
+                  {stats.steps_automated != null && <StatBlock value={stats.steps_automated} label="Agent-automated" color="#0d9488" />}
                   {stats.steps_automated != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
                   {stats.steps_assisted != null && <StatBlock value={stats.steps_assisted} label="AI-assisted" color="#0071E3" />}
                   {stats.steps_assisted != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
@@ -896,7 +908,7 @@ function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTob
                   style={{ padding: '8px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
                     border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#1D1D1F',
                     flexShrink: 0, fontFamily: FONT }}>
-                  ↺ Regenerate
+                  Regenerate
                 </button>
               </div>
               {tobeGraph?.transformation_summary && (
@@ -924,13 +936,13 @@ function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTob
             </div>
 
             {/* Divider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{ flex: 1, height: 1, background: 'linear-gradient(to right, #E5E5EA, #0071E3)' }} />
-              <div style={{ padding: '6px 16px', borderRadius: 980, background: '#0071E3',
-                color: '#fff', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                ⚡ AI Transformation
-              </div>
-              <div style={{ flex: 1, height: 1, background: 'linear-gradient(to left, #E5E5EA, #0071E3)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
+              <span style={{ color: '#8E8E93', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                AI Transformation
+              </span>
+              <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
             </div>
 
             {/* After */}
@@ -938,7 +950,7 @@ function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTob
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ width: 3, height: 14, borderRadius: 2, background: '#0071E3' }} />
                 <span style={{ color: '#0071E3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  After · Sana-enabled
+                  After · Agentic AI
                 </span>
               </div>
               <div style={{ background: '#fff', borderRadius: 16, padding: '16px 12px',
