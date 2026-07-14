@@ -15,9 +15,13 @@ import {
   type PiStepPatch,
   type PiTobeGraph,
 } from '../lib/api';
-import { ProcessMap, MapLegend, type MapGraph } from './ProcessMap';
+import { ProcessMap, type MapGraph } from './ProcessMap';
 
-// ── Constants ──────────────────────────────────────────────────────────────────
+// ── Design tokens (Apple-inspired) ────────────────────────────────────────────
+// bg: #F5F5F7  card: #FFFFFF  text: #1D1D1F  secondary: #6E6E73
+// separator: #E5E5EA  blue: #0071E3
+
+// ── Data ──────────────────────────────────────────────────────────────────────
 
 const DOMAINS: { value: PiDomain; label: string }[] = [
   { value: 'recruiting',       label: 'Recruiting' },
@@ -28,17 +32,15 @@ const DOMAINS: { value: PiDomain; label: string }[] = [
   { value: 'performance',      label: 'Performance Management' },
 ];
 
-const AI_OPP_META: Record<PiAiOpportunity, { label: string; short: string; pill: string }> = {
-  sana_agent:     { label: '⚡ Sana Agent',    short: 'Sana Agent',    pill: 'bg-teal-50 text-teal-700 border border-teal-200' },
-  workday_native: { label: '🔄 Workday Native', short: 'WD Native',     pill: 'bg-green-50 text-green-700 border border-green-200' },
-  partial_ai:     { label: '🤖 AI-Assisted',   short: 'AI-Assisted',   pill: 'bg-amber-50 text-amber-700 border border-amber-200' },
-  human_only:     { label: '👤 Human Only',    short: 'Human Only',    pill: 'bg-slate-50 text-slate-500 border border-slate-200' },
+type OppDef = { emoji: string; label: string; activeBg: string; activeText: string };
+const OPP_DEFS: Record<PiAiOpportunity, OppDef> = {
+  sana_agent:     { emoji: '⚡', label: 'Sana Agent',  activeBg: '#0d9488', activeText: '#fff' },
+  workday_native: { emoji: '↺',  label: 'WD Native',   activeBg: '#16a34a', activeText: '#fff' },
+  partial_ai:     { emoji: '◑',  label: 'AI-Assisted', activeBg: '#d97706', activeText: '#fff' },
+  human_only:     { emoji: '○',  label: 'Human Only',  activeBg: '#64748b', activeText: '#fff' },
 };
-
-const LANE_DOT_COLORS = [
-  'bg-blue-400', 'bg-violet-400', 'bg-pink-400', 'bg-orange-400',
-  'bg-teal-400', 'bg-emerald-400', 'bg-rose-400', 'bg-amber-400',
-];
+const OPP_ORDER: PiAiOpportunity[] = ['sana_agent', 'workday_native', 'partial_ai', 'human_only'];
+const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
 
 // ── Graph adapters ─────────────────────────────────────────────────────────────
 
@@ -48,12 +50,12 @@ function piGraphToMapGraph(graph: PiGraph, edits: Record<string, Partial<PiStep>
     steps: graph.steps.map(s => {
       const e = edits[s.step_id] ?? {};
       return {
-        step_id:      s.step_id,
-        lane_id:      (e.lane_id !== undefined ? e.lane_id : s.lane_id) ?? null,
-        label:        e.label ?? s.label,
-        step_type:    s.type,
+        step_id:        s.step_id,
+        lane_id:        (e.lane_id !== undefined ? e.lane_id : s.lane_id) ?? null,
+        label:          e.label ?? s.label,
+        step_type:      s.type,
         ai_opportunity: (e.ai_opportunity ?? s.ai_opportunity) ?? null,
-        tooltip:      s.ai_rationale ?? undefined,
+        tooltip:        s.ai_rationale ?? undefined,
       };
     }),
     connectors: graph.connectors.map(c => ({ from: c.from, to: c.to, condition: c.condition })),
@@ -64,91 +66,84 @@ function tobeToMapGraph(tobe: PiTobeGraph): MapGraph {
   return {
     swimlanes: tobe.swimlanes,
     steps: tobe.steps.map(s => ({
-      step_id:      s.step_id,
-      lane_id:      s.lane_id ?? null,
-      label:        s.label,
-      step_type:    s.step_type,
+      step_id:        s.step_id,
+      lane_id:        s.lane_id ?? null,
+      label:          s.label,
+      step_type:      s.step_type,
       ai_opportunity: s.ai_opportunity ?? null,
-      tooltip:      s.transformation_note ?? undefined,
+      tooltip:        s.transformation_note ?? undefined,
     })),
     connectors: tobe.connectors.map(c => ({ from: c.from, to: c.to, condition: c.condition })),
   };
 }
 
-// ── Root component ─────────────────────────────────────────────────────────────
+// ── Root ───────────────────────────────────────────────────────────────────────
 
-type Phase = 'upload' | 'uploading' | 'parsing' | 'review' | 'error';
+type LoadPhase = 'upload' | 'uploading' | 'parsing' | 'error';
+type WorkPhase = 'asis' | 'review' | 'tobe';
 
 export default function ProcessIntelligence({ clientName }: { clientName?: string }) {
-  const [phase, setPhase]       = useState<Phase>('upload');
-  const [domain, setDomain]     = useState<PiDomain>('onboarding');
-  const [file, setFile]         = useState<File | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [processId, setProcessId] = useState('');
-  const [parseMsg, setParseMsg] = useState('');
-  const [graph, setGraph]       = useState<PiGraph | null>(null);
-  const [stepEdits, setStepEditsRaw] = useState<Record<string, Partial<PiStep>>>({});
-  const [laneEdits, setLaneEditsRaw] = useState<Record<string, { label?: string; persona?: string }>>({});
-  const [saving, setSaving]     = useState(false);
-  const [saved, setSaved]       = useState(false);
-  const [tobeGraph, setTobeGraph] = useState<PiTobeGraph | null>(null);
+  const [loadPhase, setLoadPhase] = useState<LoadPhase>('upload');
+  const [domain, setDomain]       = useState<PiDomain>('onboarding');
+  const [file, setFile]           = useState<File | null>(null);
+  const [dragOver, setDragOver]   = useState(false);
+  const [errorMsg, setErrorMsg]   = useState('');
+  const [parseMsg, setParseMsg]   = useState('');
+
+  const [graph, setGraph]             = useState<PiGraph | null>(null);
+  const [workPhase, setWorkPhase]     = useState<WorkPhase>('asis');
+  const [stepEdits, setStepEditsRaw]  = useState<Record<string, Partial<PiStep>>>({});
+  const [laneEdits, setLaneEditsRaw]  = useState<Record<string, { label?: string; persona?: string }>>({});
+  const [saving, setSaving]           = useState(false);
+  const [saved, setSaved]             = useState(false);
+  const [tobeGraph, setTobeGraph]     = useState<PiTobeGraph | null>(null);
+  const [tobeLoading, setTobeLoading] = useState(false);
+  const [tobeError, setTobeError]     = useState('');
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopPolling = () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
   useEffect(() => () => stopPolling(), []);
 
-  // Wrappers that reset "saved" on any new edit
   function setStepEdits(e: Record<string, Partial<PiStep>>) { setSaved(false); setStepEditsRaw(e); }
   function setLaneEdits(e: Record<string, { label?: string; persona?: string }>) { setSaved(false); setLaneEditsRaw(e); }
 
   const startPolling = useCallback((pid: string) => {
-    setParseMsg('Parsing diagram structure…');
+    setParseMsg('Reading your diagram…');
     let ticks = 0;
     pollRef.current = setInterval(async () => {
       ticks++;
+      if (ticks === 3) setParseMsg('Identifying process steps…');
+      if (ticks === 6) setParseMsg('Classifying AI opportunities…');
+      if (ticks === 9) setParseMsg('Finalising…');
       try {
         const status = await getGraphStatus(pid);
-        if (status.parse_status === 'parsing') {
-          if (ticks >= 3) setParseMsg('Classifying steps with AI…');
-          if (ticks >= 6) setParseMsg('Almost there — finalising…');
-          return;
-        }
+        if (status.parse_status === 'parsing') return;
         stopPolling();
         if (status.parse_status === 'failed') {
-          setErrorMsg(status.parse_error || 'Parse failed');
-          setPhase('error');
-          return;
+          setErrorMsg(status.parse_error || 'Parse failed'); setLoadPhase('error'); return;
         }
         const g = await getProcessGraph(pid);
-        setGraph(g);
-        setPhase('review');
+        setGraph(g); setWorkPhase('asis');
       } catch (err: any) {
-        stopPolling();
-        setErrorMsg(err.message || 'Status check failed');
-        setPhase('error');
+        stopPolling(); setErrorMsg(err.message || 'Status check failed'); setLoadPhase('error');
       }
     }, 3000);
   }, []);
 
   async function handleUpload() {
     if (!file) return;
-    setPhase('uploading');
-    setErrorMsg('');
+    setLoadPhase('uploading');
     try {
       const { process_id, upload_url } = await uploadProcessDiagram({
-        filename: file.name,
-        domain,
+        filename: file.name, domain,
         source_name: file.name.replace(/\.(vsdx|png|jpe?g)$/i, ''),
       });
       await putFileToS3(upload_url, file);
       await triggerParseDiagram(process_id);
-      setProcessId(process_id);
-      setPhase('parsing');
+      setLoadPhase('parsing');
       startPolling(process_id);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Upload failed');
-      setPhase('error');
+      setErrorMsg(err.message || 'Upload failed'); setLoadPhase('error');
     }
   }
 
@@ -158,21 +153,18 @@ export default function ProcessIntelligence({ clientName }: { clientName?: strin
     try {
       const step_patches: PiStepPatch[] = Object.entries(stepEdits).map(([step_id, e]) => ({
         step_id,
-        ...(e.label             !== undefined ? { label:           e.label }            : {}),
-        ...(e.lane_id           !== undefined ? { lane_id:         e.lane_id }          : {}),
-        ...(e.systems_touched   !== undefined ? { systems_touched: e.systems_touched }  : {}),
-        ...(e.ai_opportunity    != null       ? { ai_opportunity:  e.ai_opportunity }   : {}),
+        ...(e.label           !== undefined ? { label:           e.label }           : {}),
+        ...(e.lane_id         !== undefined ? { lane_id:         e.lane_id }         : {}),
+        ...(e.systems_touched !== undefined ? { systems_touched: e.systems_touched } : {}),
+        ...(e.ai_opportunity  != null       ? { ai_opportunity:  e.ai_opportunity }  : {}),
       }));
       const lane_patches: PiLanePatch[] = Object.entries(laneEdits).map(([lane_id, e]) => ({ lane_id, ...e }));
       if (step_patches.length || lane_patches.length) {
         await patchProcessGraph(graph.process_id, { step_patches, lane_patches });
       }
       const fresh = await getProcessGraph(graph.process_id);
-      setGraph(fresh);
-      setStepEditsRaw({});
-      setLaneEditsRaw({});
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      setGraph(fresh); setStepEditsRaw({}); setLaneEditsRaw({});
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
     } catch (err: any) {
       setErrorMsg(err.message || 'Save failed');
     } finally {
@@ -180,64 +172,77 @@ export default function ProcessIntelligence({ clientName }: { clientName?: strin
     }
   }
 
+  async function handleGenerateTobe() {
+    if (!graph) return;
+    setTobeLoading(true); setTobeError(''); setWorkPhase('tobe');
+    try {
+      const result = await generateTobeGraph(graph.process_id);
+      setTobeGraph(result);
+    } catch (err: any) {
+      setTobeError(err.message || 'Generation failed');
+    } finally {
+      setTobeLoading(false);
+    }
+  }
+
   function reset() {
     stopPolling();
-    setPhase('upload'); setFile(null); setErrorMsg(''); setProcessId('');
+    setLoadPhase('upload'); setFile(null); setErrorMsg('');
     setGraph(null); setStepEditsRaw({}); setLaneEditsRaw({});
-    setSaved(false); setTobeGraph(null);
+    setSaved(false); setTobeGraph(null); setWorkPhase('asis');
   }
 
-  function handleFileDrop(e: React.DragEvent) {
-    e.preventDefault(); setDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f && /\.(vsdx|png|jpe?g)$/i.test(f.name)) setFile(f);
-  }
-
-  if (phase === 'upload' || phase === 'uploading') {
-    return <UploadScreen
-      domain={domain} setDomain={setDomain}
-      file={file} setFile={setFile}
-      dragOver={dragOver} setDragOver={setDragOver}
-      uploading={phase === 'uploading'}
-      onUpload={handleUpload}
-      onDrop={handleFileDrop}
-      onFileInput={e => { const f = e.target.files?.[0]; if (f) setFile(f); }}
-      clientName={clientName}
-    />;
-  }
-
-  if (phase === 'parsing') return <ParsingScreen message={parseMsg} />;
-
-  if (phase === 'error') {
+  // ── Render ──────────────────────────────────────────────────────────────────
+  if (loadPhase !== 'error' && graph) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
-        <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-xl">⚠</div>
+      <WorkspaceScreen
+        graph={graph}
+        workPhase={workPhase} setWorkPhase={setWorkPhase}
+        stepEdits={stepEdits} setStepEdits={setStepEdits}
+        laneEdits={laneEdits} setLaneEdits={setLaneEdits}
+        saving={saving} saved={saved} onSave={handleSave}
+        onReset={reset}
+        tobeGraph={tobeGraph} tobeLoading={tobeLoading} tobeError={tobeError}
+        onGenerateTobe={handleGenerateTobe}
+        setTobeError={setTobeError}
+        clientName={clientName}
+      />
+    );
+  }
+
+  if (loadPhase === 'parsing' || loadPhase === 'uploading') {
+    return <LoadingScreen message={parseMsg} uploading={loadPhase === 'uploading'} />;
+  }
+
+  if (loadPhase === 'error') {
+    return (
+      <div style={{ background: '#F5F5F7', fontFamily: FONT }}
+        className="flex flex-col items-center justify-center h-full gap-5 p-8 text-center">
+        <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center text-3xl">⚠</div>
         <div>
-          <p className="text-sm font-medium text-slate-800">Something went wrong</p>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm">{errorMsg}</p>
+          <p style={{ color: '#1D1D1F', fontSize: 16, fontWeight: 600 }}>Something went wrong</p>
+          <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 4 }} className="max-w-sm">{errorMsg}</p>
         </div>
         <button onClick={reset}
-          className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+          style={{ background: '#0071E3', color: '#fff', border: 'none', borderRadius: 980,
+            padding: '12px 28px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
           Try again
         </button>
       </div>
     );
   }
 
-  if (phase === 'review' && graph) {
-    return <ReviewScreen
-      graph={graph}
-      stepEdits={stepEdits} setStepEdits={setStepEdits}
-      laneEdits={laneEdits} setLaneEdits={setLaneEdits}
-      saving={saving} saved={saved}
-      onSave={handleSave}
-      onReset={reset}
-      tobeGraph={tobeGraph}
-      setTobeGraph={setTobeGraph}
-    />;
-  }
-
-  return null;
+  return (
+    <UploadScreen
+      domain={domain} setDomain={setDomain}
+      file={file} setFile={setFile}
+      dragOver={dragOver} setDragOver={setDragOver}
+      onUpload={handleUpload}
+      onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f && /\.(vsdx|png|jpe?g)$/i.test(f.name)) setFile(f); }}
+      onFileInput={e => { const f = e.target.files?.[0]; if (f) setFile(f); }}
+      clientName={clientName}
+    />
+  );
 }
 
 // ── Upload screen ──────────────────────────────────────────────────────────────
@@ -246,7 +251,6 @@ function UploadScreen(p: {
   domain: PiDomain; setDomain: (d: PiDomain) => void;
   file: File | null; setFile: (f: File | null) => void;
   dragOver: boolean; setDragOver: (v: boolean) => void;
-  uploading: boolean;
   onUpload: () => void;
   onDrop: (e: React.DragEvent) => void;
   onFileInput: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -256,614 +260,709 @@ function UploadScreen(p: {
   const isImage = p.file && /\.(png|jpe?g)$/i.test(p.file.name);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-slate-50">
-      <div className="max-w-lg mx-auto w-full px-6 py-10 flex flex-col gap-7">
+    <div style={{ background: '#F5F5F7', fontFamily: FONT }}
+      className="flex flex-col items-center justify-center h-full p-6 overflow-y-auto">
+      <div style={{ maxWidth: 440, width: '100%' }} className="flex flex-col gap-6">
 
-        {/* Title */}
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-base font-bold text-slate-900">Process Intelligence</span>
-            {p.clientName && (
-              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{p.clientName}</span>
-            )}
-          </div>
-          <p className="text-sm text-slate-500 leading-relaxed">
-            Upload a process diagram to extract steps, classify AI opportunities,
-            and generate a Sana-enabled future-state map.
+        <div className="text-center" style={{ marginBottom: 4 }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>⚡</div>
+          <h1 style={{ color: '#1D1D1F', fontSize: 26, fontWeight: 700, letterSpacing: '-0.3px', margin: 0 }}>
+            Process Intelligence
+          </h1>
+          <p style={{ color: '#6E6E73', marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
+            Upload a process diagram — Visio or image — to extract steps,<br />
+            classify AI opportunities, and preview your Sana-enabled future.
           </p>
         </div>
 
-        {/* Workflow steps */}
-        <div className="flex items-start gap-0">
-          {[
-            { n: '1', label: 'Choose domain', sub: 'Select the Workday area' },
-            { n: '2', label: 'Upload diagram', sub: 'Visio .vsdx or image' },
-            { n: '3', label: 'AI classifies', sub: 'Steps + opportunities' },
-          ].map((step, i) => (
-            <React.Fragment key={step.n}>
-              <div className="flex flex-col items-center text-center flex-1">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mb-1.5
-                  ${i === 0 ? 'bg-slate-900 text-white' : i === 1 ? (p.file ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500') : 'bg-slate-200 text-slate-400'}`}>
-                  {step.n}
+        <div style={{ background: '#fff', borderRadius: 18, boxShadow: '0 2px 16px rgba(0,0,0,0.08)', padding: 24 }}
+          className="flex flex-col gap-5">
+
+          <div>
+            <label style={{ display: 'block', color: '#1D1D1F', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+              Workday Domain
+            </label>
+            <select value={p.domain} onChange={e => p.setDomain(e.target.value as PiDomain)}
+              style={{ width: '100%', border: '1.5px solid #E5E5EA', borderRadius: 10, fontSize: 14,
+                padding: '10px 12px', background: '#F5F5F7', color: '#1D1D1F', outline: 'none',
+                fontFamily: FONT, appearance: 'none', cursor: 'pointer' }}>
+              {DOMAINS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', color: '#1D1D1F', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+              Process Diagram
+            </label>
+            <div
+              onDragOver={e => { e.preventDefault(); p.setDragOver(true); }}
+              onDragLeave={() => p.setDragOver(false)}
+              onDrop={p.onDrop}
+              onClick={() => inputRef.current?.click()}
+              style={{
+                border: `2px dashed ${p.dragOver ? '#0071E3' : p.file ? '#34C759' : '#C7C7CC'}`,
+                borderRadius: 14, background: p.dragOver ? '#F0F8FF' : '#F5F5F7',
+                cursor: 'pointer', transition: 'all 0.2s', padding: 20,
+              }}>
+              <input ref={inputRef} type="file" accept=".vsdx,.png,.jpg,.jpeg"
+                style={{ display: 'none' }} onChange={p.onFileInput} />
+              {p.file ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 28 }}>{isImage ? '🖼️' : '📊'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ color: '#1D1D1F', fontWeight: 600, fontSize: 14, margin: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.file.name}</p>
+                    <p style={{ color: '#6E6E73', fontSize: 12, margin: '3px 0 0' }}>
+                      {(p.file.size / 1024).toFixed(1)} KB
+                      {isImage ? ' · Vision mode (lower confidence)' : ''}
+                    </p>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); p.setFile(null); }}
+                    style={{ color: '#C7C7CC', fontSize: 22, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    ×
+                  </button>
                 </div>
-                <p className="text-xs font-semibold text-slate-700">{step.label}</p>
-                <p className="text-xs text-slate-400">{step.sub}</p>
-              </div>
-              {i < 2 && <div className="h-px bg-slate-200 flex-1 mt-3.5 mx-1" />}
-            </React.Fragment>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '12px 0', textAlign: 'center' }}>
+                  <span style={{ fontSize: 32 }}>📂</span>
+                  <p style={{ color: '#1D1D1F', fontWeight: 500, fontSize: 14, margin: 0 }}>Drop your diagram here</p>
+                  <p style={{ color: '#6E6E73', fontSize: 12, margin: 0 }}>or click to browse — .vsdx, .png, .jpg</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button onClick={p.onUpload} disabled={!p.file}
+          style={{
+            width: '100%', padding: '14px', borderRadius: 980, fontSize: 15, fontWeight: 600,
+            border: 'none', cursor: p.file ? 'pointer' : 'not-allowed', fontFamily: FONT,
+            background: p.file ? '#0071E3' : '#E5E5EA',
+            color: p.file ? '#fff' : '#C7C7CC', transition: 'all 0.2s',
+          }}>
+          Analyse Process
+        </button>
+
+        {p.clientName && (
+          <p style={{ color: '#C7C7CC', fontSize: 12, textAlign: 'center', margin: 0 }}>{p.clientName}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Loading screen ─────────────────────────────────────────────────────────────
+
+function LoadingScreen({ message, uploading }: { message: string; uploading: boolean }) {
+  const stages = ['Reading your diagram…', 'Identifying process steps…', 'Classifying AI opportunities…', 'Finalising…'];
+  const idx = stages.indexOf(message);
+  return (
+    <div style={{ background: '#F5F5F7', fontFamily: FONT }}
+      className="flex flex-col items-center justify-center h-full gap-8 p-8 text-center">
+      <style>{`@keyframes pi-spin { to { transform: rotate(360deg) } }`}</style>
+      <div style={{ width: 52, height: 52, border: '3px solid #E5E5EA', borderTopColor: '#0071E3',
+        borderRadius: '50%', animation: 'pi-spin 0.9s linear infinite' }} />
+      <div>
+        <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 600, margin: 0 }}>
+          {uploading ? 'Uploading…' : (message || 'Processing…')}
+        </p>
+        <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 6 }}>
+          {uploading ? 'Sending your diagram to the platform' : 'Usually takes 20–40 seconds'}
+        </p>
+      </div>
+      {!uploading && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {stages.map((_, i) => (
+            <div key={i} style={{
+              width: 8, height: 8, borderRadius: '50%', transition: 'background 0.3s',
+              background: i < idx ? '#0071E3' : i === idx ? '#90C8F9' : '#E5E5EA',
+            }} />
           ))}
         </div>
-
-        {/* Domain selector */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wide">
-            Workday Domain
-          </label>
-          <select
-            value={p.domain}
-            onChange={e => p.setDomain(e.target.value as PiDomain)}
-            className="w-full border border-slate-200 rounded-lg text-sm px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 shadow-sm"
-          >
-            {DOMAINS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-          </select>
-        </div>
-
-        {/* Drop zone */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wide">
-            Process Diagram
-          </label>
-          <div
-            onDragOver={e => { e.preventDefault(); p.setDragOver(true); }}
-            onDragLeave={() => p.setDragOver(false)}
-            onDrop={p.onDrop}
-            onClick={() => inputRef.current?.click()}
-            className={`rounded-xl border-2 border-dashed transition-all cursor-pointer
-              ${p.dragOver
-                ? 'border-slate-400 bg-slate-100'
-                : p.file
-                  ? 'border-slate-300 bg-white'
-                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
-          >
-            <input ref={inputRef} type="file" accept=".vsdx,.png,.jpg,.jpeg"
-              className="hidden" onChange={p.onFileInput} />
-
-            {p.file ? (
-              <div className="p-6 flex items-start gap-4">
-                <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl shrink-0
-                  ${isImage ? 'bg-blue-50' : 'bg-slate-100'}`}>
-                  {isImage ? '🖼️' : '📊'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{p.file.name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {(p.file.size / 1024).toFixed(1)} KB
-                    {isImage && ' · Image mode'}
-                  </p>
-                  {isImage && (
-                    <p className="text-xs text-amber-600 mt-1.5 bg-amber-50 rounded-md px-2 py-1 inline-block">
-                      AI will read the diagram visually — confidence will be lower than .vsdx
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={e => { e.stopPropagation(); p.setFile(null); }}
-                  className="text-slate-300 hover:text-slate-500 transition-colors shrink-0 text-lg leading-none"
-                  title="Remove file"
-                >
-                  ×
-                </button>
-              </div>
-            ) : (
-              <div className="p-8 flex flex-col items-center gap-3 text-center">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-                    className="w-6 h-6 text-slate-400">
-                    <path strokeLinecap="round" strokeLinejoin="round"
-                      d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-700">Drop your diagram here</p>
-                  <p className="text-xs text-slate-400 mt-0.5">or click to browse</p>
-                </div>
-                <div className="flex gap-2 mt-1">
-                  {['.vsdx', '.png', '.jpg'].map(ext => (
-                    <span key={ext} className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-xs font-mono">
-                      {ext}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Upload button */}
-        <button
-          onClick={p.onUpload}
-          disabled={!p.file || p.uploading}
-          className={`w-full py-3 rounded-lg text-sm font-semibold transition-all
-            ${p.file && !p.uploading
-              ? 'bg-slate-900 text-white hover:bg-slate-700 shadow-sm'
-              : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-        >
-          {p.uploading
-            ? <span className="flex items-center justify-center gap-2">
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Uploading…
-              </span>
-            : 'Analyse Process'}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
 
-// ── Parsing screen ─────────────────────────────────────────────────────────────
+// ── Workspace ──────────────────────────────────────────────────────────────────
 
-function ParsingScreen({ message }: { message: string }) {
-  const steps = [
-    'Parsing diagram structure…',
-    'Classifying steps with AI…',
-    'Almost there — finalising…',
-  ];
-  const activeIdx = steps.findIndex(s => s === message);
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-8 p-8 bg-slate-50">
-      <div className="w-14 h-14 border-[3px] border-slate-200 border-t-slate-700 rounded-full animate-spin" />
-      <div className="text-center">
-        <p className="text-sm font-semibold text-slate-800">{message || 'Processing…'}</p>
-        <p className="text-xs text-slate-400 mt-1">Usually takes 20–40 seconds</p>
-      </div>
-      <div className="flex gap-3">
-        {steps.map((s, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full transition-colors
-              ${i < activeIdx ? 'bg-slate-700' : i === activeIdx ? 'bg-slate-400 animate-pulse' : 'bg-slate-200'}`} />
-            {i < steps.length - 1 && <div className="w-6 h-px bg-slate-200" />}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Review screen ──────────────────────────────────────────────────────────────
-
-interface ReviewScreenProps {
+interface WorkspaceProps {
   graph: PiGraph;
-  stepEdits: Record<string, Partial<PiStep>>;
-  setStepEdits: (e: Record<string, Partial<PiStep>>) => void;
-  laneEdits: Record<string, { label?: string; persona?: string }>;
-  setLaneEdits: (e: Record<string, { label?: string; persona?: string }>) => void;
-  saving: boolean; saved: boolean;
-  onSave: () => void; onReset: () => void;
-  tobeGraph: PiTobeGraph | null;
-  setTobeGraph: (g: PiTobeGraph | null) => void;
+  workPhase: WorkPhase; setWorkPhase: (p: WorkPhase) => void;
+  stepEdits: Record<string, Partial<PiStep>>; setStepEdits: (e: Record<string, Partial<PiStep>>) => void;
+  laneEdits: Record<string, { label?: string; persona?: string }>; setLaneEdits: (e: Record<string, { label?: string; persona?: string }>) => void;
+  saving: boolean; saved: boolean; onSave: () => void; onReset: () => void;
+  tobeGraph: PiTobeGraph | null; tobeLoading: boolean; tobeError: string;
+  onGenerateTobe: () => void; setTobeError: (e: string) => void;
+  clientName?: string;
 }
 
-function ReviewScreen(p: ReviewScreenProps) {
-  const conf = p.graph.parse_confidence ?? 0;
-  const confPct = Math.round(conf * 100);
-  const warnings = p.graph.parse_warnings || [];
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [tobeLoading, setTobeLoading]     = useState(false);
-  const [tobeError, setTobeError]         = useState('');
-
-  async function handleGenerateTobe() {
-    setTobeLoading(true); setTobeError('');
-    try {
-      const result = await generateTobeGraph(p.graph.process_id);
-      p.setTobeGraph(result);
-    } catch (err: any) {
-      setTobeError(err.message || 'Generation failed');
-    } finally {
-      setTobeLoading(false);
-    }
-  }
+function WorkspaceScreen(p: WorkspaceProps) {
+  const hasEdits = Object.keys(p.stepEdits).length > 0 || Object.keys(p.laneEdits).length > 0;
 
   function patchStep(step_id: string, field: keyof PiStep, value: unknown) {
     p.setStepEdits({ ...p.stepEdits, [step_id]: { ...p.stepEdits[step_id], [field]: value } });
   }
-
   function getStep(s: PiStep): PiStep { return { ...s, ...p.stepEdits[s.step_id] }; }
 
-  // Group steps by lane
-  const laneMap = new Map(p.graph.swimlanes.map(l => [l.lane_id, l]));
-  const byLane = new Map<string, PiStep[]>();
-  const unassigned: PiStep[] = [];
-  for (const s of p.graph.steps) {
-    if (s.lane_id && laneMap.has(s.lane_id)) {
-      const arr = byLane.get(s.lane_id) ?? []; arr.push(s); byLane.set(s.lane_id, arr);
-    } else unassigned.push(s);
-  }
-
-  const hasEdits = Object.keys(p.stepEdits).length > 0 || Object.keys(p.laneEdits).length > 0;
-
-  // AI opportunity summary counts (from graph + edits)
-  const oppCounts: Record<string, number> = { sana_agent: 0, workday_native: 0, partial_ai: 0, human_only: 0 };
+  const oppCounts: Record<PiAiOpportunity, number> = { sana_agent: 0, workday_native: 0, partial_ai: 0, human_only: 0 };
   for (const s of p.graph.steps) {
     const opp = (p.stepEdits[s.step_id]?.ai_opportunity ?? s.ai_opportunity) ?? 'human_only';
-    if (opp in oppCounts) oppCounts[opp]++;
+    if (opp in oppCounts) oppCounts[opp as PiAiOpportunity]++;
   }
-
+  const aiCount = oppCounts.sana_agent + oppCounts.workday_native + oppCounts.partial_ai;
+  const confPct = Math.round((p.graph.parse_confidence ?? 0) * 100);
   const asIsGraph = piGraphToMapGraph(p.graph, p.stepEdits);
 
-  return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-white">
+  const phases: { id: WorkPhase; label: string }[] = [
+    { id: 'asis',   label: 'As-Is'    },
+    { id: 'review', label: 'AI Review' },
+    { id: 'tobe',   label: 'To-Be'    },
+  ];
 
-      {/* ── Header bar ────────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 py-2 border-b border-slate-100 bg-white flex items-center gap-3 min-h-[52px]">
-        {/* Title + meta */}
-        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-slate-900 truncate max-w-[200px]">
-            {p.graph.source_name}
-          </span>
-          <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${
-            p.graph.parse_status === 'needs_review'
-              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-              : 'bg-green-50 text-green-700 border border-green-200'}`}>
-            {p.graph.parse_status === 'needs_review' ? 'Needs review' : 'Ready'}
-          </span>
-          <span className="text-xs text-slate-400 capitalize">{p.graph.domain.replace('_', ' ')}</span>
-          <span className="text-xs text-slate-300">·</span>
-          <span className={`text-xs font-medium ${
-            confPct >= 80 ? 'text-green-600' : confPct >= 60 ? 'text-amber-600' : 'text-red-500'}`}>
-            {confPct}% confidence
-          </span>
-          {warnings.length > 0 && (
-            <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
-              {warnings.length} warning{warnings.length !== 1 ? 's' : ''}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F5F5F7', fontFamily: FONT, overflow: 'hidden' }}>
+
+      {/* Top bar */}
+      <div style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid #E5E5EA', padding: '10px 20px',
+        display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ color: '#1D1D1F', fontWeight: 700, fontSize: 15,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+              {p.graph.source_name}
             </span>
-          )}
+            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, flexShrink: 0,
+              background: p.graph.parse_status === 'needs_review' ? '#FFF5E5' : '#E8F8EF',
+              color: p.graph.parse_status === 'needs_review' ? '#C27D0E' : '#1A7F4B' }}>
+              {p.graph.parse_status === 'needs_review' ? 'Needs review' : 'Ready'}
+            </span>
+          </div>
+          <div style={{ color: '#6E6E73', fontSize: 11, marginTop: 1, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ textTransform: 'capitalize' }}>{p.graph.domain.replace('_', ' ')}</span>
+            <span>·</span><span>{p.graph.steps.length} steps</span>
+            <span>·</span>
+            <span style={{ fontWeight: 500,
+              color: confPct >= 80 ? '#34C759' : confPct >= 60 ? '#FF9F0A' : '#FF3B30' }}>
+              {confPct}% confidence
+            </span>
+          </div>
         </div>
 
-        {/* AI opportunity summary chips */}
-        <div className="hidden lg:flex items-center gap-1.5 shrink-0">
-          {oppCounts.sana_agent > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 font-medium">
-              ⚡ {oppCounts.sana_agent}
-            </span>
-          )}
-          {oppCounts.workday_native > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium">
-              🔄 {oppCounts.workday_native}
-            </span>
-          )}
-          {oppCounts.partial_ai > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
-              🤖 {oppCounts.partial_ai}
-            </span>
-          )}
+        {/* Segmented control */}
+        <div style={{ display: 'flex', background: '#E5E5EA', borderRadius: 9, padding: 3, gap: 2, flexShrink: 0 }}>
+          {phases.map(ph => (
+            <button key={ph.id} onClick={() => p.setWorkPhase(ph.id)}
+              style={{ padding: '5px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600,
+                border: 'none', cursor: 'pointer', transition: 'all 0.15s', fontFamily: FONT,
+                background: p.workPhase === ph.id ? '#fff' : 'transparent',
+                color: p.workPhase === ph.id ? '#1D1D1F' : '#6E6E73',
+                boxShadow: p.workPhase === ph.id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}>
+              {ph.label}
+            </button>
+          ))}
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {p.saved && (
-            <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <span style={{ color: '#34C759', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <svg width="13" height="13" viewBox="0 0 20 20" fill="#34C759">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
               </svg>
               Saved
             </span>
           )}
-          <button
-            onClick={p.onSave}
-            disabled={!hasEdits || p.saving || p.saved}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
-              ${hasEdits && !p.saving && !p.saved
-                ? 'bg-slate-900 text-white hover:bg-slate-700 shadow-sm'
-                : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-          >
-            {p.saving ? (
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" />
-                Saving…
-              </span>
-            ) : 'Save corrections'}
-          </button>
-          <button
-            onClick={handleGenerateTobe}
-            disabled={tobeLoading}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
-              ${tobeLoading
-                ? 'bg-teal-50 text-teal-400 cursor-not-allowed'
-                : 'bg-teal-600 text-white hover:bg-teal-700 shadow-sm'}`}
-          >
-            {tobeLoading ? (
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 border border-teal-300 border-t-teal-100 rounded-full animate-spin" />
-                Generating…
-              </span>
-            ) : p.tobeGraph ? '⚡ Regenerate To-Be' : '⚡ Generate To-Be Map'}
+          <button onClick={p.onSave} disabled={!hasEdits || p.saving || p.saved}
+            style={{ padding: '7px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+              border: 'none', cursor: hasEdits && !p.saving && !p.saved ? 'pointer' : 'not-allowed',
+              background: hasEdits && !p.saving && !p.saved ? '#1D1D1F' : '#E5E5EA',
+              color: hasEdits && !p.saving && !p.saved ? '#fff' : '#C7C7CC',
+              transition: 'all 0.15s', fontFamily: FONT }}>
+            {p.saving ? 'Saving…' : 'Save corrections'}
           </button>
           <button onClick={p.onReset}
-            className="text-xs text-slate-400 hover:text-slate-600 px-2 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">
+            style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+              border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
             New upload
           </button>
         </div>
       </div>
 
-      {/* Error banner */}
-      {tobeError && (
-        <div className="shrink-0 px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-600 flex items-center gap-2">
-          <span>⚠</span> {tobeError}
-          <button onClick={() => setTobeError('')} className="ml-auto text-red-400 hover:text-red-600">×</button>
-        </div>
-      )}
-
-      {/* ── Body ──────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-
-        {/* Left: review table */}
-        {!leftCollapsed && (
-          <div className="w-[340px] shrink-0 flex flex-col border-r border-slate-100 min-h-0 bg-white">
-            {/* Panel header */}
-            <div className="shrink-0 px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Review Table</span>
-              <span className="ml-auto text-xs text-slate-400">
-                {p.graph.steps.length} steps · {p.graph.swimlanes.length} lanes
-              </span>
-            </div>
-
-            {/* Warning strip */}
-            {warnings.length > 0 && (
-              <div className="shrink-0 px-3 py-2 bg-amber-50 border-b border-amber-100 flex gap-2 items-start">
-                <span className="text-amber-500 text-sm shrink-0 mt-px">⚠</span>
-                <div>
-                  <p className="text-xs font-semibold text-amber-700">{warnings.length} low-confidence item{warnings.length > 1 ? 's' : ''}</p>
-                  {warnings.slice(0, 2).map((w, i) => (
-                    <p key={i} className="text-xs text-amber-600 truncate">{w.item_id}: {w.message}</p>
-                  ))}
-                  {warnings.length > 2 && <p className="text-xs text-amber-500">…+{warnings.length - 2} more</p>}
-                </div>
-              </div>
-            )}
-
-            {/* Edit hint */}
-            <div className="shrink-0 px-3 py-1.5 bg-blue-50 border-b border-blue-100 text-xs text-blue-600">
-              ✏ Click any step label to edit. Changes update the map live.
-            </div>
-
-            {/* Table */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <table className="w-full text-xs border-collapse">
-                <tbody>
-                  {p.graph.swimlanes.map((lane, li) => {
-                    const steps = byLane.get(lane.lane_id) ?? [];
-                    if (steps.length === 0) return null;
-                    return (
-                      <React.Fragment key={lane.lane_id}>
-                        <tr className="bg-slate-50 border-y border-slate-200 sticky top-0 z-10">
-                          <td colSpan={2} className="px-3 py-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${LANE_DOT_COLORS[li % LANE_DOT_COLORS.length]}`} />
-                              <span className="font-semibold text-slate-700 truncate">{lane.label}</span>
-                              {lane.persona && lane.persona !== lane.label && (
-                                <span className="text-slate-400 truncate text-xs">· {lane.persona}</span>
-                              )}
-                              <span className="ml-auto text-slate-400 shrink-0">{steps.length}</span>
-                            </div>
-                          </td>
-                        </tr>
-                        {steps.map(raw => {
-                          const step = getStep(raw);
-                          const warned = warnings.some(w => w.item_id === step.step_id);
-                          return <StepRow key={step.step_id} step={step} warned={warned}
-                            onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                            onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)} />;
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
-                  {unassigned.length > 0 && (
-                    <>
-                      <tr className="bg-slate-50 border-y border-slate-200">
-                        <td colSpan={2} className="px-3 py-1.5 text-slate-500 italic font-medium">Unassigned steps</td>
-                      </tr>
-                      {unassigned.map(raw => {
-                        const step = getStep(raw);
-                        return <StepRow key={step.step_id} step={step} warned={false}
-                          onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                          onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)} />;
-                      })}
-                    </>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+      {/* Phase content */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {p.workPhase === 'asis' && (
+          <AsIsPhase graph={p.graph} asIsGraph={asIsGraph}
+            oppCounts={oppCounts} aiCount={aiCount} confPct={confPct}
+            onNext={() => p.setWorkPhase('review')} />
         )}
+        {p.workPhase === 'review' && (
+          <ReviewPhase graph={p.graph}
+            stepEdits={p.stepEdits} getStep={getStep} patchStep={patchStep}
+            hasEdits={hasEdits} saving={p.saving} saved={p.saved}
+            onSave={p.onSave} onGenerateTobe={p.onGenerateTobe}
+            onBack={() => p.setWorkPhase('asis')} />
+        )}
+        {p.workPhase === 'tobe' && (
+          <ToBePhase graph={p.graph} asIsGraph={asIsGraph}
+            tobeGraph={p.tobeGraph} tobeLoading={p.tobeLoading} tobeError={p.tobeError}
+            setTobeError={p.setTobeError} onRegenerate={p.onGenerateTobe}
+            onBack={() => p.setWorkPhase('review')} />
+        )}
+      </div>
+    </div>
+  );
+}
 
-        {/* Collapse toggle */}
-        <button
-          onClick={() => setLeftCollapsed(v => !v)}
-          title={leftCollapsed ? 'Show review table' : 'Hide review table'}
-          className="shrink-0 w-6 flex items-center justify-center bg-slate-50 hover:bg-slate-100 border-r border-slate-200 text-slate-400 hover:text-slate-600 transition-colors group"
-        >
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 group-hover:scale-110 transition-transform">
-            {leftCollapsed
-              ? <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-              : <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-            }
+// ── Phase 1: As-Is ─────────────────────────────────────────────────────────────
+
+function StatBlock({ value, label, color = '#1D1D1F' }: { value: string | number; label: string; color?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 70 }}>
+      <span style={{ fontSize: 30, fontWeight: 700, color, letterSpacing: '-1px', lineHeight: 1 }}>{value}</span>
+      <span style={{ fontSize: 11, color: '#6E6E73', fontWeight: 500, textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
+    </div>
+  );
+}
+
+function AsIsPhase({ graph, asIsGraph, oppCounts, aiCount, confPct, onNext }: {
+  graph: PiGraph; asIsGraph: MapGraph;
+  oppCounts: Record<PiAiOpportunity, number>; aiCount: number; confPct: number;
+  onNext: () => void;
+}) {
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Stats */}
+      <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '18px 28px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+            <StatBlock value={graph.steps.length} label="Process steps" />
+            <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />
+            <StatBlock value={graph.swimlanes.length} label="Roles involved" />
+            <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />
+            <StatBlock value={`${confPct}%`} label="AI confidence"
+              color={confPct >= 80 ? '#34C759' : confPct >= 60 ? '#FF9F0A' : '#FF3B30'} />
+            <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />
+            <StatBlock value={aiCount} label="AI opportunities" color="#0071E3" />
+          </div>
+          {aiCount > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              {OPP_ORDER.filter(k => oppCounts[k] > 0).map(k => {
+                const def = OPP_DEFS[k];
+                return (
+                  <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+                    borderRadius: 20, background: `${def.activeBg}15`, border: `1px solid ${def.activeBg}35` }}>
+                    <span style={{ fontSize: 12 }}>{def.emoji}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: def.activeBg }}>{oppCounts[k]}</span>
+                    <span style={{ fontSize: 11, color: '#6E6E73' }}>{def.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Map */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 28px' }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: '20px 16px',
+          boxShadow: '0 1px 8px rgba(0,0,0,0.06)', display: 'inline-block', minWidth: '100%' }}>
+          <ProcessMap graph={asIsGraph} />
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div style={{ background: '#fff', borderTop: '1px solid #E5E5EA', padding: '14px 28px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div>
+          <p style={{ color: '#1D1D1F', fontSize: 14, fontWeight: 600, margin: 0 }}>
+            {aiCount > 0 ? `${aiCount} AI opportunities identified` : 'Process extracted successfully'}
+          </p>
+          <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 2 }}>
+            Review and confirm classifications before generating the To-Be map
+          </p>
+        </div>
+        <button onClick={onNext}
+          style={{ padding: '11px 22px', borderRadius: 980, fontSize: 14, fontWeight: 600,
+            border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff',
+            display: 'flex', alignItems: 'center', gap: 6, fontFamily: FONT }}
+          onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
+          onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
+          Review AI Suggestions
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
           </svg>
         </button>
+      </div>
+    </div>
+  );
+}
 
-        {/* Right: maps */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
+// ── Phase 2: Review ────────────────────────────────────────────────────────────
 
-          {/* AS-IS */}
-          <div className="shrink-0">
-            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
-              <div>
-                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Current Process</p>
-                <p className="text-xs text-slate-400">{p.graph.source_name}</p>
-              </div>
-              <div className="ml-auto">
-                <MapLegend />
-              </div>
-            </div>
-            <div className="p-4 overflow-x-auto bg-white">
-              <ProcessMap graph={asIsGraph} />
-            </div>
+function ReviewPhase({ graph, stepEdits, getStep, patchStep, hasEdits, saving, saved, onSave, onGenerateTobe, onBack }: {
+  graph: PiGraph;
+  stepEdits: Record<string, Partial<PiStep>>;
+  getStep: (s: PiStep) => PiStep;
+  patchStep: (id: string, field: keyof PiStep, value: unknown) => void;
+  hasEdits: boolean; saving: boolean; saved: boolean;
+  onSave: () => void; onGenerateTobe: () => void; onBack: () => void;
+}) {
+  const laneMap = new Map(graph.swimlanes.map(l => [l.lane_id, l]));
+  const byLane = new Map<string, PiStep[]>();
+  const unassigned: PiStep[] = [];
+  for (const s of graph.steps) {
+    if (s.lane_id && laneMap.has(s.lane_id)) {
+      const arr = byLane.get(s.lane_id) ?? []; arr.push(s); byLane.set(s.lane_id, arr);
+    } else unassigned.push(s);
+  }
+
+  const oppCounts: Record<PiAiOpportunity, number> = { sana_agent: 0, workday_native: 0, partial_ai: 0, human_only: 0 };
+  for (const s of graph.steps) {
+    const opp = (stepEdits[s.step_id]?.ai_opportunity ?? s.ai_opportunity) ?? 'human_only';
+    if (opp in oppCounts) oppCounts[opp as PiAiOpportunity]++;
+  }
+
+  const LANE_COLORS = ['#0071E3', '#34C759', '#FF9F0A', '#AF52DE', '#FF2D55', '#5AC8FA', '#5E5CE6'];
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Summary header */}
+      <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '14px 28px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ color: '#1D1D1F', fontSize: 15, fontWeight: 700, margin: 0 }}>AI Opportunity Review</p>
+            <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 2 }}>
+              Confirm or adjust each step's classification. Click any label to rename it.
+            </p>
           </div>
-
-          {/* Transformation divider */}
-          {(p.tobeGraph || tobeLoading) && (
-            <div className="shrink-0 relative">
-              <div className="absolute inset-0 flex items-center px-4">
-                <div className="w-full h-px bg-gradient-to-r from-slate-200 via-teal-300 to-slate-200" />
-              </div>
-              <div className="relative flex justify-center py-3">
-                <span className="px-4 py-1 bg-white border border-teal-200 rounded-full text-xs font-semibold text-teal-700 shadow-sm">
-                  ⚡ AI Transformation
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* TO-BE loading */}
-          {tobeLoading && (
-            <div className="shrink-0 flex flex-col items-center gap-4 py-14 bg-gradient-to-b from-teal-50/50 to-white">
-              <div className="w-10 h-10 border-[3px] border-teal-100 border-t-teal-500 rounded-full animate-spin" />
-              <div className="text-center">
-                <p className="text-sm font-semibold text-slate-700">Generating To-Be Process Map</p>
-                <p className="text-xs text-slate-400 mt-1">Redesigning your process for the Sana-enabled future state…</p>
-              </div>
-            </div>
-          )}
-
-          {/* TO-BE map */}
-          {!tobeLoading && p.tobeGraph && (
-            <div className="shrink-0">
-              {/* To-be header */}
-              <div className="px-4 py-3 bg-gradient-to-r from-teal-50 to-white border-b border-teal-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide">To-Be Process</p>
-                  <span className="text-xs text-teal-500">· AI-enabled future state</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {OPP_ORDER.filter(k => oppCounts[k] > 0).map(k => {
+              const def = OPP_DEFS[k];
+              return (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px',
+                  borderRadius: 20, background: `${def.activeBg}15`, border: `1px solid ${def.activeBg}35` }}>
+                  <span style={{ fontSize: 12 }}>{def.emoji}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: def.activeBg }}>{oppCounts[k]}</span>
                 </div>
-                {p.tobeGraph.transformation_summary && (
-                  <p className="text-xs text-slate-600 leading-relaxed mb-2.5">
-                    {p.tobeGraph.transformation_summary}
-                  </p>
-                )}
-                {p.tobeGraph.ai_stats && (
-                  <div className="flex flex-wrap gap-2">
-                    {p.tobeGraph.ai_stats.steps_automated != null && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-100 text-teal-800 text-xs font-semibold">
-                        ⚡ {p.tobeGraph.ai_stats.steps_automated} steps automated by Sana
-                      </span>
-                    )}
-                    {p.tobeGraph.ai_stats.steps_assisted != null && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">
-                        🤖 {p.tobeGraph.ai_stats.steps_assisted} AI-assisted
-                      </span>
-                    )}
-                    {p.tobeGraph.ai_stats.steps_unchanged != null && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
-                        👤 {p.tobeGraph.ai_stats.steps_unchanged} human-only
-                      </span>
-                    )}
-                    {p.tobeGraph.ai_stats.cycle_time_reduction_pct != null && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-100 text-green-800 text-xs font-semibold">
-                        ⏱ ~{p.tobeGraph.ai_stats.cycle_time_reduction_pct}% cycle time reduction
-                      </span>
-                    )}
-                  </div>
-                )}
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Cards list */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 28px' }}>
+        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {graph.swimlanes.map((lane, li) => {
+            const steps = byLane.get(lane.lane_id) ?? [];
+            if (steps.length === 0) return null;
+            const laneColor = LANE_COLORS[li % LANE_COLORS.length];
+            return (
+              <div key={lane.lane_id}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: laneColor, flexShrink: 0 }} />
+                  <span style={{ color: '#1D1D1F', fontSize: 14, fontWeight: 700 }}>{lane.label}</span>
+                  {lane.persona && lane.persona !== lane.label && (
+                    <span style={{ color: '#6E6E73', fontSize: 12 }}>· {lane.persona}</span>
+                  )}
+                  <div style={{ flex: 1, height: 1, background: '#E5E5EA', marginLeft: 4 }} />
+                  <span style={{ color: '#6E6E73', fontSize: 12, flexShrink: 0 }}>
+                    {steps.length} step{steps.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {steps.map(raw => {
+                    const step = getStep(raw);
+                    const warned = (graph.parse_warnings ?? []).some(w => w.item_id === step.step_id);
+                    return (
+                      <OpportunityCard key={step.step_id} step={step} warned={warned} laneColor={laneColor}
+                        onLabelChange={v => patchStep(step.step_id, 'label', v)}
+                        onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)} />
+                    );
+                  })}
+                </div>
               </div>
-              <div className="px-4 py-2 border-b border-slate-100 bg-white">
-                <MapLegend />
+            );
+          })}
+          {unassigned.length > 0 && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#C7C7CC', flexShrink: 0 }} />
+                <span style={{ color: '#8E8E93', fontSize: 14, fontWeight: 700, fontStyle: 'italic' }}>Unassigned</span>
+                <div style={{ flex: 1, height: 1, background: '#E5E5EA', marginLeft: 4 }} />
               </div>
-              <div className="p-4 overflow-x-auto bg-white">
-                <ProcessMap graph={tobeToMapGraph(p.tobeGraph)} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {unassigned.map(raw => {
+                  const step = getStep(raw);
+                  return <OpportunityCard key={step.step_id} step={step} warned={false} laneColor="#C7C7CC"
+                    onLabelChange={v => patchStep(step.step_id, 'label', v)}
+                    onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)} />;
+                })}
               </div>
             </div>
           )}
+        </div>
+      </div>
 
-          {/* Empty to-be prompt */}
-          {!tobeLoading && !p.tobeGraph && (
-            <div className="shrink-0 flex flex-col items-center gap-2 py-10">
-              <p className="text-xs text-slate-400">
-                Save your corrections, then click{' '}
-                <span className="font-semibold text-teal-600">⚡ Generate To-Be Map</span>{' '}
-                to see the AI-enabled future state
-              </p>
-            </div>
+      {/* CTA bar */}
+      <div style={{ background: '#fff', borderTop: '1px solid #E5E5EA', padding: '14px 28px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <button onClick={onBack}
+          style={{ padding: '9px 16px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+            border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#6E6E73',
+            display: 'flex', alignItems: 'center', gap: 5, fontFamily: FONT }}>
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+          As-Is
+        </button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {saved && <span style={{ color: '#34C759', fontSize: 12, fontWeight: 600 }}>✓ Saved</span>}
+          {hasEdits && !saved && (
+            <button onClick={onSave} disabled={saving}
+              style={{ padding: '9px 18px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+                border: 'none', cursor: 'pointer', background: '#1D1D1F', color: '#fff', fontFamily: FONT }}>
+              {saving ? 'Saving…' : 'Save corrections'}
+            </button>
           )}
-
+          <button onClick={onGenerateTobe}
+            style={{ padding: '11px 22px', borderRadius: 980, fontSize: 14, fontWeight: 600,
+              border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff',
+              display: 'flex', alignItems: 'center', gap: 6, fontFamily: FONT }}
+            onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
+            onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
+            Generate To-Be Map ⚡
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Step row ───────────────────────────────────────────────────────────────────
+// ── Opportunity card ───────────────────────────────────────────────────────────
 
-function StepRow({ step, warned, onLabelChange, onAiChange }: {
-  step: PiStep; warned: boolean;
-  onLabelChange: (v: string) => void;
-  onAiChange: (v: PiAiOpportunity) => void;
+function OpportunityCard({ step, warned, laneColor, onLabelChange, onAiChange }: {
+  step: PiStep; warned: boolean; laneColor: string;
+  onLabelChange: (v: string) => void; onAiChange: (v: PiAiOpportunity) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft]     = useState(step.label);
-  const confPct = Math.round(step.parse_confidence * 100);
   const opp = step.ai_opportunity;
-  const meta = opp ? AI_OPP_META[opp] : null;
+  const confPct = Math.round(step.parse_confidence * 100);
+
+  function commit() {
+    setEditing(false);
+    if (draft.trim() && draft.trim() !== step.label) onLabelChange(draft.trim());
+  }
 
   return (
-    <tr className={`border-b border-slate-100 align-top transition-colors
-      ${warned ? 'bg-amber-50 hover:bg-amber-50' : 'hover:bg-slate-50'}`}>
-
-      {/* Step label */}
-      <td className="px-3 py-2 w-[180px]">
-        {editing ? (
-          <input autoFocus value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={() => { setEditing(false); onLabelChange(draft); }}
-            onKeyDown={e => { if (e.key === 'Enter') { setEditing(false); onLabelChange(draft); } if (e.key === 'Escape') { setEditing(false); setDraft(step.label); } }}
-            className="w-full border border-blue-300 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white shadow-sm"
-          />
-        ) : (
-          <div onClick={() => { setDraft(step.label); setEditing(true); }}
-            className="cursor-pointer group">
-            <div className="flex items-start gap-1">
-              {warned && <span className="text-amber-500 shrink-0 text-xs mt-px">!</span>}
-              <span className="text-xs text-slate-700 group-hover:text-slate-900 leading-snug">
-                {step.label}
-              </span>
-            </div>
-            {step.ai_rationale && (
-              <p className="text-slate-400 mt-0.5 leading-snug line-clamp-2" style={{ fontSize: '10px' }}>
-                {step.ai_rationale}
-              </p>
-            )}
-          </div>
-        )}
-      </td>
-
-      {/* AI opportunity + confidence */}
-      <td className="px-2 py-2">
-        <select
-          value={opp ?? ''}
-          onChange={e => { if (e.target.value) onAiChange(e.target.value as PiAiOpportunity); }}
-          className={`w-full rounded-md px-1.5 py-1 text-xs font-medium focus:outline-none cursor-pointer border transition-colors ${
-            meta ? meta.pill : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-        >
-          <option value="">— unclassified —</option>
-          {(Object.keys(AI_OPP_META) as PiAiOpportunity[]).map(k => (
-            <option key={k} value={k}>{AI_OPP_META[k].label}</option>
-          ))}
-        </select>
-        <div className="flex justify-end mt-1">
-          <span className={`text-xs tabular-nums ${
-            confPct >= 80 ? 'text-green-500' : confPct >= 60 ? 'text-amber-500' : 'text-red-500'}`}>
+    <div style={{ background: '#fff', borderRadius: 14, padding: '16px 18px',
+      boxShadow: warned ? '0 0 0 2px #FF9F0A40, 0 1px 6px rgba(0,0,0,0.05)' : '0 1px 6px rgba(0,0,0,0.05)',
+      transition: 'box-shadow 0.15s' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+        {/* Lane accent bar */}
+        <div style={{ width: 4, borderRadius: 2, alignSelf: 'stretch', background: laneColor, flexShrink: 0, minHeight: 36 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editing ? (
+            <input autoFocus value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setDraft(step.label); } }}
+              style={{ width: '100%', border: '2px solid #0071E3', borderRadius: 8, padding: '4px 8px',
+                fontSize: 15, fontWeight: 600, color: '#1D1D1F', outline: 'none', fontFamily: FONT,
+                background: '#F0F8FF' }} />
+          ) : (
+            <p onClick={() => { setDraft(step.label); setEditing(true); }}
+              style={{ color: '#1D1D1F', fontSize: 15, fontWeight: 600, cursor: 'text', lineHeight: 1.3,
+                margin: 0, padding: '2px 0', borderRadius: 4 }}
+              title="Click to edit">
+              {warned && <span style={{ color: '#FF9F0A', marginRight: 6 }}>!</span>}
+              {step.label}
+            </p>
+          )}
+          {step.ai_rationale && (
+            <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 4, lineHeight: 1.5, margin: '4px 0 0' }}>
+              {step.ai_rationale}
+            </p>
+          )}
+        </div>
+        {/* Confidence */}
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700,
+            color: confPct >= 80 ? '#34C759' : confPct >= 60 ? '#FF9F0A' : '#FF3B30' }}>
             {confPct}%
           </span>
+          <div style={{ width: 44, height: 3, borderRadius: 2, background: '#F5F5F7', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${confPct}%`, borderRadius: 2,
+              background: confPct >= 80 ? '#34C759' : confPct >= 60 ? '#FF9F0A' : '#FF3B30' }} />
+          </div>
         </div>
-      </td>
-    </tr>
+      </div>
+
+      {/* Chip selectors */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {OPP_ORDER.map(k => {
+          const def = OPP_DEFS[k];
+          const active = opp === k;
+          return (
+            <button key={k} onClick={() => onAiChange(k)}
+              style={{ padding: '6px 13px', borderRadius: 980, fontSize: 12, fontWeight: 600,
+                border: active ? 'none' : '1px solid #E5E5EA', cursor: 'pointer', transition: 'all 0.15s',
+                background: active ? def.activeBg : '#F5F5F7',
+                color: active ? def.activeText : '#6E6E73', fontFamily: FONT }}>
+              {def.emoji} {def.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Phase 3: To-Be ─────────────────────────────────────────────────────────────
+
+function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTobeError, onRegenerate, onBack }: {
+  graph: PiGraph; asIsGraph: MapGraph;
+  tobeGraph: PiTobeGraph | null; tobeLoading: boolean; tobeError: string;
+  setTobeError: (e: string) => void; onRegenerate: () => void; onBack: () => void;
+}) {
+  const tobeMapGraph = tobeGraph ? tobeToMapGraph(tobeGraph) : null;
+  const stats = tobeGraph?.ai_stats;
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {tobeError && (
+        <div style={{ background: '#FFF0F0', borderBottom: '1px solid #FFD5D5', padding: '10px 28px',
+          display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ color: '#FF3B30' }}>⚠</span>
+          <span style={{ color: '#FF3B30', fontSize: 13 }}>{tobeError}</span>
+          <button onClick={() => setTobeError('')}
+            style={{ marginLeft: 'auto', color: '#FF3B30', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 }}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {tobeLoading ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+          <style>{`@keyframes pi-spin2 { to { transform: rotate(360deg) } }`}</style>
+          <div style={{ width: 52, height: 52, border: '3px solid #E5E5EA', borderTopColor: '#0071E3',
+            borderRadius: '50%', animation: 'pi-spin2 0.9s linear infinite' }} />
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 700, margin: 0 }}>Generating To-Be Process</p>
+            <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 6 }}>
+              Redesigning your process for the Sana-enabled future state…
+            </p>
+          </div>
+        </div>
+      ) : !tobeMapGraph && !tobeError ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40, textAlign: 'center' }}>
+          <span style={{ fontSize: 48 }}>⚡</span>
+          <div>
+            <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 700, margin: 0 }}>Ready to generate</p>
+            <p style={{ color: '#6E6E73', fontSize: 14, marginTop: 6 }}>
+              Generate the Sana-enabled To-Be process map based on your AI classifications.
+            </p>
+          </div>
+          <button onClick={onRegenerate}
+            style={{ padding: '13px 28px', borderRadius: 980, fontSize: 15, fontWeight: 600,
+              border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff', marginTop: 8, fontFamily: FONT }}
+            onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
+            onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
+            Generate To-Be Map ⚡
+          </button>
+        </div>
+      ) : tobeMapGraph && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          {/* Stats */}
+          {stats && (
+            <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '18px 28px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+                  {stats.steps_automated != null && <StatBlock value={stats.steps_automated} label="Steps by Sana" color="#0d9488" />}
+                  {stats.steps_automated != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
+                  {stats.steps_assisted != null && <StatBlock value={stats.steps_assisted} label="AI-assisted" color="#0071E3" />}
+                  {stats.steps_assisted != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
+                  {stats.steps_unchanged != null && <StatBlock value={stats.steps_unchanged} label="Human-only" color="#6E6E73" />}
+                  {stats.steps_unchanged != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
+                  {stats.cycle_time_reduction_pct != null && (
+                    <StatBlock value={`~${stats.cycle_time_reduction_pct}%`} label="Cycle time saved" color="#34C759" />
+                  )}
+                </div>
+                <button onClick={onRegenerate}
+                  style={{ padding: '8px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+                    border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#1D1D1F',
+                    flexShrink: 0, fontFamily: FONT }}>
+                  ↺ Regenerate
+                </button>
+              </div>
+              {tobeGraph?.transformation_summary && (
+                <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 12, lineHeight: 1.6, maxWidth: 680 }}>
+                  {tobeGraph.transformation_summary}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Maps */}
+          <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Before */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ width: 3, height: 14, borderRadius: 2, background: '#C7C7CC' }} />
+                <span style={{ color: '#8E8E93', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Before · {graph.source_name}
+                </span>
+              </div>
+              <div style={{ background: '#fff', borderRadius: 16, padding: '16px 12px',
+                boxShadow: '0 1px 6px rgba(0,0,0,0.04)', opacity: 0.65, overflowX: 'auto', display: 'inline-block', minWidth: '100%' }}>
+                <ProcessMap graph={asIsGraph} />
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ flex: 1, height: 1, background: 'linear-gradient(to right, #E5E5EA, #0071E3)' }} />
+              <div style={{ padding: '6px 16px', borderRadius: 980, background: '#0071E3',
+                color: '#fff', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                ⚡ AI Transformation
+              </div>
+              <div style={{ flex: 1, height: 1, background: 'linear-gradient(to left, #E5E5EA, #0071E3)' }} />
+            </div>
+
+            {/* After */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ width: 3, height: 14, borderRadius: 2, background: '#0071E3' }} />
+                <span style={{ color: '#0071E3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  After · Sana-enabled
+                </span>
+              </div>
+              <div style={{ background: '#fff', borderRadius: 16, padding: '16px 12px',
+                boxShadow: '0 2px 12px rgba(0,113,227,0.08)', overflowX: 'auto', display: 'inline-block', minWidth: '100%' }}>
+                <ProcessMap graph={tobeMapGraph} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!tobeLoading && (
+        <div style={{ background: '#fff', borderTop: '1px solid #E5E5EA', padding: '14px 28px', flexShrink: 0 }}>
+          <button onClick={onBack}
+            style={{ padding: '9px 16px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+              border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#6E6E73',
+              display: 'flex', alignItems: 'center', gap: 5, fontFamily: FONT }}>
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+            AI Review
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
