@@ -91,10 +91,11 @@ function topoColumns(
 
 // ── Shape renderers ────────────────────────────────────────────────────────────
 function StepBox({
-  x, y, label, stepType, aiOpp, tooltip, idx,
+  x, y, label, stepType, aiOpp, tooltip, idx, onClick,
 }: {
   x: number; y: number; label: string; stepType?: string | null;
   aiOpp?: string | null; tooltip?: string | null; idx: number;
+  onClick?: () => void;
 }) {
   const s = OPP[aiOpp ?? ''] ?? OPP_DEFAULT;
   const lines = wrapText(label);
@@ -102,13 +103,14 @@ function StepBox({
   const lineH = 14;
   const totalH = lines.length * lineH;
   const textY0 = y + STEP_H / 2 - totalH / 2 + lineH / 2;
+  const cursor = onClick ? 'pointer' : undefined;
 
   if (isDec) {
     // Diamond shape
     const cx = x + STEP_W / 2, cy = y + STEP_H / 2;
     const pts = `${cx},${y} ${x + STEP_W},${cy} ${cx},${y + STEP_H} ${x},${cy}`;
     return (
-      <g>
+      <g onClick={onClick} style={{ cursor }}>
         <polygon points={pts} fill={s.fill} stroke={s.stroke} strokeWidth={1.5} />
         {lines.map((ln, i) => (
           <text key={i} x={cx} y={textY0 + i * lineH}
@@ -124,7 +126,7 @@ function StepBox({
 
   // Standard rounded rectangle
   return (
-    <g>
+    <g onClick={onClick} style={{ cursor }}>
       <rect x={x} y={y} width={STEP_W} height={STEP_H} rx={6} ry={6}
         fill={s.fill} stroke={s.stroke} strokeWidth={1.5} />
       {/* Top-left step index badge */}
@@ -152,7 +154,7 @@ function StepBox({
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export function ProcessMap({ graph }: { graph: MapGraph }) {
+export function ProcessMap({ graph, onStepClick }: { graph: MapGraph; onStepClick?: (stepId: string) => void }) {
   const uid = useId().replace(/:/g, '_');
 
   const layout = useMemo(() => {
@@ -340,6 +342,7 @@ export function ProcessMap({ graph }: { graph: MapGraph }) {
                 aiOpp={step.ai_opportunity}
                 tooltip={step.tooltip}
                 idx={idx}
+                onClick={onStepClick ? () => onStepClick(step.step_id) : undefined}
               />
             </g>
           );

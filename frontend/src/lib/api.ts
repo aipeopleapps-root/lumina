@@ -598,6 +598,59 @@ export interface PiTobeGraph {
   connectors: PiTobeConnector[];
 }
 
+export interface PiIntervention {
+  intervention_id: string;
+  title: string;
+  impact: 'medium' | 'high';
+  description: string;
+  replaces_step_ids: string[];
+}
+
+export interface PiRecommendations {
+  intro: string;
+  interventions: PiIntervention[];
+}
+
+export interface PiAgentTool {
+  name: string;
+  purpose: string;
+}
+
+export interface PiAgent {
+  agent_id: string;
+  name: string;
+  description: string | null;
+  model: string | null;
+  tools: PiAgentTool[];
+  replaces_step_ids: string[];
+  lld_status: 'not_generated' | 'generating' | 'done' | 'failed';
+  lld_markdown: string | null;
+  lld_error: string | null;
+}
+
+export interface PiPlanTask {
+  task_id: string;
+  phase: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  dependencies: string[];
+  is_milestone: boolean;
+  is_phase_header: boolean;
+}
+
+export interface PiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  ts: string;
+}
+
+export interface PiPlan {
+  plan_id: string | null;
+  tasks: PiPlanTask[];
+  chat_history: PiChatMessage[];
+}
+
 /** Step 1: get a presigned PUT URL + create Aurora record. */
 export async function uploadProcessDiagram(params: {
   filename: string;
@@ -680,11 +733,35 @@ export async function getProcessGraph(processId: string): Promise<PiGraph> {
   return res.json();
 }
 
-/** Generate (or regenerate) a to-be process map via Bedrock. */
-export async function generateTobeGraph(processId: string): Promise<PiTobeGraph> {
+/** "Apply & Generate": build the Agentic Workflow graph + proposed agents from selected recommendations. */
+export async function applyRecommendationsAndGenerate(
+  processId: string,
+  params: { selected_intervention_ids: string[]; additional_directions?: string }
+): Promise<{ tobe: PiTobeGraph; proposed_agents: PiAgent[] }> {
   const token = await getAuthToken();
   const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/tobe`, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Agentic workflow generation failed');
+  }
+  const data = await res.json();
+  return { tobe: data.tobe as PiTobeGraph, proposed_agents: (data.proposed_agents ?? []) as PiAgent[] };
+}
+
+/** Refetch the last-generated Agentic Workflow graph + agents without regenerating. */
+export async function getTobeGraphAndAgents(
+  processId: string
+): Promise<{ tobe: PiTobeGraph | null; proposed_agents: PiAgent[] }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/tobe`, {
     headers: {
       Authorization: `Bearer ${token}`,
       ...clientTenantHeaders(),
@@ -692,10 +769,10 @@ export async function generateTobeGraph(processId: string): Promise<PiTobeGraph>
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'To-be generation failed');
+    throw new Error(err.error || 'Agentic workflow fetch failed');
   }
   const data = await res.json();
-  return data.tobe as PiTobeGraph;
+  return { tobe: (data.tobe ?? null) as PiTobeGraph | null, proposed_agents: (data.proposed_agents ?? []) as PiAgent[] };
 }
 
 /** Apply consultant corrections to the parsed graph. */
@@ -717,4 +794,126 @@ export async function patchProcessGraph(
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Patch failed');
   }
+}
+
+/** Fetch the last-generated AI Recommendations list, if any. */
+export async function getRecommendations(processId: string): Promise<PiRecommendations | null> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/recommendations`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Recommendations fetch failed');
+  }
+  const data = await res.json();
+  return (data.recommendations ?? null) as PiRecommendations | null;
+}
+
+/** Generate (or regenerate) the grouped AI Recommendations list via Bedrock. */
+export async function generateRecommendations(processId: string): Promise<PiRecommendations> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/recommendations`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Recommendations generation failed');
+  }
+  const data = await res.json();
+  return data.recommendations as PiRecommendations;
+}
+
+/** Kick off async Agent Design (LLD) document generation for one proposed agent. */
+export async function triggerAgentLld(processId: string, agentId: string): Promise<{ agent_id: string; status: string }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/agents/${agentId}/lld`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'LLD generation trigger failed');
+  }
+  return res.json();
+}
+
+/** Poll Agent Design (LLD) document generation status/result. */
+export async function getAgentLld(processId: string, agentId: string): Promise<PiAgent> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/agents/${agentId}/lld`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'LLD status fetch failed');
+  }
+  return res.json();
+}
+
+/** Fetch the current AI Planning Assistant plan for a process, if any. */
+export async function getPlan(processId: string): Promise<PiPlan> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/plan`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Plan fetch failed');
+  }
+  return res.json();
+}
+
+/** Send a natural-language instruction to the AI Planning Assistant (chat or "Update plan"). */
+export async function updatePlanWithInstruction(processId: string, instruction: string): Promise<PiPlan> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+    body: JSON.stringify({ instruction }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Plan update failed');
+  }
+  return res.json();
+}
+
+/** Directly save a manually-edited task list (no Bedrock call). */
+export async function savePlanTasks(processId: string, tasks: PiPlanTask[]): Promise<PiPlan> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...clientTenantHeaders(),
+    },
+    body: JSON.stringify({ tasks }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Plan save failed');
+  }
+  return res.json();
 }

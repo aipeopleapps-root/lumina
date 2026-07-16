@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  generateTobeGraph,
   getGraphStatus,
   getProcessGraph,
+  getTobeGraphAndAgents,
+  applyRecommendationsAndGenerate,
   patchProcessGraph,
   putFileToS3,
   triggerParseDiagram,
   uploadProcessDiagram,
+  type PiAgent,
   type PiAiOpportunity,
   type PiDomain,
   type PiGraph,
@@ -16,6 +18,10 @@ import {
   type PiTobeGraph,
 } from '../lib/api';
 import { ProcessMap, type MapGraph } from './ProcessMap';
+import { AiRecommendationsPanel } from './AiRecommendationsPanel';
+import { AgentDesignDoc } from './AgentDesignDoc';
+import { PlanningAssistant } from './PlanningAssistant';
+import { downloadBlob } from '../lib/download';
 
 // ── Design tokens (Apple-inspired) ────────────────────────────────────────────
 // bg: #F5F5F7  card: #FFFFFF  text: #1D1D1F  secondary: #6E6E73
@@ -80,7 +86,7 @@ function tobeToMapGraph(tobe: PiTobeGraph): MapGraph {
 // ── Root ───────────────────────────────────────────────────────────────────────
 
 type LoadPhase = 'upload' | 'uploading' | 'parsing' | 'error';
-type WorkPhase = 'asis' | 'review' | 'tobe';
+type WorkPhase = 'asis' | 'agentic';
 
 export default function ProcessIntelligence({
   clientName, initialFile, initialDomain, onBack,
@@ -103,9 +109,16 @@ export default function ProcessIntelligence({
   const [laneEdits, setLaneEditsRaw]  = useState<Record<string, { label?: string; persona?: string }>>({});
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
-  const [tobeGraph, setTobeGraph]     = useState<PiTobeGraph | null>(null);
-  const [tobeLoading, setTobeLoading] = useState(false);
-  const [tobeError, setTobeError]     = useState('');
+
+  const [agenticGraph, setAgenticGraph]   = useState<PiTobeGraph | null>(null);
+  const [agents, setAgents]               = useState<PiAgent[]>([]);
+  const [agenticLoading, setAgenticLoading] = useState(false);
+  const [agenticError, setAgenticError]   = useState('');
+
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  const [showPlan, setShowPlan]           = useState(false);
+  const [viewingAgentId, setViewingAgentId] = useState<string | null>(null);
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopPolling = () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
@@ -136,6 +149,21 @@ export default function ProcessIntelligence({
       }
     }, 3000);
   }, []);
+
+  // Once a graph is available, silently check for a previously-generated
+  // agentic workflow so revisiting the process doesn't lose it.
+  useEffect(() => {
+    if (!graph || graph.parse_status === 'parsing') return;
+    (async () => {
+      try {
+        const result = await getTobeGraphAndAgents(graph.process_id);
+        if (result.tobe) setAgenticGraph(result.tobe);
+        if (result.proposed_agents.length) setAgents(result.proposed_agents);
+      } catch {
+        // Non-fatal — the Agentic Workflow tab just starts gated/empty.
+      }
+    })();
+  }, [graph?.process_id]);
 
   async function handleUpload() {
     if (!file) return;
@@ -179,24 +207,28 @@ export default function ProcessIntelligence({
     }
   }
 
-  async function handleGenerateTobe() {
-    if (!graph) return;
-    setTobeLoading(true); setTobeError(''); setWorkPhase('tobe');
-    try {
-      const result = await generateTobeGraph(graph.process_id);
-      setTobeGraph(result);
-    } catch (err: any) {
-      setTobeError(err.message || 'Generation failed');
-    } finally {
-      setTobeLoading(false);
-    }
+  function handleRecommendationsApplied(result: { tobe: PiTobeGraph; proposed_agents: PiAgent[] }) {
+    setAgenticGraph(result.tobe);
+    setAgents(result.proposed_agents);
+    setAgenticError('');
+    setShowRecommendations(false);
+    setWorkPhase('agentic');
+  }
+
+  function handleExportDiagram(svgGraph: MapGraph, name: string) {
+    // Minimal client-side export of the current diagram's data as a JSON
+    // description — there is no server-side rendering pipeline for this yet.
+    downloadBlob(`${name}.json`, JSON.stringify(svgGraph, null, 2), 'application/json');
   }
 
   function reset() {
     stopPolling();
     setLoadPhase('upload'); setFile(null); setErrorMsg('');
     setGraph(null); setStepEditsRaw({}); setLaneEditsRaw({});
-    setSaved(false); setTobeGraph(null); setWorkPhase('asis');
+    setSaved(false);
+    setAgenticGraph(null); setAgents([]); setAgenticError('');
+    setShowRecommendations(false); setShowPlan(false); setViewingAgentId(null);
+    setWorkPhase('asis');
   }
 
   const autoStarted = useRef(false);
@@ -209,6 +241,20 @@ export default function ProcessIntelligence({
 
   // ── Render ──────────────────────────────────────────────────────────────────
   if (loadPhase !== 'error' && graph) {
+    if (showPlan) {
+      return <PlanningAssistant processId={graph.process_id} onBack={() => setShowPlan(false)} />;
+    }
+    if (viewingAgentId) {
+      const agent = agents.find(a => a.agent_id === viewingAgentId);
+      return (
+        <AgentDesignDoc
+          processId={graph.process_id}
+          agentId={viewingAgentId}
+          agentName={agent?.name ?? 'Agent'}
+          onBack={() => setViewingAgentId(null)}
+        />
+      );
+    }
     return (
       <WorkspaceScreen
         graph={graph}
@@ -217,9 +263,14 @@ export default function ProcessIntelligence({
         laneEdits={laneEdits} setLaneEdits={setLaneEdits}
         saving={saving} saved={saved} onSave={handleSave}
         onReset={reset}
-        tobeGraph={tobeGraph} tobeLoading={tobeLoading} tobeError={tobeError}
-        onGenerateTobe={handleGenerateTobe}
-        setTobeError={setTobeError}
+        agenticGraph={agenticGraph} agents={agents}
+        agenticLoading={agenticLoading} agenticError={agenticError}
+        showRecommendations={showRecommendations} setShowRecommendations={setShowRecommendations}
+        onRecommendationsApplied={handleRecommendationsApplied}
+        onOpenAgent={setViewingAgentId}
+        onOpenPlan={() => setShowPlan(true)}
+        onExportDiagram={handleExportDiagram}
+        editingStepId={editingStepId} setEditingStepId={setEditingStepId}
         clientName={clientName}
         onBack={onBack}
       />
@@ -407,8 +458,14 @@ interface WorkspaceProps {
   stepEdits: Record<string, Partial<PiStep>>; setStepEdits: (e: Record<string, Partial<PiStep>>) => void;
   laneEdits: Record<string, { label?: string; persona?: string }>; setLaneEdits: (e: Record<string, { label?: string; persona?: string }>) => void;
   saving: boolean; saved: boolean; onSave: () => void; onReset: () => void;
-  tobeGraph: PiTobeGraph | null; tobeLoading: boolean; tobeError: string;
-  onGenerateTobe: () => void; setTobeError: (e: string) => void;
+  agenticGraph: PiTobeGraph | null; agents: PiAgent[];
+  agenticLoading: boolean; agenticError: string;
+  showRecommendations: boolean; setShowRecommendations: (v: boolean) => void;
+  onRecommendationsApplied: (result: { tobe: PiTobeGraph; proposed_agents: PiAgent[] }) => void;
+  onOpenAgent: (agentId: string) => void;
+  onOpenPlan: () => void;
+  onExportDiagram: (graph: MapGraph, name: string) => void;
+  editingStepId: string | null; setEditingStepId: (id: string | null) => void;
   clientName?: string;
   onBack?: () => void;
 }
@@ -429,12 +486,9 @@ function WorkspaceScreen(p: WorkspaceProps) {
   const aiCount = oppCounts.sana_agent + oppCounts.workday_native + oppCounts.partial_ai;
   const confPct = Math.round((p.graph.parse_confidence ?? 0) * 100);
   const asIsGraph = piGraphToMapGraph(p.graph, p.stepEdits);
+  const agenticUnlocked = p.agents.length > 0;
 
-  const phases: { id: WorkPhase; label: string }[] = [
-    { id: 'asis',   label: 'As-Is'    },
-    { id: 'review', label: 'AI Review' },
-    { id: 'tobe',   label: 'To-Be'    },
-  ];
+  const editingStep = p.editingStepId ? p.graph.steps.find(s => s.step_id === p.editingStepId) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#F5F5F7', fontFamily: FONT, overflow: 'hidden' }}>
@@ -467,74 +521,180 @@ function WorkspaceScreen(p: WorkspaceProps) {
           </div>
         </div>
 
-        {/* Segmented control */}
-        <div style={{ display: 'flex', background: '#E5E5EA', borderRadius: 9, padding: 3, gap: 2, flexShrink: 0 }}>
-          {phases.map(ph => (
-            <button key={ph.id} onClick={() => p.setWorkPhase(ph.id)}
-              style={{ padding: '5px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600,
-                border: 'none', cursor: 'pointer', transition: 'all 0.15s', fontFamily: FONT,
-                background: p.workPhase === ph.id ? '#fff' : 'transparent',
-                color: p.workPhase === ph.id ? '#1D1D1F' : '#6E6E73',
-                boxShadow: p.workPhase === ph.id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}>
-              {ph.label}
-            </button>
-          ))}
+        {/* Underlined tabs */}
+        <div style={{ display: 'flex', gap: 22, flexShrink: 0, alignSelf: 'stretch', alignItems: 'flex-end' }}>
+          <TabButton label="As-Is Process Flow" active={p.workPhase === 'asis'} onClick={() => p.setWorkPhase('asis')} />
+          <TabButton label="Agentic Workflow" active={p.workPhase === 'agentic'}
+            disabled={!agenticUnlocked}
+            onClick={() => agenticUnlocked && p.setWorkPhase('agentic')} />
         </div>
 
         {/* Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {p.saved && (
-            <span style={{ color: '#34C759', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-              <svg width="13" height="13" viewBox="0 0 20 20" fill="#34C759">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Saved
-            </span>
-          )}
-          <button onClick={p.onSave} disabled={!hasEdits || p.saving || p.saved}
-            style={{ padding: '7px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
-              border: 'none', cursor: hasEdits && !p.saving && !p.saved ? 'pointer' : 'not-allowed',
-              background: hasEdits && !p.saving && !p.saved ? '#1D1D1F' : '#E5E5EA',
-              color: hasEdits && !p.saving && !p.saved ? '#fff' : '#C7C7CC',
-              transition: 'all 0.15s', fontFamily: FONT }}>
-            {p.saving ? 'Saving…' : 'Save corrections'}
-          </button>
-          {p.onBack ? (
-            <button onClick={p.onBack}
-              style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
-                border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
-              ← Workspace
-            </button>
+          {p.workPhase === 'asis' ? (
+            <>
+              {p.saved && (
+                <span style={{ color: '#34C759', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="#34C759">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  Saved
+                </span>
+              )}
+              <button onClick={p.onSave} disabled={!hasEdits || p.saving || p.saved}
+                style={{ padding: '7px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+                  border: 'none', cursor: hasEdits && !p.saving && !p.saved ? 'pointer' : 'not-allowed',
+                  background: hasEdits && !p.saving && !p.saved ? '#1D1D1F' : '#E5E5EA',
+                  color: hasEdits && !p.saving && !p.saved ? '#fff' : '#C7C7CC',
+                  transition: 'all 0.15s', fontFamily: FONT }}>
+                {p.saving ? 'Saving…' : 'Save corrections'}
+              </button>
+              {p.onBack ? (
+                <button onClick={p.onBack}
+                  style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+                    border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
+                  ← Workspace
+                </button>
+              ) : (
+                <button onClick={p.onReset}
+                  style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+                    border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
+                  New upload
+                </button>
+              )}
+            </>
           ) : (
-            <button onClick={p.onReset}
-              style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
-                border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
-              New upload
-            </button>
+            <>
+              <button onClick={() => p.onExportDiagram(tobeToMapGraph(p.agenticGraph!), p.graph.source_name + ' — Agentic Workflow')}
+                disabled={!p.agenticGraph}
+                style={{ padding: '7px 14px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+                  border: '1px solid #E5E5EA', cursor: p.agenticGraph ? 'pointer' : 'not-allowed',
+                  background: '#fff', color: p.agenticGraph ? '#1D1D1F' : '#C7C7CC', fontFamily: FONT }}>
+                Export
+              </button>
+              <button onClick={p.onOpenPlan}
+                style={{ padding: '7px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+                  border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff', fontFamily: FONT }}>
+                Generate Plan
+              </button>
+              <button onClick={p.onReset}
+                style={{ padding: '7px 12px', borderRadius: 980, fontSize: 13, fontWeight: 500,
+                  border: 'none', cursor: 'pointer', background: 'transparent', color: '#6E6E73', fontFamily: FONT }}>
+                New Process
+              </button>
+            </>
           )}
         </div>
       </div>
 
       {/* Phase content */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         {p.workPhase === 'asis' && (
           <AsIsPhase graph={p.graph} asIsGraph={asIsGraph}
             oppCounts={oppCounts} aiCount={aiCount} confPct={confPct}
-            onNext={() => p.setWorkPhase('review')} />
+            onOpenRecommendations={() => p.setShowRecommendations(true)}
+            onStepClick={p.setEditingStepId} />
         )}
-        {p.workPhase === 'review' && (
-          <ReviewPhase graph={p.graph}
-            stepEdits={p.stepEdits} getStep={getStep} patchStep={patchStep}
-            hasEdits={hasEdits} saving={p.saving} saved={p.saved}
-            onSave={p.onSave} onGenerateTobe={p.onGenerateTobe}
-            onBack={() => p.setWorkPhase('asis')} />
+        {p.workPhase === 'agentic' && (
+          <AgenticWorkflowPhase agenticGraph={p.agenticGraph} agents={p.agents}
+            loading={p.agenticLoading} error={p.agenticError}
+            onOpenAgent={p.onOpenAgent} />
         )}
-        {p.workPhase === 'tobe' && (
-          <ToBePhase graph={p.graph} asIsGraph={asIsGraph}
-            tobeGraph={p.tobeGraph} tobeLoading={p.tobeLoading} tobeError={p.tobeError}
-            setTobeError={p.setTobeError} onRegenerate={p.onGenerateTobe}
-            onBack={() => p.setWorkPhase('review')} />
+
+        {p.showRecommendations && p.workPhase === 'asis' && (
+          <AiRecommendationsPanel
+            processId={p.graph.process_id}
+            graph={p.graph}
+            onApplied={p.onRecommendationsApplied}
+            onClose={() => p.setShowRecommendations(false)}
+          />
         )}
+      </div>
+
+      {editingStep && (
+        <StepEditPopover
+          step={getStep(editingStep)}
+          swimlanes={p.graph.swimlanes}
+          onChange={(field, value) => patchStep(editingStep.step_id, field, value)}
+          onClose={() => p.setEditingStepId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function TabButton({ label, active, disabled, onClick }: { label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} disabled={disabled}
+      style={{
+        background: 'none', border: 'none', padding: '4px 0 10px', fontSize: 13.5, fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer', fontFamily: FONT,
+        color: disabled ? '#C7C7CC' : active ? '#0071E3' : '#6E6E73',
+        borderBottom: active ? '2px solid #0071E3' : '2px solid transparent',
+      }}>
+      {label}
+    </button>
+  );
+}
+
+// ── Step edit popover (replaces the old full-screen AI Review phase) ────────
+
+function StepEditPopover({ step, swimlanes, onChange, onClose }: {
+  step: PiStep;
+  swimlanes: PiGraph['swimlanes'];
+  onChange: (field: keyof PiStep, value: unknown) => void;
+  onClose: () => void;
+}) {
+  const [draftLabel, setDraftLabel] = useState(step.label);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.25)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 30,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#fff', borderRadius: 16, padding: 20, width: 360, maxWidth: '92%',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.2)', fontFamily: FONT,
+      }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#1D1D1F', margin: '0 0 14px' }}>Edit step</p>
+
+        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#6E6E73', marginBottom: 5 }}>Label</label>
+        <input value={draftLabel}
+          onChange={e => setDraftLabel(e.target.value)}
+          onBlur={() => { if (draftLabel.trim() && draftLabel.trim() !== step.label) onChange('label', draftLabel.trim()); }}
+          style={{ width: '100%', border: '1.5px solid #E5E5EA', borderRadius: 8, padding: '8px 10px',
+            fontSize: 13, fontFamily: FONT, color: '#1D1D1F', outline: 'none', marginBottom: 14 }} />
+
+        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#6E6E73', marginBottom: 5 }}>Lane</label>
+        <select value={step.lane_id ?? ''} onChange={e => onChange('lane_id', e.target.value || null)}
+          style={{ width: '100%', border: '1.5px solid #E5E5EA', borderRadius: 8, padding: '8px 10px',
+            fontSize: 13, fontFamily: FONT, color: '#1D1D1F', outline: 'none', marginBottom: 14, background: '#F5F5F7' }}>
+          <option value="">Unassigned</option>
+          {swimlanes.map(l => <option key={l.lane_id} value={l.lane_id}>{l.label}</option>)}
+        </select>
+
+        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#6E6E73', marginBottom: 6 }}>AI opportunity</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 18 }}>
+          {OPP_ORDER.map(k => {
+            const def = OPP_DEFS[k];
+            const active = step.ai_opportunity === k;
+            return (
+              <button key={k} onClick={() => onChange('ai_opportunity', k)}
+                style={{ padding: '6px 12px', borderRadius: 980, fontSize: 12, fontWeight: 600,
+                  border: active ? 'none' : '1px solid #E5E5EA', cursor: 'pointer',
+                  background: active ? def.activeBg : '#F5F5F7',
+                  color: active ? def.activeText : '#6E6E73', fontFamily: FONT }}>
+                {def.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <button onClick={onClose}
+          style={{ width: '100%', padding: '10px', borderRadius: 980, fontSize: 13, fontWeight: 600,
+            border: 'none', cursor: 'pointer', background: '#1D1D1F', color: '#fff', fontFamily: FONT }}>
+          Done
+        </button>
       </div>
     </div>
   );
@@ -551,10 +711,11 @@ function StatBlock({ value, label, color = '#1D1D1F' }: { value: string | number
   );
 }
 
-function AsIsPhase({ graph, asIsGraph, oppCounts, aiCount, confPct, onNext }: {
+function AsIsPhase({ graph, asIsGraph, oppCounts, aiCount, confPct, onOpenRecommendations, onStepClick }: {
   graph: PiGraph; asIsGraph: MapGraph;
   oppCounts: Record<PiAiOpportunity, number>; aiCount: number; confPct: number;
-  onNext: () => void;
+  onOpenRecommendations: () => void;
+  onStepClick: (stepId: string) => void;
 }) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -593,8 +754,9 @@ function AsIsPhase({ graph, asIsGraph, oppCounts, aiCount, confPct, onNext }: {
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 28px' }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: '20px 16px',
           boxShadow: '0 1px 8px rgba(0,0,0,0.06)', display: 'inline-block', minWidth: '100%' }}>
-          <ProcessMap graph={asIsGraph} />
+          <ProcessMap graph={asIsGraph} onStepClick={onStepClick} />
         </div>
+        <p style={{ color: '#C7C7CC', fontSize: 11, marginTop: 8, textAlign: 'center' }}>Click any step to edit its label, lane, or AI classification</p>
       </div>
 
       {/* CTA */}
@@ -605,401 +767,113 @@ function AsIsPhase({ graph, asIsGraph, oppCounts, aiCount, confPct, onNext }: {
             {aiCount > 0 ? `${aiCount} AI opportunities identified` : 'Process extracted successfully'}
           </p>
           <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 2 }}>
-            Review and confirm classifications before generating the To-Be map
+            See grouped AI interventions and generate the agentic future state
           </p>
         </div>
-        <button onClick={onNext}
+        <button onClick={onOpenRecommendations}
           style={{ padding: '11px 22px', borderRadius: 980, fontSize: 14, fontWeight: 600,
             border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff',
             display: 'flex', alignItems: 'center', gap: 6, fontFamily: FONT }}
           onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
           onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
-          Review AI Suggestions
-          <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-          </svg>
+          💡 AI Recommendations
         </button>
       </div>
     </div>
   );
 }
 
-// ── Phase 2: Review ────────────────────────────────────────────────────────────
+// ── Phase 2: Agentic Workflow ────────────────────────────────────────────────
 
-function ReviewPhase({ graph, stepEdits, getStep, patchStep, hasEdits, saving, saved, onSave, onGenerateTobe, onBack }: {
-  graph: PiGraph;
-  stepEdits: Record<string, Partial<PiStep>>;
-  getStep: (s: PiStep) => PiStep;
-  patchStep: (id: string, field: keyof PiStep, value: unknown) => void;
-  hasEdits: boolean; saving: boolean; saved: boolean;
-  onSave: () => void; onGenerateTobe: () => void; onBack: () => void;
+function AgenticWorkflowPhase({ agenticGraph, agents, loading, error, onOpenAgent }: {
+  agenticGraph: PiTobeGraph | null; agents: PiAgent[];
+  loading: boolean; error: string;
+  onOpenAgent: (agentId: string) => void;
 }) {
-  const laneMap = new Map(graph.swimlanes.map(l => [l.lane_id, l]));
-  const byLane = new Map<string, PiStep[]>();
-  const unassigned: PiStep[] = [];
-  for (const s of graph.steps) {
-    if (s.lane_id && laneMap.has(s.lane_id)) {
-      const arr = byLane.get(s.lane_id) ?? []; arr.push(s); byLane.set(s.lane_id, arr);
-    } else unassigned.push(s);
+  const mapGraph = agenticGraph ? tobeToMapGraph(agenticGraph) : null;
+  const stats = agenticGraph?.ai_stats;
+
+  if (loading) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <style>{`@keyframes agentic-spin { to { transform: rotate(360deg) } }`}</style>
+        <div style={{ width: 44, height: 44, border: '3px solid #E5E5EA', borderTopColor: '#0071E3',
+          borderRadius: '50%', animation: 'agentic-spin 0.9s linear infinite' }} />
+        <p style={{ color: '#6E6E73', fontSize: 13 }}>Building the agentic workflow…</p>
+      </div>
+    );
   }
 
-  const oppCounts: Record<PiAiOpportunity, number> = { sana_agent: 0, workday_native: 0, partial_ai: 0, human_only: 0 };
-  for (const s of graph.steps) {
-    const opp = (stepEdits[s.step_id]?.ai_opportunity ?? s.ai_opportunity) ?? 'human_only';
-    if (opp in oppCounts) oppCounts[opp as PiAiOpportunity]++;
-  }
-
-  const LANE_COLORS = ['#0071E3', '#34C759', '#FF9F0A', '#AF52DE', '#FF2D55', '#5AC8FA', '#5E5CE6'];
-
-  return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Summary header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '14px 28px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <p style={{ color: '#1D1D1F', fontSize: 15, fontWeight: 700, margin: 0 }}>AI Opportunity Review</p>
-            <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 2 }}>
-              Confirm or adjust each step's classification. Agentic AI steps will recommend whether Sana or a custom agent is the better fit.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {OPP_ORDER.filter(k => oppCounts[k] > 0).map(k => {
-              const def = OPP_DEFS[k];
-              return (
-                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
-                  borderRadius: 20, background: `${def.activeBg}12`, border: `1px solid ${def.activeBg}30` }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: def.dot, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: def.activeBg }}>{oppCounts[k]}</span>
-                  <span style={{ fontSize: 11, color: '#6E6E73' }}>{def.label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Cards list */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 28px' }}>
-        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 28 }}>
-          {graph.swimlanes.map((lane, li) => {
-            const steps = byLane.get(lane.lane_id) ?? [];
-            if (steps.length === 0) return null;
-            const laneColor = LANE_COLORS[li % LANE_COLORS.length];
-            return (
-              <div key={lane.lane_id}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: laneColor, flexShrink: 0 }} />
-                  <span style={{ color: '#1D1D1F', fontSize: 14, fontWeight: 700 }}>{lane.label}</span>
-                  {lane.persona && lane.persona !== lane.label && (
-                    <span style={{ color: '#6E6E73', fontSize: 12 }}>· {lane.persona}</span>
-                  )}
-                  <div style={{ flex: 1, height: 1, background: '#E5E5EA', marginLeft: 4 }} />
-                  <span style={{ color: '#6E6E73', fontSize: 12, flexShrink: 0 }}>
-                    {steps.length} step{steps.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {steps.map(raw => {
-                    const step = getStep(raw);
-                    const warned = (graph.parse_warnings ?? []).some(w => w.item_id === step.step_id);
-                    return (
-                      <OpportunityCard key={step.step_id} step={step} warned={warned} laneColor={laneColor}
-                        onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                        onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)} />
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          {unassigned.length > 0 && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#C7C7CC', flexShrink: 0 }} />
-                <span style={{ color: '#8E8E93', fontSize: 14, fontWeight: 700, fontStyle: 'italic' }}>Unassigned</span>
-                <div style={{ flex: 1, height: 1, background: '#E5E5EA', marginLeft: 4 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {unassigned.map(raw => {
-                  const step = getStep(raw);
-                  return <OpportunityCard key={step.step_id} step={step} warned={false} laneColor="#C7C7CC"
-                    onLabelChange={v => patchStep(step.step_id, 'label', v)}
-                    onAiChange={v => patchStep(step.step_id, 'ai_opportunity', v)} />;
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* CTA bar */}
-      <div style={{ background: '#fff', borderTop: '1px solid #E5E5EA', padding: '14px 28px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <button onClick={onBack}
-          style={{ padding: '9px 16px', borderRadius: 980, fontSize: 13, fontWeight: 500,
-            border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#6E6E73',
-            display: 'flex', alignItems: 'center', gap: 5, fontFamily: FONT }}>
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-          As-Is
-        </button>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {saved && <span style={{ color: '#34C759', fontSize: 12, fontWeight: 600 }}>✓ Saved</span>}
-          {hasEdits && !saved && (
-            <button onClick={onSave} disabled={saving}
-              style={{ padding: '9px 18px', borderRadius: 980, fontSize: 13, fontWeight: 600,
-                border: 'none', cursor: 'pointer', background: '#1D1D1F', color: '#fff', fontFamily: FONT }}>
-              {saving ? 'Saving…' : 'Save corrections'}
-            </button>
-          )}
-          <button onClick={onGenerateTobe}
-            style={{ padding: '11px 22px', borderRadius: 980, fontSize: 14, fontWeight: 600,
-              border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff',
-              display: 'flex', alignItems: 'center', gap: 6, fontFamily: FONT }}
-            onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
-            onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
-            Generate To-Be Map
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Opportunity card ───────────────────────────────────────────────────────────
-
-function OpportunityCard({ step, warned, laneColor, onLabelChange, onAiChange }: {
-  step: PiStep; warned: boolean; laneColor: string;
-  onLabelChange: (v: string) => void; onAiChange: (v: PiAiOpportunity) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft]     = useState(step.label);
-  const opp = step.ai_opportunity;
-  const confPct = Math.round(step.parse_confidence * 100);
-
-  function commit() {
-    setEditing(false);
-    if (draft.trim() && draft.trim() !== step.label) onLabelChange(draft.trim());
-  }
-
-  return (
-    <div style={{ background: '#fff', borderRadius: 14, padding: '16px 18px',
-      boxShadow: warned ? '0 0 0 2px #FF9F0A40, 0 1px 6px rgba(0,0,0,0.05)' : '0 1px 6px rgba(0,0,0,0.05)',
-      transition: 'box-shadow 0.15s' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-        {/* Lane accent bar */}
-        <div style={{ width: 4, borderRadius: 2, alignSelf: 'stretch', background: laneColor, flexShrink: 0, minHeight: 36 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {editing ? (
-            <input autoFocus value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setDraft(step.label); } }}
-              style={{ width: '100%', border: '2px solid #0071E3', borderRadius: 8, padding: '4px 8px',
-                fontSize: 15, fontWeight: 600, color: '#1D1D1F', outline: 'none', fontFamily: FONT,
-                background: '#F0F8FF' }} />
-          ) : (
-            <p onClick={() => { setDraft(step.label); setEditing(true); }}
-              style={{ color: '#1D1D1F', fontSize: 15, fontWeight: 600, cursor: 'text', lineHeight: 1.3,
-                margin: 0, padding: '2px 0', borderRadius: 4 }}
-              title="Click to edit">
-              {warned && <span style={{ color: '#FF9F0A', marginRight: 6 }}>!</span>}
-              {step.label}
-            </p>
-          )}
-          {step.ai_rationale && (
-            <p style={{ color: '#6E6E73', fontSize: 12, marginTop: 4, lineHeight: 1.5, margin: '4px 0 0' }}>
-              {step.ai_rationale}
-            </p>
-          )}
-        </div>
-        {/* Confidence */}
-        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <span style={{ fontSize: 11, fontWeight: 700,
-            color: confPct >= 80 ? '#34C759' : confPct >= 60 ? '#FF9F0A' : '#FF3B30' }}>
-            {confPct}%
-          </span>
-          <div style={{ width: 44, height: 3, borderRadius: 2, background: '#F5F5F7', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${confPct}%`, borderRadius: 2,
-              background: confPct >= 80 ? '#34C759' : confPct >= 60 ? '#FF9F0A' : '#FF3B30' }} />
-          </div>
-        </div>
-      </div>
-
-      {/* Chip selectors */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {OPP_ORDER.map(k => {
-          const def = OPP_DEFS[k];
-          const active = opp === k;
-          return (
-            <button key={k} onClick={() => onAiChange(k)}
-              style={{ padding: '6px 13px', borderRadius: 980, fontSize: 12, fontWeight: 600,
-                border: active ? 'none' : '1px solid #E5E5EA', cursor: 'pointer', transition: 'all 0.15s',
-                background: active ? def.activeBg : '#F5F5F7',
-                color: active ? def.activeText : '#6E6E73', fontFamily: FONT }}>
-              {def.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Sana vs custom agent note — shown when classified as agentic AI */}
-      {opp === 'sana_agent' && (
-        <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
-          background: '#F0FDF9', border: '1px solid #A7F3D0' }}>
-          <p style={{ margin: 0, fontSize: 11, color: '#065f46', lineHeight: 1.5 }}>
-            <strong>Sana recommended</strong> if this step involves guided user interaction, document review, or
-            conversational workflows.{' '}
-            <span style={{ color: '#6E6E73' }}>For backend automation or API orchestration, a custom developer agent
-            may be more appropriate.</span>
+  if (!mapGraph) {
+    return (
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, textAlign: 'center' }}>
+        <div>
+          <p style={{ color: '#1D1D1F', fontSize: 15, fontWeight: 600, margin: 0 }}>No agentic workflow yet</p>
+          <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 6 }}>
+            {error || 'Use AI Recommendations on the As-Is tab and Apply & Generate.'}
           </p>
         </div>
-      )}
-    </div>
-  );
-}
-
-// ── Phase 3: To-Be ─────────────────────────────────────────────────────────────
-
-function ToBePhase({ graph, asIsGraph, tobeGraph, tobeLoading, tobeError, setTobeError, onRegenerate, onBack }: {
-  graph: PiGraph; asIsGraph: MapGraph;
-  tobeGraph: PiTobeGraph | null; tobeLoading: boolean; tobeError: string;
-  setTobeError: (e: string) => void; onRegenerate: () => void; onBack: () => void;
-}) {
-  const tobeMapGraph = tobeGraph ? tobeToMapGraph(tobeGraph) : null;
-  const stats = tobeGraph?.ai_stats;
+      </div>
+    );
+  }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {tobeError && (
-        <div style={{ background: '#FFF0F0', borderBottom: '1px solid #FFD5D5', padding: '10px 28px',
-          display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <span style={{ color: '#FF3B30' }}>⚠</span>
-          <span style={{ color: '#FF3B30', fontSize: 13 }}>{tobeError}</span>
-          <button onClick={() => setTobeError('')}
-            style={{ marginLeft: 'auto', color: '#FF3B30', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 }}>
-            ×
-          </button>
-        </div>
-      )}
-
-      {tobeLoading ? (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-          <style>{`@keyframes pi-spin2 { to { transform: rotate(360deg) } }`}</style>
-          <div style={{ width: 52, height: 52, border: '3px solid #E5E5EA', borderTopColor: '#0071E3',
-            borderRadius: '50%', animation: 'pi-spin2 0.9s linear infinite' }} />
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 700, margin: 0 }}>Generating To-Be Process</p>
-            <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 6 }}>
-              Redesigning for the agentic AI future state…
-            </p>
-          </div>
-        </div>
-      ) : !tobeMapGraph && !tobeError ? (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40, textAlign: 'center' }}>
-          <div>
-            <p style={{ color: '#1D1D1F', fontSize: 17, fontWeight: 700, margin: 0 }}>Ready to generate</p>
-            <p style={{ color: '#6E6E73', fontSize: 14, marginTop: 6 }}>
-              Generate the agentic To-Be process map based on your AI classifications.
-            </p>
-          </div>
-          <button onClick={onRegenerate}
-            style={{ padding: '13px 28px', borderRadius: 980, fontSize: 15, fontWeight: 600,
-              border: 'none', cursor: 'pointer', background: '#0071E3', color: '#fff', marginTop: 8, fontFamily: FONT }}
-            onMouseOver={e => (e.currentTarget.style.opacity = '0.85')}
-            onMouseOut={e => (e.currentTarget.style.opacity = '1')}>
-            Generate To-Be Map
-          </button>
-        </div>
-      ) : tobeMapGraph && (
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          {/* Stats */}
-          {stats && (
-            <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '18px 28px', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
-                  {stats.steps_automated != null && <StatBlock value={stats.steps_automated} label="Agent-automated" color="#0d9488" />}
-                  {stats.steps_automated != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
-                  {stats.steps_assisted != null && <StatBlock value={stats.steps_assisted} label="AI-assisted" color="#0071E3" />}
-                  {stats.steps_assisted != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
-                  {stats.steps_unchanged != null && <StatBlock value={stats.steps_unchanged} label="Human-only" color="#6E6E73" />}
-                  {stats.steps_unchanged != null && <div style={{ width: 1, background: '#E5E5EA', alignSelf: 'stretch' }} />}
-                  {stats.cycle_time_reduction_pct != null && (
-                    <StatBlock value={`~${stats.cycle_time_reduction_pct}%`} label="Cycle time saved" color="#34C759" />
-                  )}
-                </div>
-                <button onClick={onRegenerate}
-                  style={{ padding: '8px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600,
-                    border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#1D1D1F',
-                    flexShrink: 0, fontFamily: FONT }}>
-                  Regenerate
-                </button>
-              </div>
-              {tobeGraph?.transformation_summary && (
-                <p style={{ color: '#6E6E73', fontSize: 13, marginTop: 12, lineHeight: 1.6, maxWidth: 680 }}>
-                  {tobeGraph.transformation_summary}
-                </p>
+    <div style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {stats && (
+          <div style={{ background: '#fff', borderBottom: '1px solid #E5E5EA', padding: '16px 24px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              {stats.steps_automated != null && <StatBlock value={stats.steps_automated} label="Agent-automated" color="#0d9488" />}
+              {stats.steps_assisted != null && <StatBlock value={stats.steps_assisted} label="AI-assisted" color="#0071E3" />}
+              {stats.steps_unchanged != null && <StatBlock value={stats.steps_unchanged} label="Human-only" color="#6E6E73" />}
+              {stats.cycle_time_reduction_pct != null && (
+                <StatBlock value={`~${stats.cycle_time_reduction_pct}%`} label="Cycle time saved" color="#34C759" />
               )}
             </div>
-          )}
-
-          {/* Maps */}
-          <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Before */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div style={{ width: 3, height: 14, borderRadius: 2, background: '#C7C7CC' }} />
-                <span style={{ color: '#8E8E93', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Before · {graph.source_name}
-                </span>
-              </div>
-              <div style={{ background: '#fff', borderRadius: 16, padding: '16px 12px',
-                boxShadow: '0 1px 6px rgba(0,0,0,0.04)', opacity: 0.65, overflowX: 'auto', display: 'inline-block', minWidth: '100%' }}>
-                <ProcessMap graph={asIsGraph} />
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
-              <span style={{ color: '#8E8E93', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                AI Transformation
-              </span>
-              <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
-            </div>
-
-            {/* After */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div style={{ width: 3, height: 14, borderRadius: 2, background: '#0071E3' }} />
-                <span style={{ color: '#0071E3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  After · Agentic AI
-                </span>
-              </div>
-              <div style={{ background: '#fff', borderRadius: 16, padding: '16px 12px',
-                boxShadow: '0 2px 12px rgba(0,113,227,0.08)', overflowX: 'auto', display: 'inline-block', minWidth: '100%' }}>
-                <ProcessMap graph={tobeMapGraph} />
-              </div>
-            </div>
+            {agenticGraph?.transformation_summary && (
+              <p style={{ color: '#6E6E73', fontSize: 12.5, marginTop: 10, lineHeight: 1.6, maxWidth: 640 }}>
+                {agenticGraph.transformation_summary}
+              </p>
+            )}
+          </div>
+        )}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 24px' }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: '16px 12px',
+            boxShadow: '0 2px 12px rgba(0,113,227,0.08)', overflowX: 'auto', display: 'inline-block', minWidth: '100%' }}>
+            <ProcessMap graph={mapGraph} />
           </div>
         </div>
-      )}
+      </div>
 
-      {!tobeLoading && (
-        <div style={{ background: '#fff', borderTop: '1px solid #E5E5EA', padding: '14px 28px', flexShrink: 0 }}>
-          <button onClick={onBack}
-            style={{ padding: '9px 16px', borderRadius: 980, fontSize: 13, fontWeight: 500,
-              border: '1px solid #E5E5EA', cursor: 'pointer', background: '#fff', color: '#6E6E73',
-              display: 'flex', alignItems: 'center', gap: 5, fontFamily: FONT }}>
-            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-            AI Review
-          </button>
+      {/* Proposed AI Agents sidebar */}
+      <div style={{ width: 300, flexShrink: 0, borderLeft: '1px solid #E5E5EA', background: '#fff', overflowY: 'auto' }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#8E8E93', textTransform: 'uppercase', letterSpacing: 0.5,
+          padding: '16px 18px 8px' }}>
+          📋 Proposed AI Agents
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {agents.map(a => (
+            <button key={a.agent_id} onClick={() => onOpenAgent(a.agent_id)}
+              style={{ textAlign: 'left', background: 'none', border: 'none', borderTop: '1px solid #F5F5F7',
+                padding: '12px 18px', cursor: 'pointer', fontFamily: FONT }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#1D1D1F' }}>{a.name}</span>
+                <span style={{ color: '#C7C7CC', fontSize: 12 }}>›</span>
+              </div>
+              {a.model && (
+                <p style={{ fontSize: 11, color: '#8E8E93', margin: '4px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Model: {a.model}
+                </p>
+              )}
+              {a.tools.length > 0 && (
+                <p style={{ fontSize: 11, color: '#8E8E93', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Tools: {a.tools.map(t => t.name).join(', ')}
+                </p>
+              )}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

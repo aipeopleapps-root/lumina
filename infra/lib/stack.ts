@@ -293,6 +293,10 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const piParseWorkerFn = makeFn('PiParseWorkerFn', 'pi_parse',  300, 'handler.worker_handler');
     const piGraphFn       = makeFn('PiGraphFn',       'pi_graph',  60);
     piParseFn.addEnvironment('PI_PARSE_WORKER_FUNCTION_ARN', piParseWorkerFn.functionArn);
+    const piAgentLldFn       = makeFn('PiAgentLldFn',       'pi_agent_lld', 29);
+    const piAgentLldWorkerFn = makeFn('PiAgentLldWorkerFn', 'pi_agent_lld', 300, 'handler.worker_handler');
+    piAgentLldFn.addEnvironment('PI_AGENT_LLD_WORKER_FUNCTION_ARN', piAgentLldWorkerFn.functionArn);
+    const piPlanFn = makeFn('PiPlanFn', 'pi_plan', 29);
     const statusReportFn = makeFn('StatusReportFn', 'status_report', 120);
 
     // Bootstrap — runs on every deploy, idempotent
@@ -542,8 +546,26 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     });
     httpApi.addRoutes({
       path: '/process-intelligence/{process_id}/tobe',
-      methods: [apigwv2.HttpMethod.POST],
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
       integration: new apigwv2_integrations.HttpLambdaIntegration('PiTobeInt', piGraphFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/recommendations',
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiRecommendationsInt', piGraphFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/agents/{agent_id}/lld',
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiAgentLldInt', piAgentLldFn),
+      authorizer,
+    });
+    httpApi.addRoutes({
+      path: '/process-intelligence/{process_id}/plan',
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: new apigwv2_integrations.HttpLambdaIntegration('PiPlanInt', piPlanFn),
       authorizer,
     });
 

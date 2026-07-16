@@ -449,3 +449,225 @@ def patch_graph(
                 """,
                 [process_id, tenant_id],
             )
+
+
+# ── Recommendations ───────────────────────────────────────────────────────────
+
+def store_recommendations(*, process_id: str, tenant_id: str, recommendations: dict) -> None:
+    """Persist a Bedrock-generated intervention list against a process record."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            if not cur.fetchone():
+                raise PermissionError("process graph not found or access denied")
+            cur.execute(
+                """
+                UPDATE pi.process_graphs
+                SET recommendations = %s, updated_at = NOW()
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [json.dumps(recommendations), process_id, tenant_id],
+            )
+
+
+def get_recommendations(*, process_id: str, tenant_id: str) -> dict | None:
+    """Return the stored recommendation list, or None if not yet generated."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT recommendations FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            row = cur.fetchone()
+    if not row or not row[0]:
+        return None
+    raw = row[0]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+# ── Agents ─────────────────────────────────────────────────────────────────────
+
+def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> list[dict]:
+    """
+    Replace the agent set for a process (delete-then-insert). Called each time
+    the agentic workflow is (re)generated — discards any prior agents and their
+    generated LLD docs. Returns the inserted rows including their new agent_ids.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            if not cur.fetchone():
+                raise PermissionError("process graph not found or access denied")
+
+            cur.execute("DELETE FROM pi.agents WHERE process_id = %s", [process_id])
+
+            inserted: list[dict] = []
+            for position, agent in enumerate(agents):
+                agent_id = str(uuid.uuid4())
+                cur.execute(
+                    """
+                    INSERT INTO pi.agents
+                      (agent_id, process_id, tenant_id, name, description,
+                       model, tools, replaces_step_ids, position)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        agent_id,
+                        process_id,
+                        tenant_id,
+                        agent["name"],
+                        agent.get("description"),
+                        agent.get("model"),
+                        json.dumps(agent.get("tools") or []),
+                        json.dumps(agent.get("replaces_step_ids") or []),
+                        position,
+                    ],
+                )
+                inserted.append({
+                    "agent_id":          agent_id,
+                    "name":              agent["name"],
+                    "description":       agent.get("description"),
+                    "model":             agent.get("model"),
+                    "tools":             agent.get("tools") or [],
+                    "replaces_step_ids": agent.get("replaces_step_ids") or [],
+                    "lld_status":        "not_generated",
+                    "lld_markdown":      None,
+                    "lld_error":         None,
+                })
+            return inserted
+
+
+def list_agents(*, process_id: str, tenant_id: str) -> list[dict]:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT agent_id, name, description, model, tools,
+                       replaces_step_ids, lld_status, lld_markdown, lld_error
+                FROM pi.agents
+                WHERE process_id = %s AND tenant_id = %s
+                ORDER BY position
+                """,
+                [process_id, tenant_id],
+            )
+            rows = cur.fetchall()
+    return [_agent_row_to_dict(r) for r in rows]
+
+
+def get_agent(*, agent_id: str, tenant_id: str) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT agent_id, process_id, name, description, model, tools,
+                       replaces_step_ids, lld_status, lld_markdown, lld_error
+                FROM pi.agents
+                WHERE agent_id = %s AND tenant_id = %s
+                """,
+                [agent_id, tenant_id],
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    agent = _agent_row_to_dict((row[0], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]))
+    agent["process_id"] = row[1]
+    return agent
+
+
+def _agent_row_to_dict(r: tuple) -> dict:
+    tools_raw = r[4]
+    replaces_raw = r[5]
+    return {
+        "agent_id":          r[0],
+        "name":              r[1],
+        "description":       r[2],
+        "model":             r[3],
+        "tools":             json.loads(tools_raw) if isinstance(tools_raw, str) else (tools_raw or []),
+        "replaces_step_ids": json.loads(replaces_raw) if isinstance(replaces_raw, str) else (replaces_raw or []),
+        "lld_status":        r[6],
+        "lld_markdown":      r[7],
+        "lld_error":         r[8],
+    }
+
+
+def update_agent_lld(
+    *,
+    agent_id: str,
+    tenant_id: str,
+    status: str,
+    markdown: str | None = None,
+    error: str | None = None,
+) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.agents
+                SET lld_status = %s, lld_markdown = %s, lld_error = %s, updated_at = NOW()
+                WHERE agent_id = %s AND tenant_id = %s
+                """,
+                [status, markdown, error, agent_id, tenant_id],
+            )
+
+
+# ── Plans ──────────────────────────────────────────────────────────────────────
+
+def get_plan(*, process_id: str, tenant_id: str) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT plan_id, tasks, chat_history
+                FROM pi.plans
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [process_id, tenant_id],
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    return _plan_row_to_dict(row)
+
+
+def upsert_plan(*, process_id: str, tenant_id: str, tasks: list[dict], chat_history: list[dict]) -> dict:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            if not cur.fetchone():
+                raise PermissionError("process graph not found or access denied")
+
+            plan_id = str(uuid.uuid4())
+            cur.execute(
+                """
+                INSERT INTO pi.plans (plan_id, process_id, tenant_id, tasks, chat_history)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (process_id) DO UPDATE
+                SET tasks = EXCLUDED.tasks, chat_history = EXCLUDED.chat_history, updated_at = NOW()
+                """,
+                [plan_id, process_id, tenant_id, json.dumps(tasks), json.dumps(chat_history)],
+            )
+            cur.execute(
+                "SELECT plan_id, tasks, chat_history FROM pi.plans WHERE process_id = %s AND tenant_id = %s",
+                [process_id, tenant_id],
+            )
+            row = cur.fetchone()
+    return _plan_row_to_dict(row)
+
+
+def _plan_row_to_dict(r: tuple) -> dict:
+    tasks_raw = r[1]
+    chat_raw = r[2]
+    return {
+        "plan_id":       r[0],
+        "tasks":         json.loads(tasks_raw) if isinstance(tasks_raw, str) else (tasks_raw or []),
+        "chat_history":  json.loads(chat_raw) if isinstance(chat_raw, str) else (chat_raw or []),
+    }
