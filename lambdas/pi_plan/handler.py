@@ -84,7 +84,11 @@ def get_handler(event: dict, context: object) -> dict:
     if not process_id:
         return http.bad_request("process_id path parameter is required")
 
-    plan = get_plan(process_id=process_id, tenant_id=ctx.tenant_id)
+    try:
+        plan = get_plan(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("get_plan error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load plan: {exc}")
     if not plan:
         return http.ok({"process_id": process_id, "plan_id": None, "tasks": [], "chat_history": []})
 
@@ -113,7 +117,11 @@ def post_handler(event: dict, context: object) -> dict:
     direct_tasks = body.get("tasks")
 
     if direct_tasks is not None:
-        existing = get_plan(process_id=process_id, tenant_id=ctx.tenant_id)
+        try:
+            existing = get_plan(process_id=process_id, tenant_id=ctx.tenant_id)
+        except Exception as exc:
+            log.exception("get_plan error process_id=%s: %s", process_id, exc)
+            return http.server_error(f"Failed to load plan: {exc}")
         chat_history = existing["chat_history"] if existing else []
         try:
             plan = upsert_plan(
@@ -122,17 +130,24 @@ def post_handler(event: dict, context: object) -> dict:
             )
         except PermissionError as exc:
             return http.forbidden(str(exc))
+        except Exception as exc:
+            log.exception("upsert_plan error process_id=%s: %s", process_id, exc)
+            return http.server_error(f"Failed to save plan: {exc}")
         return http.ok({"process_id": process_id, **plan})
 
     if not instruction:
         return http.bad_request("either 'instruction' or 'tasks' is required")
 
-    process_meta = get_process_graph_status(process_id=process_id, tenant_id=ctx.tenant_id)
+    try:
+        process_meta = get_process_graph_status(process_id=process_id, tenant_id=ctx.tenant_id)
+        agents = list_agents(process_id=process_id, tenant_id=ctx.tenant_id)
+        existing = get_plan(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("plan context load error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load plan context: {exc}")
     if not process_meta:
         return http.bad_request("process graph not found")
 
-    agents = list_agents(process_id=process_id, tenant_id=ctx.tenant_id)
-    existing = get_plan(process_id=process_id, tenant_id=ctx.tenant_id)
     current_tasks = existing["tasks"] if existing else []
     chat_history = existing["chat_history"] if existing else []
 
@@ -179,6 +194,9 @@ def post_handler(event: dict, context: object) -> dict:
         )
     except PermissionError as exc:
         return http.forbidden(str(exc))
+    except Exception as exc:
+        log.exception("upsert_plan error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to save plan: {exc}")
 
     audit_events.write(
         ctx,

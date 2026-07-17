@@ -339,7 +339,11 @@ def recommendations_post_handler(event: dict, context: object) -> dict:
     if not process_id:
         return http.bad_request("process_id path parameter is required")
 
-    graph = get_full_graph(process_id=process_id, tenant_id=ctx.tenant_id)
+    try:
+        graph = get_full_graph(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("get_full_graph error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load process graph: {exc}")
     if not graph:
         return http.bad_request("process graph not found")
 
@@ -391,7 +395,11 @@ def recommendations_get_handler(event: dict, context: object) -> dict:
     if not process_id:
         return http.bad_request("process_id path parameter is required")
 
-    recommendations = get_recommendations(process_id=process_id, tenant_id=ctx.tenant_id)
+    try:
+        recommendations = get_recommendations(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("get_recommendations error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load recommendations: {exc}")
     return http.ok({"process_id": process_id, "recommendations": recommendations})
 
 
@@ -416,7 +424,11 @@ def tobe_handler(event: dict, context: object) -> dict:
     selected_intervention_ids = body.get("selected_intervention_ids") or []
     additional_directions = (body.get("additional_directions") or "").strip()
 
-    graph = get_full_graph(process_id=process_id, tenant_id=ctx.tenant_id)
+    try:
+        graph = get_full_graph(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("get_full_graph error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load process graph: {exc}")
     if not graph:
         return http.bad_request("process graph not found")
 
@@ -427,7 +439,11 @@ def tobe_handler(event: dict, context: object) -> dict:
 
     as_is = _build_as_is(graph)
 
-    stored_recs = get_recommendations(process_id=process_id, tenant_id=ctx.tenant_id) or {}
+    try:
+        stored_recs = get_recommendations(process_id=process_id, tenant_id=ctx.tenant_id) or {}
+    except Exception as exc:
+        log.exception("get_recommendations error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load recommendations: {exc}")
     all_interventions = stored_recs.get("interventions", [])
     if selected_intervention_ids:
         selected = [i for i in all_interventions if i.get("intervention_id") in selected_intervention_ids]
@@ -503,8 +519,12 @@ def tobe_get_handler(event: dict, context: object) -> dict:
     if not process_id:
         return http.bad_request("process_id path parameter is required")
 
-    tobe = get_tobe_graph(process_id=process_id, tenant_id=ctx.tenant_id)
-    proposed_agents = list_agents(process_id=process_id, tenant_id=ctx.tenant_id)
+    try:
+        tobe = get_tobe_graph(process_id=process_id, tenant_id=ctx.tenant_id)
+        proposed_agents = list_agents(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("get_tobe_graph/list_agents error process_id=%s: %s", process_id, exc)
+        return http.server_error(f"Failed to load agentic workflow: {exc}")
 
     return http.ok({"process_id": process_id, "tobe": tobe, "proposed_agents": proposed_agents})
 

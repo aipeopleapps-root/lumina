@@ -171,7 +171,7 @@ export default function ProcessIntelligence({
     try {
       const { process_id, upload_url } = await uploadProcessDiagram({
         filename: file.name, domain,
-        source_name: file.name.replace(/\.(vsdx|png|jpe?g)$/i, ''),
+        source_name: file.name.replace(/\.(vsdx|png|jpe?g|pdf)$/i, ''),
       });
       await putFileToS3(upload_url, file);
       await triggerParseDiagram(process_id);
@@ -305,7 +305,7 @@ export default function ProcessIntelligence({
       file={file} setFile={setFile}
       dragOver={dragOver} setDragOver={setDragOver}
       onUpload={handleUpload}
-      onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f && /\.(vsdx|png|jpe?g)$/i.test(f.name)) setFile(f); }}
+      onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f && /\.(vsdx|png|jpe?g|pdf)$/i.test(f.name)) setFile(f); }}
       onFileInput={e => { const f = e.target.files?.[0]; if (f) setFile(f); }}
       clientName={clientName}
     />
@@ -325,6 +325,8 @@ function UploadScreen(p: {
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const isImage = p.file && /\.(png|jpe?g)$/i.test(p.file.name);
+  const isPdf = p.file && /\.pdf$/i.test(p.file.name);
+  const isVisionMode = isImage || isPdf;
 
   return (
     <div style={{ background: '#F5F5F7', fontFamily: FONT }}
@@ -336,7 +338,7 @@ function UploadScreen(p: {
             Process Intelligence
           </h1>
           <p style={{ color: '#6E6E73', marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
-            Upload a process diagram — Visio or image — to extract steps,<br />
+            Upload a process diagram — Visio, image, or PDF — to extract steps,<br />
             classify AI opportunities, and preview the agentic future state.
           </p>
         </div>
@@ -370,17 +372,17 @@ function UploadScreen(p: {
                 borderRadius: 14, background: p.dragOver ? '#F0F8FF' : '#F5F5F7',
                 cursor: 'pointer', transition: 'all 0.2s', padding: 20,
               }}>
-              <input ref={inputRef} type="file" accept=".vsdx,.png,.jpg,.jpeg"
+              <input ref={inputRef} type="file" accept=".vsdx,.png,.jpg,.jpeg,.pdf"
                 style={{ display: 'none' }} onChange={p.onFileInput} />
               {p.file ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 28 }}>{isImage ? '🖼️' : '📊'}</span>
+                  <span style={{ fontSize: 28 }}>{isPdf ? '📄' : isImage ? '🖼️' : '📊'}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ color: '#1D1D1F', fontWeight: 600, fontSize: 14, margin: 0,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.file.name}</p>
                     <p style={{ color: '#6E6E73', fontSize: 12, margin: '3px 0 0' }}>
                       {(p.file.size / 1024).toFixed(1)} KB
-                      {isImage ? ' · Vision mode (lower confidence)' : ''}
+                      {isVisionMode ? ' · Vision mode (lower confidence)' : ''}
                     </p>
                   </div>
                   <button onClick={e => { e.stopPropagation(); p.setFile(null); }}
@@ -392,7 +394,7 @@ function UploadScreen(p: {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '12px 0', textAlign: 'center' }}>
                   <span style={{ fontSize: 32 }}>📂</span>
                   <p style={{ color: '#1D1D1F', fontWeight: 500, fontSize: 14, margin: 0 }}>Drop your diagram here</p>
-                  <p style={{ color: '#6E6E73', fontSize: 12, margin: 0 }}>or click to browse — .vsdx, .png, .jpg</p>
+                  <p style={{ color: '#6E6E73', fontSize: 12, margin: 0 }}>or click to browse — .vsdx, .png, .jpg, .pdf</p>
                 </div>
               )}
             </div>

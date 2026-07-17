@@ -7,8 +7,9 @@ POST /process-intelligence/upload
   Role: consultant | admin
 
 Creates the pi.process_graphs record (status=uploading), generates a
-presigned S3 PUT URL for the .vsdx file. The frontend PUTs the file,
-then calls POST /process-intelligence/{process_id}/parse to trigger parsing.
+presigned S3 PUT URL for the diagram file (.vsdx, .png, .jpg/.jpeg, or .pdf).
+The frontend PUTs the file, then calls
+POST /process-intelligence/{process_id}/parse to trigger parsing.
 
 Returns: { process_id, upload_url, s3_key }
 """
@@ -31,7 +32,7 @@ log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 _s3 = boto3.client("s3")
 _BUCKET = os.environ["DOCS_BUCKET"]
 
-ALLOWED_EXTENSIONS = {".vsdx"}
+ALLOWED_EXTENSIONS = {".vsdx", ".png", ".jpg", ".jpeg", ".pdf"}
 VALID_DOMAINS = {
     "recruiting", "onboarding", "self_service",
     "payroll", "job_architecture", "performance",
@@ -61,7 +62,7 @@ def handler(event: dict, context: object) -> dict:
     ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         return http.bad_request(
-            f"unsupported file type '{ext}'; only .vsdx is accepted in v1"
+            f"unsupported file type '{ext}'; accepted types: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
         )
 
     if domain not in VALID_DOMAINS:

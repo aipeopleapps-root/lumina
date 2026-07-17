@@ -153,11 +153,14 @@ def trigger_handler(event: dict, context: object) -> dict:
     if not process_id or not agent_id:
         return http.bad_request("process_id and agent_id path parameters are required")
 
-    agent = get_agent(agent_id=agent_id, tenant_id=ctx.tenant_id)
+    try:
+        agent = get_agent(agent_id=agent_id, tenant_id=ctx.tenant_id)
+        process_meta = get_process_graph_status(process_id=process_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("agent/process lookup error agent_id=%s process_id=%s: %s", agent_id, process_id, exc)
+        return http.server_error(f"Failed to load agent: {exc}")
     if not agent or agent.get("process_id") != process_id:
         return http.bad_request("agent not found")
-
-    process_meta = get_process_graph_status(process_id=process_id, tenant_id=ctx.tenant_id)
     if not process_meta:
         return http.bad_request("process graph not found")
 
@@ -202,7 +205,11 @@ def poll_handler(event: dict, context: object) -> dict:
     if not agent_id:
         return http.bad_request("agent_id path parameter is required")
 
-    agent = get_agent(agent_id=agent_id, tenant_id=ctx.tenant_id)
+    try:
+        agent = get_agent(agent_id=agent_id, tenant_id=ctx.tenant_id)
+    except Exception as exc:
+        log.exception("get_agent error agent_id=%s: %s", agent_id, exc)
+        return http.server_error(f"Failed to load agent: {exc}")
     if not agent:
         return http.bad_request("agent not found")
 

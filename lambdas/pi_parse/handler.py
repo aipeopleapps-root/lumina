@@ -7,8 +7,10 @@ Trigger:  POST /process-intelligence/{process_id}/parse
   Returns: { process_id, status: "parsing" }
 
 Worker:   direct Lambda invocation (InvocationType=Event)
-  Downloads .vsdx from S3, parses OpenXML, classifies via Bedrock,
-  stores full graph in Aurora.
+  Downloads the source file from S3 and extracts diagram structure —
+  .vsdx via OpenXML parsing, .png/.jpg/.pdf via Claude document/vision
+  understanding — then classifies AI opportunities via Bedrock and
+  stores the full graph in Aurora.
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ _TAG = lambda name: f"{{{_NS}}}{name}"  # noqa: E731
 # Statuses from which re-parse is allowed
 _REPARSEABLE = {"uploading", "needs_review", "failed", "ready"}
 
-_IMAGE_PARSE_SYSTEM = """You are a process diagram analyst. You will receive an image of a process flow diagram — it may be a swimlane / cross-functional flowchart, a simple flowchart, or a hand-drawn diagram.
+_IMAGE_PARSE_SYSTEM = """You are a process diagram analyst. You will receive an image or PDF document containing a process flow diagram — it may be a swimlane / cross-functional flowchart, a simple flowchart, or a hand-drawn diagram.
 
 Extract the full diagram structure and return a single JSON object with this exact format:
 {
@@ -227,10 +229,13 @@ def worker_handler(event: dict, context: object) -> None:
         obj = _s3.get_object(Bucket=_BUCKET, Key=s3_key)
         file_bytes = obj["Body"].read()
 
-        # 2. Parse — route by magic bytes (PNG/JPEG) or fall back to VSDX
+        # 2. Parse — route by magic bytes (PNG/JPEG/PDF) or fall back to VSDX
         image_mime = _detect_image_mime(file_bytes)
         if image_mime:
             raw = _parse_image(file_bytes, image_mime)
+            image_parse = True
+        elif _detect_pdf(file_bytes):
+            raw = _parse_pdf(file_bytes)
             image_parse = True
         else:
             raw = _parse_vsdx(file_bytes)
@@ -410,6 +415,64 @@ def _parse_image(data: bytes, mime_type: str) -> dict:
     ).strip()
 
     # Strip accidental code fences
+    if raw_text.startswith("```"):
+        raw_text = raw_text.strip("`")
+        if raw_text.lower().startswith("json"):
+            raw_text = raw_text[4:].lstrip()
+
+    result = json.loads(raw_text)
+
+    groups = result.get("groups", [])
+    steps  = result.get("steps", [])
+    connectors = [
+        {
+            "from":             c["from"],
+            "to":               c["to"],
+            "condition":        c.get("condition"),
+            "parse_confidence": 0.7,
+        }
+        for c in result.get("connectors", [])
+        if c.get("from") and c.get("to")
+    ]
+
+    return {"groups": groups, "steps": steps, "connectors": connectors}
+
+
+def _detect_pdf(data: bytes) -> bool:
+    return data[:4] == b'%PDF'
+
+
+def _parse_pdf(data: bytes) -> dict:
+    """
+    Extract process diagram structure from a PDF using Claude's native
+    document understanding (Bedrock Messages API "document" content block —
+    no local rendering/rasterization needed). Returns the same
+    {groups, steps, connectors} shape as _parse_vsdx/_parse_image.
+    """
+    b64 = base64.b64encode(data).decode("utf-8")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
+                },
+                {
+                    "type": "text",
+                    "text": "Extract the complete process diagram structure from this PDF. Return the JSON as instructed.",
+                },
+            ],
+        }
+    ]
+
+    raw_text = bedrock.generate(
+        system=_IMAGE_PARSE_SYSTEM,
+        messages=messages,
+        max_tokens=4000,
+        temperature=0.0,
+    ).strip()
+
     if raw_text.startswith("```"):
         raw_text = raw_text.strip("`")
         if raw_text.lower().startswith("json"):
