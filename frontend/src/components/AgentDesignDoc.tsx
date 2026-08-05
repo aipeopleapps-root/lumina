@@ -1,9 +1,55 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAgentLld, triggerAgentLld, type PiAgent } from '../lib/api';
+import { getAgentLld, triggerAgentLld, type PiAgent, type PiAgenticMetadata } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
 import { downloadBlob } from '../lib/download';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
+
+const MATURITY_LABELS = ['AI Assisted', 'AI Augmented', 'AI Powered'];
+
+function AgenticMetadataBadges({ metadata }: { metadata: PiAgenticMetadata }) {
+  const position = metadata.maturity?.position ?? null;
+  return (
+    <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #E5E5EA' }}>
+      {position !== null && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          {MATURITY_LABELS.map((label, i) => {
+            const active = position >= i / (MATURITY_LABELS.length - 1) - 0.17
+              && position < (i + 1) / (MATURITY_LABELS.length - 1) + 0.001;
+            return (
+              <span key={label} style={{ fontSize: 11, fontWeight: active ? 700 : 500,
+                color: active ? '#0071E3' : '#8E8E93',
+                padding: '3px 9px', borderRadius: 980,
+                background: active ? '#E8F1FE' : '#F5F5F7' }}>
+                {label}
+              </span>
+            );
+          })}
+          {metadata.maturity?.note && (
+            <span style={{ fontSize: 11, color: '#8E8E93', fontStyle: 'italic' }}>{metadata.maturity.note}</span>
+          )}
+        </div>
+      )}
+      {metadata.stages?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {metadata.stages.map((s, i) => (
+            <span key={i}
+              title={s.groundingRef ? `Grounded in: ${s.groundingRef}` : 'No grounding source cited'}
+              style={{ fontSize: 11, fontWeight: 500, color: '#3A3A3C', background: '#F5F5F7',
+                border: '1px solid #E5E5EA', borderRadius: 8, padding: '4px 8px', display: 'flex',
+                alignItems: 'center', gap: 5 }}>
+              <strong style={{ color: '#1D1D1F' }}>{s.stage}</strong>
+              <span style={{ color: '#8E8E93' }}>·</span>
+              {s.builtOn}
+              <span style={{ color: '#C7C7CC' }}>({s.agentType}/{s.executionMode})</span>
+              {!s.groundingRef && <span style={{ color: '#FF9500' }}>⚠</span>}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   processId: string;
@@ -94,6 +140,8 @@ export function AgentDesignDoc({ processId, agentId, agentName, onBack }: Props)
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1D1D1F', margin: '0 0 20px' }}>
             Agent Design: {agentName}
           </h1>
+
+          {agent?.agentic_metadata && <AgenticMetadataBadges metadata={agent.agentic_metadata} />}
 
           {error && (
             <div style={{ background: '#FFF0F0', border: '1px solid #FFD5D5', borderRadius: 10, padding: 14, marginBottom: 16 }}>

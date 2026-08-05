@@ -1,1 +1,4 @@
-# All dependencies available from Lambda runtime (boto3) and bundled common/.
+# boto3 available from Lambda runtime; common/ bundled in verbatim.
+# pydantic: schema validation for the Agentic Workflow output (schemas.py) —
+# scoped to this function only, do not import schemas.py from another Lambda.
+pydantic==2.9.2

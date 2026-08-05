@@ -3,12 +3,20 @@ import {
   generateRecommendations,
   getRecommendations,
   applyRecommendationsAndGenerate,
+  getTobeGraphAndAgents,
   type PiGraph,
   type PiIntervention,
   type PiRecommendations,
   type PiTobeGraph,
   type PiAgent,
 } from '../lib/api';
+
+const TOBE_POLL_INTERVAL_MS = 2500;
+const TOBE_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
 
@@ -65,11 +73,25 @@ export function AiRecommendationsPanel({ processId, graph, onApplied, onClose }:
     setApplying(true);
     setError('');
     try {
-      const result = await applyRecommendationsAndGenerate(processId, {
+      await applyRecommendationsAndGenerate(processId, {
         selected_intervention_ids: [...selected],
         additional_directions: directions.trim() || undefined,
       });
-      onApplied(result);
+
+      const deadline = Date.now() + TOBE_POLL_TIMEOUT_MS;
+      let result = await getTobeGraphAndAgents(processId);
+      while (result.tobe_status === 'generating') {
+        if (Date.now() > deadline) throw new Error('Generation is taking longer than expected — try again shortly.');
+        await sleep(TOBE_POLL_INTERVAL_MS);
+        result = await getTobeGraphAndAgents(processId);
+      }
+      if (result.tobe_status === 'failed') {
+        throw new Error(result.tobe_error || 'Generation failed');
+      }
+      if (!result.tobe) {
+        throw new Error('Generation finished but returned no result — try again.');
+      }
+      onApplied({ tobe: result.tobe, proposed_agents: result.proposed_agents });
     } catch (err: any) {
       setError(err.message || 'Generation failed');
     } finally {

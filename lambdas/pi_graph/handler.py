@@ -43,21 +43,31 @@ import json
 import logging
 import os
 
+import boto3
+
 from common import tenant_from_event, TenantError, audit_events, bedrock, vectors, http
+from common.tenant import TenantContext
 from common.pi_aurora import (
     get_process_graph_status,
     get_full_graph,
     patch_graph,
     store_tobe_graph,
     get_tobe_graph,
+    update_tobe_status,
     store_recommendations,
     get_recommendations,
     create_agents,
     list_agents,
+    search_grounding_corpus,
 )
+
+import schemas
 
 log = logging.getLogger(__name__)
 log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
+
+_lambda_client = boto3.client("lambda")
+_WORKER_FUNCTION_ARN = os.environ.get("PI_GRAPH_WORKER_FUNCTION_ARN", "")
 
 _GRAPH_READABLE = {"needs_review", "ready"}
 
@@ -140,7 +150,25 @@ additional directions given), and return a single JSON object with this exact st
       "description": "1-2 sentences: what this agent does end to end",
       "model": "string — a plausible model choice for this agent's task, e.g. 'Claude Sonnet 4.5' or 'GPT-4o'",
       "tools": [{"name": "string, e.g. 'PDF Parser'", "purpose": "short phrase"}],
-      "replaces_step_ids": ["step_id", ...]
+      "replaces_step_ids": ["step_id", ...],
+      "stages": [
+        {
+          "stage": "Detect|Plan|Nudge|Insight|Action|Learning Loop",
+          "label": "string — short stage title specific to this agent, e.g. 'Hiring Need Trigger'",
+          "description": "string — one sentence, 'The AI Agent ...' phrasing",
+          "builtOn": "Sana Core|Sana Enterprise|Developer Agent|Workday Self-Service Agent|Conversational Scheduling|ASOR-native (1P)|Custom cloud tooling",
+          "agentType": "1P|3P|External",
+          "executionMode": "Ambient|Delegate",
+          "groundingRef": "string — must exactly match a [source_document] tag from <workday_ai_capabilities>, or null if nothing relevant was retrieved for this stage"
+        }
+      ],
+      "maturity": {
+        "position": "number 0-1 — where this agent sits on AI Assisted (0) -> AI Augmented (0.5) -> AI Powered (1)",
+        "note": "string or null — caveat, e.g. dependency on a system going live"
+      },
+      "humanRoles": [
+        {"tier": "Human Led|Human Guided|Human Supervised", "description": "string"}
+      ]
     }
   ]
 }
@@ -161,7 +189,20 @@ Transformation rules:
 11. proposed_agents: create one agent per distinct group of consolidated sana_agent/workday_native/partial_ai \
     steps (typically one agent per selected intervention, occasionally merging two very related interventions \
     into one agent if that better reflects how a single agent would actually be built). Every step_id across \
-    all proposed_agents must exist in your steps array. Do not propose an agent for human_only steps."""
+    all proposed_agents must exist in your steps array. Do not propose an agent for human_only steps.
+12. Every proposed_agent's "stages" must map its own work onto the six fixed stages above (Detect/Plan/Nudge/ \
+    Insight/Action/Learning Loop) — this is a shared vocabulary, not a mandatory checklist: omit a stage the \
+    agent genuinely doesn't use rather than inventing filler content for it. Do not invent new stage names.
+13. "builtOn" must be chosen from the enumerated tool catalog first; fall back to "Custom cloud tooling" ONLY \
+    if nothing in that catalog fits the stage's actual mechanism — this fallback is a visible signal that the \
+    stage needs custom build effort, so never pick it just because a more specific tool wasn't explicitly named \
+    in the capability context.
+14. "groundingRef" must name a document that actually appears as a [source_document] tag in the \
+    <workday_ai_capabilities> block you were given. If nothing relevant was retrieved for a given stage, set \
+    groundingRef to null — never fabricate a citation to a document you were not shown.
+15. "maturity.position" and "humanRoles" should reflect this specific agent's actual automation depth — do not \
+    default every agent to the same position or role tier; vary it based on how much of the stage sequence is \
+    genuinely autonomous (Ambient, no groundingRef gaps, high builtOn confidence) versus human-dependent."""
 
 
 # ── GET /process-intelligence/{process_id}/status ────────────────────────────
@@ -299,8 +340,15 @@ def _build_as_is(graph: dict) -> dict:
 
 
 def _kb_block(ctx, graph: dict, process_id: str, extra_query: str = "") -> str:
-    """RAG: retrieve relevant Workday AI capability content from the knowledge base."""
-    kb_text = ""
+    """RAG: retrieve relevant Workday AI capability content from the knowledge base.
+
+    Merges two sources: the tenant's own uploaded "kb" documents (DynamoDB,
+    consultant-curated per-client context) and the shared, curated ASOR/Sana
+    grounding corpus (Aurora pgvector, admin-maintained, not tenant-scoped) —
+    the latter is what lets generation cite a real, specific product document
+    per stage instead of a vague "capability ledger" reference.
+    """
+    blocks: list[str] = []
     try:
         step_labels = ", ".join(s["label"] for s in graph["steps"][:10])
         query = (
@@ -309,16 +357,26 @@ def _kb_block(ctx, graph: dict, process_id: str, extra_query: str = "") -> str:
             f"Which specific Sana agents apply and what can they automate?"
         )
         qv = bedrock.embed(query)
+
         kb_hits = vectors.search(ctx, qv, top_k=5, doc_type="kb")
         if kb_hits:
-            kb_text = "\n\n".join(
+            blocks.extend(
                 f"[{h.get('source_name', 'knowledge base')}]\n{h['text']}"
                 for h in kb_hits
             )
-            log.info("RAG: retrieved %d chunks for process_id=%s", len(kb_hits), process_id)
+            log.info("RAG: retrieved %d tenant kb chunks for process_id=%s", len(kb_hits), process_id)
+
+        grounding_hits = search_grounding_corpus(qv, top_k=5)
+        if grounding_hits:
+            blocks.extend(
+                f"[{h['source_document']}]\n{h['chunk_text']}"
+                for h in grounding_hits
+            )
+            log.info("RAG: retrieved %d grounding corpus chunks for process_id=%s", len(grounding_hits), process_id)
     except Exception as exc:
         log.warning("RAG retrieval failed (non-fatal): %s", exc)
 
+    kb_text = "\n\n".join(blocks)
     return (
         f"<workday_ai_capabilities>\n{kb_text}\n</workday_ai_capabilities>\n\n"
         if kb_text else
@@ -404,6 +462,13 @@ def recommendations_get_handler(event: dict, context: object) -> dict:
 
 
 # ── POST /process-intelligence/{process_id}/tobe ("Apply & Generate") ───────
+#
+# Async trigger+worker+poll, same pattern as pi_parse/pi_agent_lld — required
+# because the richer schema + validate-with-retry loop can legitimately run
+# 30-45s, which exceeds API Gateway HTTP API's hard, non-configurable 29s
+# Lambda-proxy integration timeout. The trigger below only does cheap
+# validation/lookups and returns immediately; PiGraphWorkerFn (this same code
+# asset, handler.tobe_worker_handler) does the actual generation.
 
 def tobe_handler(event: dict, context: object) -> dict:
     try:
@@ -437,76 +502,109 @@ def tobe_handler(event: dict, context: object) -> dict:
             f"graph not ready for to-be generation (status: {graph['parse_status']})"
         )
 
-    as_is = _build_as_is(graph)
+    update_tobe_status(process_id=process_id, tenant_id=ctx.tenant_id, status="generating")
+
+    if not _WORKER_FUNCTION_ARN:
+        log.error("PI_GRAPH_WORKER_FUNCTION_ARN not configured")
+        return http.server_error("Agentic workflow worker not configured")
+
+    worker_payload = {
+        "process_id":                process_id,
+        "tenant_id":                 ctx.tenant_id,
+        "user_id":                   ctx.user_id,
+        "role":                      ctx.role,
+        "email":                     ctx.email,
+        "selected_intervention_ids": selected_intervention_ids,
+        "additional_directions":     additional_directions,
+    }
+    _lambda_client.invoke(
+        FunctionName=_WORKER_FUNCTION_ARN,
+        InvocationType="Event",
+        Payload=json.dumps(worker_payload).encode(),
+    )
+
+    log.info("tobe generation triggered process_id=%s", process_id)
+    return http.ok({"process_id": process_id, "tobe_status": "generating"})
+
+
+# ── Worker (direct Lambda invocation) ────────────────────────────────────────
+
+def tobe_worker_handler(event: dict, context: object) -> None:
+    process_id = event["process_id"]
+    tenant_id = event["tenant_id"]
+    selected_intervention_ids = event.get("selected_intervention_ids") or []
+    additional_directions = (event.get("additional_directions") or "").strip()
+
+    ctx = TenantContext(
+        tenant_id=tenant_id,
+        user_id=event.get("user_id", ""),
+        role=event.get("role", "consultant"),
+        email=event.get("email", ""),
+    )
 
     try:
-        stored_recs = get_recommendations(process_id=process_id, tenant_id=ctx.tenant_id) or {}
-    except Exception as exc:
-        log.exception("get_recommendations error process_id=%s: %s", process_id, exc)
-        return http.server_error(f"Failed to load recommendations: {exc}")
-    all_interventions = stored_recs.get("interventions", [])
-    if selected_intervention_ids:
-        selected = [i for i in all_interventions if i.get("intervention_id") in selected_intervention_ids]
-    else:
-        selected = all_interventions
+        graph = get_full_graph(process_id=process_id, tenant_id=tenant_id)
+        if not graph:
+            raise ValueError("process graph not found")
 
-    kb_block = _kb_block(ctx, graph, process_id)
-    selection_block = (
-        "<selected_interventions>\n" + json.dumps(selected, indent=2) + "\n</selected_interventions>\n\n"
-        if selected else
-        "<selected_interventions>None selected — apply your own judgment based on the as-is AI opportunity "
-        "classifications.</selected_interventions>\n\n"
-    )
-    directions_block = (
-        f"<additional_directions>{additional_directions}</additional_directions>\n\n"
-        if additional_directions else ""
-    )
-    user_prompt = (
-        kb_block + selection_block + directions_block +
-        "<as_is_process>\n" + json.dumps(as_is, indent=2) + "\n</as_is_process>"
-    )
+        as_is = _build_as_is(graph)
 
-    try:
-        tobe = bedrock.generate_json(
+        stored_recs = get_recommendations(process_id=process_id, tenant_id=tenant_id) or {}
+        all_interventions = stored_recs.get("interventions", [])
+        if selected_intervention_ids:
+            selected = [i for i in all_interventions if i.get("intervention_id") in selected_intervention_ids]
+        else:
+            selected = all_interventions
+
+        kb_block = _kb_block(ctx, graph, process_id)
+        selection_block = (
+            "<selected_interventions>\n" + json.dumps(selected, indent=2) + "\n</selected_interventions>\n\n"
+            if selected else
+            "<selected_interventions>None selected — apply your own judgment based on the as-is AI opportunity "
+            "classifications.</selected_interventions>\n\n"
+        )
+        directions_block = (
+            f"<additional_directions>{additional_directions}</additional_directions>\n\n"
+            if additional_directions else ""
+        )
+        user_prompt = (
+            kb_block + selection_block + directions_block +
+            "<as_is_process>\n" + json.dumps(as_is, indent=2) + "\n</as_is_process>"
+        )
+
+        tobe = schemas.validate_with_retry(
             system=_TOBE_SYSTEM,
             user_prompt=user_prompt,
-            max_tokens=4096,
+            max_tokens=8000,
         )
-    except Exception as exc:
-        log.exception("tobe bedrock error process_id=%s: %s", process_id, exc)
-        return http.server_error(f"AI generation failed: {exc}")
 
-    try:
-        store_tobe_graph(
-            process_id=process_id,
-            tenant_id=ctx.tenant_id,
-            tobe_graph=tobe,
-        )
+        store_tobe_graph(process_id=process_id, tenant_id=tenant_id, tobe_graph=tobe)
         proposed_agents = create_agents(
             process_id=process_id,
-            tenant_id=ctx.tenant_id,
+            tenant_id=tenant_id,
             agents=tobe.get("proposed_agents", []),
         )
+        update_tobe_status(process_id=process_id, tenant_id=tenant_id, status="done")
+
+        audit_events.write(
+            ctx,
+            "pi.tobe.generated",
+            resource_type="process_graph",
+            resource_id=process_id,
+            resource_name=process_id,
+            details={
+                "steps_automated": tobe.get("ai_stats", {}).get("steps_automated"),
+                "agent_count": len(proposed_agents),
+            },
+        )
+        log.info("tobe worker done process_id=%s agent_count=%d", process_id, len(proposed_agents))
+
     except Exception as exc:
-        log.exception("store agentic workflow error process_id=%s: %s", process_id, exc)
-        return http.server_error(f"Failed to store agentic workflow: {exc}")
-
-    audit_events.write(
-        ctx,
-        "pi.tobe.generated",
-        resource_type="process_graph",
-        resource_id=process_id,
-        resource_name=process_id,
-        details={
-            "steps_automated": tobe.get("ai_stats", {}).get("steps_automated"),
-            "agent_count": len(proposed_agents),
-        },
-    )
-
-    return http.ok({"process_id": process_id, "tobe": tobe, "proposed_agents": proposed_agents})
+        log.error("tobe worker error process_id=%s: %s", process_id, exc, exc_info=True)
+        update_tobe_status(process_id=process_id, tenant_id=tenant_id, status="failed", error=str(exc))
 
 
-# ── GET /process-intelligence/{process_id}/tobe (refetch, no regeneration) ──
+# ── GET /process-intelligence/{process_id}/tobe (poll / refetch) ────────────
 
 def tobe_get_handler(event: dict, context: object) -> dict:
     try:
@@ -520,13 +618,19 @@ def tobe_get_handler(event: dict, context: object) -> dict:
         return http.bad_request("process_id path parameter is required")
 
     try:
-        tobe = get_tobe_graph(process_id=process_id, tenant_id=ctx.tenant_id)
+        tobe_row = get_tobe_graph(process_id=process_id, tenant_id=ctx.tenant_id)
         proposed_agents = list_agents(process_id=process_id, tenant_id=ctx.tenant_id)
     except Exception as exc:
         log.exception("get_tobe_graph/list_agents error process_id=%s: %s", process_id, exc)
         return http.server_error(f"Failed to load agentic workflow: {exc}")
 
-    return http.ok({"process_id": process_id, "tobe": tobe, "proposed_agents": proposed_agents})
+    return http.ok({
+        "process_id":      process_id,
+        "tobe":            tobe_row["tobe_graph"],
+        "tobe_status":     tobe_row["tobe_status"],
+        "tobe_error":      tobe_row["tobe_error"],
+        "proposed_agents": proposed_agents,
+    })
 
 
 # ── Dispatcher (single Lambda for all graph/recommendations/tobe routes) ────

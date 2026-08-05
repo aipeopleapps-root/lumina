@@ -616,6 +616,32 @@ export interface PiAgentTool {
   purpose: string;
 }
 
+export interface PiAgenticStage {
+  stage: 'Detect' | 'Plan' | 'Nudge' | 'Insight' | 'Action' | 'Learning Loop';
+  label: string;
+  description: string;
+  builtOn: string;
+  agentType: '1P' | '3P' | 'External';
+  executionMode: 'Ambient' | 'Delegate';
+  groundingRef: string | null;
+}
+
+export interface PiMaturity {
+  position: number;
+  note?: string | null;
+}
+
+export interface PiHumanRole {
+  tier: 'Human Led' | 'Human Guided' | 'Human Supervised';
+  description: string;
+}
+
+export interface PiAgenticMetadata {
+  stages: PiAgenticStage[];
+  maturity: PiMaturity | null;
+  humanRoles: PiHumanRole[];
+}
+
 export interface PiAgent {
   agent_id: string;
   name: string;
@@ -626,6 +652,7 @@ export interface PiAgent {
   lld_status: 'not_generated' | 'generating' | 'done' | 'failed';
   lld_markdown: string | null;
   lld_error: string | null;
+  agentic_metadata?: PiAgenticMetadata | null;
 }
 
 export interface PiPlanTask {
@@ -733,11 +760,17 @@ export async function getProcessGraph(processId: string): Promise<PiGraph> {
   return res.json();
 }
 
-/** "Apply & Generate": build the Agentic Workflow graph + proposed agents from selected recommendations. */
+/**
+ * "Apply & Generate": triggers Agentic Workflow generation (async — same
+ * trigger+poll pattern as pi_parse/pi_agent_lld, since generation can exceed
+ * API Gateway's 29s hard integration timeout). Returns immediately with
+ * status "generating" — poll getTobeGraphAndAgents() until tobe_status is
+ * "done" or "failed".
+ */
 export async function applyRecommendationsAndGenerate(
   processId: string,
   params: { selected_intervention_ids: string[]; additional_directions?: string }
-): Promise<{ tobe: PiTobeGraph; proposed_agents: PiAgent[] }> {
+): Promise<{ process_id: string; tobe_status: string }> {
   const token = await getAuthToken();
   const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/tobe`, {
     method: 'POST',
@@ -752,14 +785,13 @@ export async function applyRecommendationsAndGenerate(
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Agentic workflow generation failed');
   }
-  const data = await res.json();
-  return { tobe: data.tobe as PiTobeGraph, proposed_agents: (data.proposed_agents ?? []) as PiAgent[] };
+  return res.json();
 }
 
-/** Refetch the last-generated Agentic Workflow graph + agents without regenerating. */
+/** Refetch the last-generated/in-progress Agentic Workflow graph + agents + status. */
 export async function getTobeGraphAndAgents(
   processId: string
-): Promise<{ tobe: PiTobeGraph | null; proposed_agents: PiAgent[] }> {
+): Promise<{ tobe: PiTobeGraph | null; proposed_agents: PiAgent[]; tobe_status: string | null; tobe_error: string | null }> {
   const token = await getAuthToken();
   const res = await fetch(`${API_ENDPOINT}/process-intelligence/${processId}/tobe`, {
     headers: {
@@ -772,7 +804,12 @@ export async function getTobeGraphAndAgents(
     throw new Error(err.error || 'Agentic workflow fetch failed');
   }
   const data = await res.json();
-  return { tobe: (data.tobe ?? null) as PiTobeGraph | null, proposed_agents: (data.proposed_agents ?? []) as PiAgent[] };
+  return {
+    tobe: (data.tobe ?? null) as PiTobeGraph | null,
+    proposed_agents: (data.proposed_agents ?? []) as PiAgent[],
+    tobe_status: data.tobe_status ?? null,
+    tobe_error: data.tobe_error ?? null,
+  };
 }
 
 /** Apply consultant corrections to the parsed graph. */

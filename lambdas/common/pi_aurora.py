@@ -18,6 +18,27 @@ from typing import Any
 
 from .db import get_connection
 
+# ── Grounding corpus ──────────────────────────────────────────────────────────
+# Exception to the file-level "always filter on tenant_id" rule: this table is
+# deliberately shared/non-tenant-scoped (curated ASOR/Sana product docs every
+# tenant's Agentic Workflow generation should be able to cite).
+
+def search_grounding_corpus(query_embedding: list[float], *, top_k: int = 5) -> list[dict]:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT source_document, chunk_text
+                FROM pi.grounding_corpus
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                [query_embedding, top_k],
+            )
+            rows = cur.fetchall()
+    return [{"source_document": r[0], "chunk_text": r[1]} for r in rows]
+
+
 # ── Process graphs ────────────────────────────────────────────────────────────
 
 def create_process_graph(
@@ -348,19 +369,37 @@ def store_tobe_graph(*, process_id: str, tenant_id: str, tobe_graph: dict) -> No
             )
 
 
-def get_tobe_graph(*, process_id: str, tenant_id: str) -> dict | None:
-    """Return the stored to-be graph, or None if not yet generated."""
+def get_tobe_graph(*, process_id: str, tenant_id: str) -> dict:
+    """Returns {"tobe_graph": dict|None, "tobe_status": str|None, "tobe_error": str|None}."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT tobe_graph FROM pi.process_graphs WHERE process_id = %s AND tenant_id = %s",
+                "SELECT tobe_graph, tobe_status, tobe_error FROM pi.process_graphs "
+                "WHERE process_id = %s AND tenant_id = %s",
                 [process_id, tenant_id],
             )
             row = cur.fetchone()
-    if not row or not row[0]:
-        return None
+    if not row:
+        return {"tobe_graph": None, "tobe_status": None, "tobe_error": None}
     raw = row[0]
-    return json.loads(raw) if isinstance(raw, str) else raw
+    return {
+        "tobe_graph": json.loads(raw) if isinstance(raw, str) else raw,
+        "tobe_status": row[1],
+        "tobe_error": row[2],
+    }
+
+
+def update_tobe_status(*, process_id: str, tenant_id: str, status: str, error: str | None = None) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.process_graphs
+                SET tobe_status = %s, tobe_error = %s, updated_at = NOW()
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [status, error, process_id, tenant_id],
+            )
 
 
 def patch_graph(
@@ -510,12 +549,19 @@ def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> lis
             inserted: list[dict] = []
             for position, agent in enumerate(agents):
                 agent_id = str(uuid.uuid4())
+                # stages/maturity/humanRoles from the Agentic Workflow schema — bundled
+                # into one JSONB blob, same pattern as process_graphs.tobe_graph.
+                agentic_metadata = {
+                    "stages":     agent.get("stages") or [],
+                    "maturity":   agent.get("maturity"),
+                    "humanRoles": agent.get("humanRoles") or [],
+                }
                 cur.execute(
                     """
                     INSERT INTO pi.agents
                       (agent_id, process_id, tenant_id, name, description,
-                       model, tools, replaces_step_ids, position)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       model, tools, replaces_step_ids, position, agentic_metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         agent_id,
@@ -527,6 +573,7 @@ def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> lis
                         json.dumps(agent.get("tools") or []),
                         json.dumps(agent.get("replaces_step_ids") or []),
                         position,
+                        json.dumps(agentic_metadata),
                     ],
                 )
                 inserted.append({
@@ -539,6 +586,7 @@ def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> lis
                     "lld_status":        "not_generated",
                     "lld_markdown":      None,
                     "lld_error":         None,
+                    "agentic_metadata":  agentic_metadata,
                 })
             return inserted
 
@@ -549,7 +597,8 @@ def list_agents(*, process_id: str, tenant_id: str) -> list[dict]:
             cur.execute(
                 """
                 SELECT agent_id, name, description, model, tools,
-                       replaces_step_ids, lld_status, lld_markdown, lld_error
+                       replaces_step_ids, lld_status, lld_markdown, lld_error,
+                       agentic_metadata
                 FROM pi.agents
                 WHERE process_id = %s AND tenant_id = %s
                 ORDER BY position
@@ -566,7 +615,8 @@ def get_agent(*, agent_id: str, tenant_id: str) -> dict | None:
             cur.execute(
                 """
                 SELECT agent_id, process_id, name, description, model, tools,
-                       replaces_step_ids, lld_status, lld_markdown, lld_error
+                       replaces_step_ids, lld_status, lld_markdown, lld_error,
+                       agentic_metadata
                 FROM pi.agents
                 WHERE agent_id = %s AND tenant_id = %s
                 """,
@@ -575,7 +625,9 @@ def get_agent(*, agent_id: str, tenant_id: str) -> dict | None:
             row = cur.fetchone()
     if not row:
         return None
-    agent = _agent_row_to_dict((row[0], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]))
+    agent = _agent_row_to_dict(
+        (row[0], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10])
+    )
     agent["process_id"] = row[1]
     return agent
 
@@ -583,6 +635,7 @@ def get_agent(*, agent_id: str, tenant_id: str) -> dict | None:
 def _agent_row_to_dict(r: tuple) -> dict:
     tools_raw = r[4]
     replaces_raw = r[5]
+    metadata_raw = r[9] if len(r) > 9 else None
     return {
         "agent_id":          r[0],
         "name":              r[1],
@@ -593,6 +646,7 @@ def _agent_row_to_dict(r: tuple) -> dict:
         "lld_status":        r[6],
         "lld_markdown":      r[7],
         "lld_error":         r[8],
+        "agentic_metadata":  json.loads(metadata_raw) if isinstance(metadata_raw, str) else metadata_raw,
     }
 
 
