@@ -1,0 +1,133 @@
+{
+  "templates": {
+    "standard_workday": {
+      "id": "standard_workday",
+      "name": "Standard Workday Structure",
+      "description": "Recommended structure for full Workday implementations",
+      "folders": [
+        {
+          "id": "config-workbooks",
+          "name": "Configuration Workbooks",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "hcm-core", "name": "HCM Core" },
+            { "id": "absence", "name": "Absence Management" },
+            { "id": "payroll", "name": "Payroll" },
+            { "id": "benefits", "name": "Benefits" },
+            { "id": "recruiting", "name": "Recruiting" },
+            { "id": "compensation", "name": "Compensation" },
+            { "id": "time-tracking", "name": "Time Tracking" },
+            { "id": "performance", "name": "Performance Management" }
+          ]
+        },
+        {
+          "id": "bp-workbooks",
+          "name": "Business Process Workbooks",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "change-job", "name": "Change Job BP" },
+            { "id": "hire", "name": "Hire BP" },
+            { "id": "terminate", "name": "Terminate BP" },
+            { "id": "comp-change", "name": "Request Compensation Change BP" },
+            { "id": "time-off", "name": "Request Time Off BP" },
+            { "id": "transfer", "name": "Transfer BP" }
+          ]
+        },
+        {
+          "id": "integrations",
+          "name": "Integration Design",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "inbound", "name": "Inbound Integrations" },
+            { "id": "outbound", "name": "Outbound Integrations" },
+            { "id": "connectors", "name": "Core Connectors" },
+            { "id": "reports", "name": "Custom Reports" }
+          ]
+        },
+        {
+          "id": "security",
+          "name": "Security & Access",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "security-groups", "name": "Security Groups" },
+            { "id": "domain-security", "name": "Domain Security" },
+            { "id": "bp-security", "name": "Business Process Security" }
+          ]
+        }
+      ]
+    },
+    "minimal_workday": {
+      "id": "minimal_workday",
+      "name": "Minimal Workday Structure",
+      "description": "Simplified structure for smaller implementations",
+      "folders": [
+        {
+          "id": "configuration",
+          "name": "Configuration",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "hcm", "name": "HCM" },
+            { "id": "payroll", "name": "Payroll" },
+            { "id": "benefits", "name": "Benefits" }
+          ]
+        },
+        {
+          "id": "business-processes",
+          "name": "Business Processes",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "hire-terminate", "name": "Hire & Terminate" },
+            { "id": "job-changes", "name": "Job Changes" },
+            { "id": "compensation", "name": "Compensation" }
+          ]
+        },
+        {
+          "id": "integrations",
+          "name": "Integrations",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "inbound", "name": "Inbound" },
+            { "id": "outbound", "name": "Outbound" }
+          ]
+        }
+      ]
+    },
+    "financial_focus": {
+      "id": "financial_focus",
+      "name": "Financials-Focused Structure",
+      "description": "For Workday Financial Management implementations",
+      "folders": [
+        {
+          "id": "coa",
+          "name": "Chart of Accounts",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "coa-config", "name": "COA Configuration" },
+            { "id": "ledger", "name": "Ledger Setup" },
+            { "id": "worktags", "name": "Worktags" }
+          ]
+        },
+        {
+          "id": "business-processes",
+          "name": "Business Processes",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "p2p", "name": "Procure to Pay" },
+            { "id": "o2c", "name": "Order to Cash" },
+            { "id": "expense", "name": "Expense Management" }
+          ]
+        },
+        {
+          "id": "reporting",
+          "name": "Reporting",
+          "icon": "folder",
+          "subfolders": [
+            { "id": "financial-reports", "name": "Financial Reports" },
+            { "id": "custom-reports", "name": "Custom Reports" },
+            { "id": "dashboards", "name": "Dashboards" }
+          ]
+        }
+      ]
+    }
+  }
+}
