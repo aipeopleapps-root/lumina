@@ -292,6 +292,8 @@ export class WorkdayAiPlatformStack extends cdk.Stack {
     const piParseFn       = makeFn('PiParseFn',       'pi_parse',  29);
     const piParseWorkerFn = makeFn('PiParseWorkerFn', 'pi_parse',  300, 'handler.worker_handler');
     const piGraphFn       = makeFn('PiGraphFn',       'pi_graph',  60);
+    const piGraphWorkerFn = makeFn('PiGraphWorkerFn', 'pi_graph',  300, 'handler.tobe_worker_handler');
+    piGraphFn.addEnvironment('PI_GRAPH_WORKER_FUNCTION_ARN', piGraphWorkerFn.functionArn);
     piParseFn.addEnvironment('PI_PARSE_WORKER_FUNCTION_ARN', piParseWorkerFn.functionArn);
     const piAgentLldFn       = makeFn('PiAgentLldFn',       'pi_agent_lld', 29);
     const piAgentLldWorkerFn = makeFn('PiAgentLldWorkerFn', 'pi_agent_lld', 300, 'handler.worker_handler');

@@ -995,6 +995,12 @@ function StepEditPopover({ step, swimlanes, onChange, onClose }: {
 
 // ── Phase 1: As-Is ─────────────────────────────────────────────────────────────
 
+function maturityLabel(position: number): string {
+  if (position < 0.33) return 'AI Assisted';
+  if (position < 0.67) return 'AI Augmented';
+  return 'AI Powered';
+}
+
 function StatBlock({ value, label, color = '#1D1D1F' }: { value: string | number; label: string; color?: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 70 }}>
@@ -1198,6 +1204,11 @@ function AgenticWorkflowPhase({
                         {kind === 'conversational' ? 'Conversational' : 'Workspace'}
                       </span>
                     </div>
+                    {a.agentic_metadata?.maturity && (
+                      <p style={{ fontSize: 10.5, fontWeight: 600, color: '#0071E3', margin: '5px 0 0' }}>
+                        {maturityLabel(a.agentic_metadata.maturity.position)}
+                      </p>
+                    )}
                     {a.model && (
                       <p style={{ fontSize: 11, color: '#8E8E93', margin: '5px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Model: {a.model}

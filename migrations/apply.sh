@@ -34,7 +34,10 @@ echo "Applying $FILE against cluster ${DB_CLUSTER_ARN##*:}"
 echo "---"
 
 # Read statements split on ';', preserving multi-line statements.
-IFS=';' read -ra STMTS <<< "$STATEMENTS"
+# `-d ''` makes read slurp the whole input (delimiter = NUL, never found) instead
+# of stopping at the first newline, which is what plain `read -ra <<<` does —
+# that bug silently dropped every statement after the first line.
+IFS=';' read -d '' -ra STMTS <<< "$STATEMENTS" || true
 for stmt in "${STMTS[@]}"; do
   trimmed=$(echo "$stmt" | sed '/^\s*$/d')
   if [[ -z "$trimmed" ]]; then continue; fi

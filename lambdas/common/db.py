@@ -85,6 +85,15 @@ class Cursor:
                     param['value'] = {'longValue': value}
                 elif isinstance(value, float):
                     param['value'] = {'doubleValue': value}
+                elif isinstance(value, list):
+                    # pgvector literal, e.g. for `... <=> %s::vector`. Must be checked
+                    # before the generic string branch below: a vector literal like
+                    # "[0.01,0.02,...]" is also valid JSON, so it would otherwise get
+                    # typeHint='JSON' from the '[' auto-detection — and casting a jsonb
+                    # parameter to ::vector is not a valid Postgres cast. Bind as a plain
+                    # untyped string instead; the explicit ::vector cast in the SQL text
+                    # does the real work.
+                    param['value'] = {'stringValue': '[' + ','.join(repr(float(x)) for x in value) + ']'}
                 else:
                     param['value'] = {'stringValue': str(value)}
                     if isinstance(value, str):
