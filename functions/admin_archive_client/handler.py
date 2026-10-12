@@ -1,7 +1,7 @@
 """
 Project Admin: archive or restore a client tenant.
 
-POST /admin/archive-client
+POST /manage/archive-client
 { "tenant_id": "acme", "action": "archive" | "restore" }
 """
 
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("project_admin", "admin")
+        ctx.require_role("project_admin", "super_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

@@ -99,7 +99,7 @@ export function AiRecommendationsPanel({ processId, graph, onApplied, onClose }:
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '40px 0' }}>
             <style>{`@keyframes recs-spin { to { transform: rotate(360deg) } }`}</style>
-            <div style={{ width: 32, height: 32, border: '3px solid #E5E5EA', borderTopColor: '#0071E3',
+            <div style={{ width: 32, height: 32, border: '3px solid #E5E5EA', borderTopColor: '#0C0D0D',
               borderRadius: '50%', animation: 'recs-spin 0.9s linear infinite' }} />
             <p style={{ color: '#6E6E73', fontSize: 13 }}>Analysing the process for AI opportunities…</p>
           </div>
@@ -110,9 +110,9 @@ export function AiRecommendationsPanel({ processId, graph, onApplied, onClose }:
         ) : recs ? (
           <>
             <p style={{ color: '#6E6E73', fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>{recs.intro}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {recs.interventions.map(iv => (
-                <InterventionCard key={iv.intervention_id} iv={iv}
+            <div style={{ background: '#fff', border: '1px solid #E5E5EA', borderRadius: 12, overflow: 'hidden' }}>
+              {recs.interventions.map((iv, idx) => (
+                <InterventionCard key={iv.intervention_id} iv={iv} first={idx === 0}
                   checked={selected.has(iv.intervention_id)}
                   onToggle={() => toggle(iv.intervention_id)}
                   labelForStep={labelForStep} />
@@ -141,16 +141,16 @@ export function AiRecommendationsPanel({ processId, graph, onApplied, onClose }:
             </span>
             <button
               onClick={() => setSelected(selected.size === total ? new Set() : new Set(recs.interventions.map(i => i.intervention_id)))}
-              style={{ background: 'none', border: 'none', color: '#0071E3', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+              style={{ background: 'none', border: 'none', color: '#0C0D0D', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
               {selected.size === total ? 'Deselect All' : 'Select All'}
             </button>
           </div>
           {error && <p style={{ color: '#FF3B30', fontSize: 12, marginBottom: 8 }}>{error}</p>}
           <button onClick={handleApply} disabled={applying || selected.size === 0}
             style={{
-              width: '100%', padding: '12px', borderRadius: 980, fontSize: 14, fontWeight: 700,
+              width: '100%', padding: '12px', borderRadius: 999, fontSize: 14, fontWeight: 700,
               border: 'none', cursor: applying || selected.size === 0 ? 'not-allowed' : 'pointer',
-              background: applying || selected.size === 0 ? '#E5E5EA' : '#0071E3',
+              background: applying || selected.size === 0 ? '#E5E5EA' : '#0C0D0D',
               color: applying || selected.size === 0 ? '#C7C7CC' : '#fff', fontFamily: FONT,
             }}>
             {applying ? 'Generating…' : 'Apply & Generate'}
@@ -161,17 +161,21 @@ export function AiRecommendationsPanel({ processId, graph, onApplied, onClose }:
   );
 }
 
-function InterventionCard({ iv, checked, onToggle, labelForStep }: {
-  iv: PiIntervention; checked: boolean; onToggle: () => void; labelForStep: (id: string) => string;
+function InterventionCard({ iv, checked, onToggle, labelForStep, first }: {
+  iv: PiIntervention; checked: boolean; onToggle: () => void; labelForStep: (id: string) => string; first?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const impact = IMPACT_STYLE[iv.impact] ?? IMPACT_STYLE.medium;
 
+  // Selection used to be shown by swapping the card's own border color —
+  // now that rows share one container with hairline dividers, selection is
+  // a background tint instead (the checkbox itself still carries the literal
+  // state; this is just a scan-at-a-glance reinforcement).
   return (
-    <div style={{ border: `1.5px solid ${checked ? '#0071E3' : '#E5E5EA'}`, borderRadius: 12, overflow: 'hidden', transition: 'border-color 0.15s' }}>
-      <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+    <div style={{ borderTop: first ? 'none' : '1px solid #F5F5F7', background: checked ? '#F5F9FF' : 'transparent', transition: 'background 0.15s' }}>
+      <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <input type="checkbox" checked={checked} onChange={onToggle}
-          style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0, cursor: 'pointer', accentColor: '#0071E3' }} />
+          style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0, cursor: 'pointer', accentColor: '#0C0D0D' }} />
         <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setOpen(v => !v)}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: '#1D1D1F', lineHeight: 1.4 }}>{iv.title}</span>
@@ -195,7 +199,7 @@ function InterventionCard({ iv, checked, onToggle, labelForStep }: {
         </button>
       </div>
       {open && (
-        <div style={{ padding: '0 14px 12px 40px', borderTop: '1px solid #F5F5F7' }}>
+        <div style={{ padding: '0 18px 12px 44px', borderTop: '1px solid #F5F5F7' }}>
           <p style={{ fontSize: 12, color: '#3A3A3C', lineHeight: 1.6, margin: '10px 0 0' }}>{iv.description}</p>
         </div>
       )}

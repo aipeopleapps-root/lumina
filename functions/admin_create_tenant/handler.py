@@ -1,7 +1,7 @@
 """
 Admin: Create new tenant (Cosmos `config` container only — no Aurora dependency).
 
-POST /admin/create-tenant
+POST /manage/create-tenant
 { "tenant_id": "newcorp", "name": "New Corp", "industry": "...", "region": "..." }
 """
 
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("admin", "project_admin")
+        ctx.require_role("super_admin", "project_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

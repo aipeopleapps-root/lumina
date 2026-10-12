@@ -1,0 +1,25 @@
+{
+  "IsEncrypted": false,
+  "Host": {
+    "CORS": "*",
+    "CORSCredentials": false
+  },
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+
+    "_comment": "Everything below mirrors functions/common/*.py's exact env var names, deliberately — this app shares Lumina's Cosmos/Blob/AI Foundry resources, not standalone ones. See bicep/modules/bpworkbook.bicep for how these get set for real; for local dev against the live Pilot Subscription, copy the same values Lumina's own Function App uses (az functionapp config appsettings list --name lumina-func-<suffix> --resource-group lumina-rg). Auth for local dev: either run behind the same APIM instance, or hand-set x-tenant-id/x-user-sub/x-user-role headers yourself when calling locally (see src/lib/tenantContext.js).",
+
+    "AZURE_AI_FOUNDRY_ENDPOINT": "https://lumina-foundry-<suffix>.cognitiveservices.azure.com/",
+    "AZURE_AI_FOUNDRY_API_VERSION": "2024-05-01-preview",
+    "GENERATION_MODEL_NAME": "claude-haiku-4-5",
+
+    "COSMOS_ENDPOINT": "https://lumina-cosmos-<suffix>.documents.azure.com:443/",
+    "COSMOS_DATABASE": "lumina",
+    "COSMOS_CONTAINER": "bp_workbook_sessions",
+    "CONFIG_CONTAINER_NAME": "config",
+
+    "AZURE_STORAGE_ACCOUNT_URL": "https://luminadocs<suffix>.blob.core.windows.net",
+    "STORAGE_CONTAINER": "docs"
+  }
+}

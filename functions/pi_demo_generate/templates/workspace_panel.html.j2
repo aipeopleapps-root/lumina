@@ -1,0 +1,39 @@
+{# Live-Demo tab body for kind="workspace". Unlike the conversational panel,
+   the dashboard body IS rendered server-side (it's static content in the
+   reference implementation) — only the small mini-chat follow-up strip at
+   the bottom is client-side animated, from MINI_CHATS[agent_id]. #}
+{% import "macros.html.j2" as m %}
+{% set dashboard = (agent.demo_profile.democontent.dashboard) if agent.demo_profile else {} %}
+<div class="section-title">Awaiting Your Action</div>
+<div class="workspace-card">
+  <div class="ws-head">
+    <div class="agent-orb">{{ m.agent_icon(agent.kind) }}</div>
+    <div class="titles">
+      <div class="t1">{{ agent.name }}</div>
+      <div class="t2">{{ agent.description or '' }}</div>
+    </div>
+    <span class="chip ok">Live</span>
+  </div>
+  <div class="ws-body">
+    {% if dashboard.stat_cards %}{{ m.stat_cards(dashboard.stat_cards) }}{% endif %}
+    {% if dashboard.org_chart %}{{ m.org_chart(dashboard.org_chart) }}{% endif %}
+    {% if dashboard.doc_sections %}
+    <div>
+      <div class="ws-section-label">Draft narrative <span class="ai-badge">✦ AI-drafted</span></div>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:10px;">
+        {% for section in dashboard.doc_sections %}{{ m.doc_section(section) }}{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if dashboard.bar_chart %}{{ m.bar_chart(dashboard.bar_chart) }}{% endif %}
+    {% if dashboard.risk_list %}{{ m.risk_list(dashboard.risk_list) }}{% endif %}
+  </div>
+  <div class="mini-chat">
+    <div class="mini-chat-label"><span class="d"></span>Agent assistant · ask a follow-up</div>
+    <div class="mini-chat-log" id="miniLog-{{ agent.agent_id }}"></div>
+    <div class="mini-inputbar">
+      <div class="field">Ask {{ agent.name }} a follow-up…</div>
+      <button class="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 14-7-7 14-2-6z"/></svg></button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,109 @@
+{% import "macros.html.j2" as m %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ theme.clientName }} AI Agent Suite — Workday</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include "theme.css.j2" %}
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="home-btn" title="{{ theme.clientName }} Home" data-agent="home">{{ theme.clientLogoText }}</div>
+    <div class="nav-item" data-agent="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+      Home
+    </div>
+    {% for agent in agents %}{{ m.nav_item(agent) }}{% endfor %}
+    <div class="nav-divider"></div>
+    <div class="nav-item nav-disabled" data-agent="__more__">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+      More
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="fill"></div>
+      <div class="topbar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg></div>
+      <div class="topbar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 0 0 4 0"/></svg><span class="badge">{{ agents|length }}</span></div>
+      <div class="topbar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 7l9 6 9-6"/></svg></div>
+    </div>
+
+    <div class="content">
+      <div class="content-grid">
+        <div class="content-left">
+
+          <div class="panel active" id="panel-home">
+            <div class="home-banner">
+              <div class="hb-eyebrow">{{ theme.clientName }} AI Discovery</div>
+              <h1>The AI Agent Suite</h1>
+              <p>{{ agents|length }} agent{{ 's' if agents|length != 1 else '' }} proposed for this process — {{ conv_count }} conversational assistant{{ 's' if conv_count != 1 else '' }} for day-to-day decisions, and {{ ws_count }} workspace{{ 's' if ws_count != 1 else '' }} for modelling, drafting, and analysis. Select one from the left, or browse below.</p>
+            </div>
+
+            <div class="stat-cards" style="margin-bottom:22px;">
+              <div class="stat-card accent"><div class="num">{{ agents|length }}</div><div class="lbl">Agents proposed</div></div>
+              <div class="stat-card accent"><div class="num">{{ conv_count }} + {{ ws_count }}</div><div class="lbl">Conversational · Workspace</div></div>
+            </div>
+
+            <div class="section-title">Browse the suite</div>
+            <div class="agent-grid">
+              {% for agent in agents %}{{ m.home_card(agent) }}{% endfor %}
+            </div>
+          </div>
+
+          {% for agent in agents %}
+          {% set profile = agent.demo_profile or {} %}
+          <div class="panel" id="panel-{{ agent.agent_id }}">
+            <div class="greeting">Hi {{ profile.persona.name if profile.persona else 'there' }}</div>
+            <div class="searchbar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <span>Ask {{ agent.name }} anything…</span>
+            </div>
+            <div class="pillrow">
+              <button class="pill-btn">Get started</button>
+              <button class="pill-btn">View history</button>
+              <button class="pill-btn icon-only"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+            </div>
+
+            <div class="tabbar">
+              <button class="tab-btn active" id="btnLive-{{ agent.agent_id }}" onclick="showTab('{{ agent.agent_id }}','live')">Live Demo</button>
+              <button class="tab-btn" id="btnHiw-{{ agent.agent_id }}" onclick="showTab('{{ agent.agent_id }}','hiw')">How It Works</button>
+            </div>
+
+            <div class="tab-panel active" id="tabLive-{{ agent.agent_id }}">
+              {% if agent.kind == 'workspace' %}
+                {% include "workspace_panel.html.j2" %}
+              {% else %}
+                {% include "conversational_panel.html.j2" %}
+              {% endif %}
+            </div>
+            <div class="tab-panel" id="tabHiw-{{ agent.agent_id }}">
+              {% include "how_it_works_panel.html.j2" %}
+            </div>
+          </div>
+          {% endfor %}
+
+        </div>
+
+        <div class="content-right">
+          <div class="suite-list">
+            <div class="sl-title">Agent Suite</div>
+            {% for agent in agents %}{{ m.suite_item(agent) }}{% endfor %}
+          </div>
+          <div class="suggestion-box">
+            <div class="st">Timely Suggestions</div>
+            <div class="sd" id="suggestionText">Select an agent from the left, or browse the suite on Home.</div>
+          </div>
+          {{ m.disclaimer_footer(theme) }}
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include "script.js.j2" %}
+</body>
+</html>

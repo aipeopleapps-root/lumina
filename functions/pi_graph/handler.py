@@ -140,7 +140,8 @@ additional directions given), and return a single JSON object with this exact st
       "description": "1-2 sentences: what this agent does end to end",
       "model": "string — a plausible model choice for this agent's task, e.g. 'Claude Sonnet 4.5' or 'GPT-4o'",
       "tools": [{"name": "string, e.g. 'PDF Parser'", "purpose": "short phrase"}],
-      "replaces_step_ids": ["step_id", ...]
+      "replaces_step_ids": ["step_id", ...],
+      "kind": "conversational|workspace"
     }
   ]
 }
@@ -161,7 +162,13 @@ Transformation rules:
 11. proposed_agents: create one agent per distinct group of consolidated sana_agent/workday_native/partial_ai \
     steps (typically one agent per selected intervention, occasionally merging two very related interventions \
     into one agent if that better reflects how a single agent would actually be built). Every step_id across \
-    all proposed_agents must exist in your steps array. Do not propose an agent for human_only steps."""
+    all proposed_agents must exist in your steps array. Do not propose an agent for human_only steps.
+12. kind: classify each proposed agent as "conversational" (a human primarily interacts with it through \
+    back-and-forth dialogue — chat, Q&A, request → response, deciding at each step) or "workspace" (it runs \
+    in the background and surfaces its output as a document/dashboard/summary a human reviews, with at most \
+    an occasional follow-up question). Default to "workspace" when the agent's description doesn't clearly \
+    imply a conversational interaction pattern — do not pick "conversational" just because the agent is \
+    capable of answering questions."""
 
 
 # ── GET /process-intelligence/{process_id}/status ────────────────────────────
@@ -169,7 +176,7 @@ Transformation rules:
 def status_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -199,7 +206,7 @@ def status_handler(event: dict, context: object) -> dict:
 def graph_get_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -224,7 +231,7 @@ def graph_get_handler(event: dict, context: object) -> dict:
 def graph_patch_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -331,7 +338,7 @@ def _kb_block(ctx, graph: dict, process_id: str, extra_query: str = "") -> str:
 def recommendations_post_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -387,7 +394,7 @@ def recommendations_post_handler(event: dict, context: object) -> dict:
 def recommendations_get_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -408,7 +415,7 @@ def recommendations_get_handler(event: dict, context: object) -> dict:
 def tobe_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -511,7 +518,7 @@ def tobe_handler(event: dict, context: object) -> dict:
 def tobe_get_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 

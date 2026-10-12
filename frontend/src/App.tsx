@@ -1,23 +1,45 @@
-import { useEffect, useState } from 'react';
-import {
-  signIn,
-  signOut,
-  getCurrentUser,
-  fetchUserAttributes,
-  confirmSignIn,
-  setUpTOTP,
-  verifyTOTPSetup,
-  updateMFAPreference,
-  fetchMFAPreference,
-} from 'aws-amplify/auth';
-import QRCode from 'qrcode';
-import { requestMfaReset } from './lib/api';
-import ConsultantPanel from './components/ConsultantPanel';
-import { AdminPanel } from './components/AdminPanel';
-import { ClientView } from './components/ClientView';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useMsal } from '@azure/msal-react';
+import { loginRequest, claimsFromAccount } from './lib/msal';
+import ConsultantPanel, { type NavSection } from './components/ConsultantPanel';
+import { AdminPanel, type Tab as AdminTab } from './components/AdminPanel';
 import { LuminaLogo } from './components/LuminaLogo';
 import { OnboardingChecklist, shouldShowOnboarding } from './components/OnboardingChecklist';
-import { getMyClients, setActiveClientTenant, listTenants, type AssignedClient } from './lib/api';
+import PlatformHome, { type AppId, APP_SCOPE } from './components/PlatformHome';
+import RfpReimagine from './components/RfpReimagine';
+import ProcessIntelligence from './components/ProcessIntelligence';
+import TestAutomationSuite from './components/TestAutomationSuite';
+import BpWorkbookGeneration from './components/BpWorkbookGeneration';
+import AskStuey, { type StueyContext } from './components/AskStuey';
+import { getMyClients, setActiveClientTenant, listTenants, getAppVisibility, type AssignedClient } from './lib/api';
+
+// Process Intelligence is its own top-level destination, same as RFP
+// Reimagine — it doesn't live inside the ConsultantPanel Documents shell at
+// all (one page: current process map + generated agentic workflow, nothing
+// else — see ProcessIntelligence.tsx).
+type ConsultantView = 'home' | 'client-picker' | 'workspace' | 'rfp' | 'process-intelligence' | 'test-automation' | 'bp-workbook-generation';
+
+const STUEY_CONTEXT: Record<ConsultantView, StueyContext> = {
+  'home': 'platform-home',
+  'client-picker': 'client-picker',
+  'workspace': 'workspace',
+  'rfp': 'rfp-reimagine',
+  'process-intelligence': 'workspace',
+  'test-automation': 'workspace',
+  'bp-workbook-generation': 'workspace',
+};
+
+// App tiles that land inside the ConsultantPanel Documents workspace, and
+// which pane each one should open to there. Process Intelligence isn't
+// here — it routes to its own top-level ConsultantView instead (see
+// launchApp below).
+const WORKSPACE_NAV: Partial<Record<AppId, NavSection>> = {
+  'go-live-check': 'go-live-check',
+  'weekly-report': 'weekly-report',
+  'workday-coach': 'workday-coach',
+};
+const WORKSPACE_NAV_VALUES = new Set(Object.values(WORKSPACE_NAV));
 
 type Me = {
   email: string;
@@ -27,105 +49,241 @@ type Me = {
   lastName: string;
 } | null;
 
-type PreviewMode =
-  | { view: 'admin' }
-  | { view: 'consultant'; tenant: AssignedClient }
-  | { view: 'client'; tenant: AssignedClient };
+const ADMIN_ROLES = new Set(['super_admin', 'project_admin']);
 
-const ADMIN_ROLES = new Set(['admin', 'project_admin', 'security_admin']);
+// ── URL → state derivation ──────────────────────────────────────────────────
+// No <Routes>/<Route> matching — every "which view" decision is derived directly from
+// location.pathname via these pure helpers, and every navigation is a plain navigate() call.
+// Given how much of this render tree is already gated by role/preview-mode (not just "which
+// path"), this stays truer to the app's existing conditional structure than converting to
+// route-element matching would, while still making the URL the single source of truth: refresh,
+// back/forward, and bookmarking all fall out of this for free, since render is now a pure
+// function of location.pathname instead of component-local state.
+
+function getConsultantClientId(pathname: string): string | null {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'consultant') return null;
+  const seg = parts[1];
+  if (!seg || seg === 'client-picker' || seg === 'rfp-reimagine') return null;
+  return decodeURIComponent(seg);
+}
+
+function getConsultantView(pathname: string): ConsultantView {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'consultant') return 'home';
+  if (!parts[1]) return 'home';
+  if (parts[1] === 'client-picker') return 'client-picker';
+  if (parts[1] === 'rfp-reimagine') return 'rfp';
+  if (parts[2] === 'process-intelligence') return 'process-intelligence';
+  if (parts[2] === 'test-automation') return 'test-automation';
+  if (parts[2] === 'bp-workbook-generation') return 'bp-workbook-generation';
+  return 'workspace';
+}
+
+function getWorkspaceNavSection(pathname: string): NavSection {
+  const parts = pathname.split('/').filter(Boolean);
+  const seg = parts[2];
+  return (seg && WORKSPACE_NAV_VALUES.has(seg as NavSection)) ? (seg as NavSection) : 'documents';
+}
+
+function getTestAutomationRunId(pathname: string): string | undefined {
+  const parts = pathname.split('/').filter(Boolean);
+  return parts[2] === 'test-automation' && parts[3] && parts[3] !== 'reports' && parts[3] !== 'execute'
+    ? decodeURIComponent(parts[3]) : undefined;
+}
+
+type TestAutomationView = 'build' | 'execute' | 'reports';
+function getTestAutomationView(pathname: string): TestAutomationView {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[2] !== 'test-automation') return 'build';
+  if (parts[3] === 'reports') return 'reports';
+  if (parts[3] === 'execute') return 'execute';
+  return 'build';
+}
+
+function getTestAutomationReportRunId(pathname: string): string | undefined {
+  const parts = pathname.split('/').filter(Boolean);
+  return parts[2] === 'test-automation' && parts[3] === 'reports' && parts[4]
+    ? decodeURIComponent(parts[4]) : undefined;
+}
+
+function getAdminTab(pathname: string): AdminTab {
+  const parts = pathname.split('/').filter(Boolean);
+  return (parts[1] as AdminTab) || 'clients';
+}
+
+type PreviewNav = 'home' | 'workspace' | 'process-intelligence';
+function getPreviewNav(pathname: string): PreviewNav {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'preview') return 'home';
+  if (parts[1] === 'process-intelligence') return 'process-intelligence';
+  if (parts[1] === 'workspace') return 'workspace';
+  return 'home';
+}
+function getPreviewWorkspaceNav(pathname: string): NavSection {
+  const parts = pathname.split('/').filter(Boolean);
+  const seg = parts[2];
+  return (seg && WORKSPACE_NAV_VALUES.has(seg as NavSection)) ? (seg as NavSection) : 'documents';
+}
 
 export default function App() {
+  const { instance, accounts } = useMsal();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [me, setMe] = useState<Me>(null);
   const [authReady, setAuthReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // MFA auth flow
-  type AuthStep = 'signin' | 'new-password' | 'mfa-totp' | 'mfa-setup';
-  const [authStep, setAuthStep] = useState<AuthStep>('signin');
-  const [totpCode, setTotpCode] = useState('');
-  const [totpSecret, setTotpSecret] = useState('');
-  const [qrDataUrl, setQrDataUrl] = useState('');
-  const [mfaBusy, setMfaBusy] = useState(false);
-  const [setupIsConfirmSignIn, setSetupIsConfirmSignIn] = useState(false);
-  const [resetRequested, setResetRequested] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-
-  // Consultant client-switcher
+  // Data caches — NOT navigation state. Which client/view is active is derived from the URL
+  // below, never stored separately, so it can never go stale relative to what's on screen.
   const [myClients, setMyClients] = useState<AssignedClient[]>([]);
-  const [activeClient, setActiveClient] = useState<AssignedClient | null>(null);
+  const [askStueyOpen, setAskStueyOpen] = useState(false);
 
   // Admin demo previewer
-  const [preview, setPreview] = useState<PreviewMode>({ view: 'admin' });
   const [allClients, setAllClients] = useState<AssignedClient[]>([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [wipApps, setWipApps] = useState<Record<string, string>>({});
+  // Gates Platform Home's first render — without this, the tile grid paints
+  // fully "on" first, then visibly grays out the WIP-flagged ones a moment
+  // later once getAppVisibility() resolves. Starts true for anyone who'll
+  // never trigger that fetch (see the effect below) so it never blocks them.
+  const [wipReady, setWipReady] = useState(false);
 
-  async function beginForcedSetup(userEmail: string) {
-    const details = await setUpTOTP();
-    const uri = details.getSetupUri('Lumina', userEmail);
-    setTotpSecret(details.sharedSecret);
-    setQrDataUrl(await QRCode.toDataURL(uri.toString(), { width: 200, margin: 2 }));
-    setSetupIsConfirmSignIn(false);
-    setTotpCode('');
-    setError(null);
-    setAuthStep('mfa-setup');
-  }
+  const isConsultant = me?.role === 'consultant';
+  const isAdmin = ADMIN_ROLES.has(me?.role ?? '');
 
-  async function refreshMe() {
-    try {
-      await getCurrentUser();
-      const attrs = await fetchUserAttributes();
-      const role = attrs['custom:role'] ?? 'client';
-      // Enforce MFA for non-admin roles on every session load
-      if (!ADMIN_ROLES.has(role)) {
-        const mfaPref = await fetchMFAPreference();
-        const hasTOTP = mfaPref.preferred === 'TOTP' || (mfaPref.enabled ?? []).includes('TOTP');
-        if (!hasTOTP) {
-          await beginForcedSetup(attrs.email ?? '');
-          return;
-        }
-      }
+  const consultantView = getConsultantView(location.pathname);
+  const activeClient = useMemo(
+    () => myClients.find(c => c.tenant_id === getConsultantClientId(location.pathname)) ?? null,
+    [myClients, location.pathname]
+  );
+  const activeClientName = activeClient?.name;
+
+  const isPreviewRoute = location.pathname.startsWith('/preview');
+  const previewNav = getPreviewNav(location.pathname);
+  const previewTenant = allClients[0]; // only one demo tenant is ever offered — see switchPreview
+
+  function refreshMe() {
+    // TEMPORARY local-only test shim — see msal.ts's getAccessToken for context. Bypasses the
+    // MSAL account gate entirely so the RFP Reimagine local-backend test can reach the app
+    // shell without a live interactive sign-in. Must be reverted before commit.
+    const devToken = import.meta.env.VITE_LOCAL_DEV_TOKEN as string | undefined;
+    if (devToken && !instance.getActiveAccount() && !accounts[0]) {
+      const payload = JSON.parse(atob(devToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      const first = (v: unknown) => Array.isArray(v) ? v[0] : v;
       setMe({
-        email: attrs.email ?? '',
-        tenantId: attrs['custom:tenant_id'] ?? '(none)',
-        role,
-        firstName: attrs.given_name ?? '',
-        lastName: attrs.family_name ?? '',
+        email: payload.email ?? '',
+        tenantId: first(payload['extn.tenant_id']) ?? '(none)',
+        role: first(payload['extn.role']) ?? 'consultant',
+        firstName: '', lastName: '',
       });
-      if (shouldShowOnboarding()) setShowOnboarding(true);
-      if (role === 'consultant') {
-        loadMyClients();
-      }
-    } catch {
-      setMe(null);
-    } finally {
+      if (first(payload['extn.role']) === 'consultant') loadMyClients();
       setAuthReady(true);
+      return;
     }
+    // MFA/Conditional Access is enforced entirely by Entra on its own hosted
+    // sign-in pages before a token is ever issued — unlike Cognito, there is
+    // no post-login "is MFA set up yet" check to do here.
+    const account = instance.getActiveAccount() ?? accounts[0] ?? null;
+    if (!account) {
+      setMe(null);
+      setAuthReady(true);
+      return;
+    }
+    const claims = claimsFromAccount(account);
+    setMe(claims);
+    if (shouldShowOnboarding()) setShowOnboarding(true);
+    if (claims.role === 'consultant') {
+      loadMyClients();
+    }
+    setAuthReady(true);
   }
 
   async function loadMyClients() {
     try {
       const clients = await getMyClients();
       setMyClients(clients);
-      if (clients.length === 1) {
-        switchClient(clients[0]);
+      // Auto-select when there's exactly one client and the user landed on bare Platform
+      // Home — never overrides a direct deep link to a specific client/view.
+      if (clients.length === 1 && location.pathname === '/consultant') {
+        navigate(`/consultant/${clients[0].tenant_id}`, { replace: true });
       }
     } catch {
       setMyClients([]);
     }
   }
 
+  // Keep the API client's active-tenant header in sync with whatever the URL currently
+  // resolves to — covers in-app navigation AND a direct deep-link/refresh alike, since both
+  // just change what activeClient derives to.
+  useEffect(() => {
+    setActiveClientTenant(activeClient?.tenant_id ?? null);
+  }, [activeClient?.tenant_id]);
+
+  // Safety net for the bare "/" root and any role-mismatched path (e.g. a consultant
+  // wandering to /admin/*, or a non-super_admin on /preview/*) — bounce to the right home.
+  // Never fires for someone already on a valid path for their role.
+  useEffect(() => {
+    if (!me) return;
+    const p = location.pathname;
+    if (p.startsWith('/preview') && me.role !== 'super_admin') {
+      navigate('/admin/clients', { replace: true });
+    } else if (isAdmin && !p.startsWith('/admin') && !p.startsWith('/preview')) {
+      navigate('/admin/clients', { replace: true });
+    } else if (isConsultant && !p.startsWith('/consultant')) {
+      navigate('/consultant', { replace: true });
+    }
+  }, [me, isAdmin, isConsultant, location.pathname, navigate]);
+
   function switchClient(client: AssignedClient) {
-    setActiveClient(client);
-    setActiveClientTenant(client.tenant_id);
+    const nav = consultantView === 'workspace' ? getWorkspaceNavSection(location.pathname) : 'documents';
+    navigate(`/consultant/${client.tenant_id}/${nav}`);
   }
 
-  useEffect(() => { refreshMe(); }, []);
+  function launchApp(appId: AppId) {
+    if (appId === 'rfp-reimagine') {
+      navigate('/consultant/rfp-reimagine');
+    } else if (appId === 'ask-stuey') {
+      setAskStueyOpen(true);
+    } else if (appId === 'process-intelligence') {
+      // Its own top-level view, not the ConsultantPanel workspace — still
+      // needs an active client engagement first (client-scoped, see
+      // APP_SCOPE in PlatformHome.tsx).
+      navigate(activeClient
+        ? `/consultant/${activeClient.tenant_id}/process-intelligence`
+        : '/consultant/client-picker?next=process-intelligence');
+    } else if (appId === 'test-automation') {
+      // Also its own top-level view (same reasoning as Process Intelligence
+      // above) — client-scoped, needs an active client engagement first.
+      navigate(activeClient
+        ? `/consultant/${activeClient.tenant_id}/test-automation`
+        : '/consultant/client-picker?next=test-automation');
+    } else if (appId === 'bp-workbook-generation') {
+      // Also its own top-level view (same reasoning as Process Intelligence
+      // above) — client-scoped, needs an active client engagement first.
+      navigate(activeClient
+        ? `/consultant/${activeClient.tenant_id}/bp-workbook-generation`
+        : '/consultant/client-picker?next=bp-workbook-generation');
+    } else if (WORKSPACE_NAV[appId]) {
+      // Client-scoped apps that land inside the ConsultantPanel workspace
+      // (see APP_SCOPE in PlatformHome.tsx) — need an active client
+      // engagement before they mean anything, so route through the picker
+      // first if none is set.
+      const nav = WORKSPACE_NAV[appId]!;
+      if (APP_SCOPE[appId] === 'client' && !activeClient) {
+        navigate(`/consultant/client-picker?next=${nav}`);
+      } else if (activeClient) {
+        navigate(`/consultant/${activeClient.tenant_id}/${nav}`);
+      }
+    }
+    // Other app IDs are "coming soon" tiles — PlatformHome handles those inline, never calls onLaunch for them.
+  }
+
+  useEffect(() => { refreshMe(); }, [accounts.length]);
 
   useEffect(() => {
-    if (me?.role === 'admin') {
+    if (me?.role === 'super_admin') {
       listTenants()
         .then(ts => setAllClients(ts
           .filter((t: any) => t.status !== 'archived')
@@ -135,146 +293,60 @@ export default function App() {
     }
   }, [me?.role]);
 
+  useEffect(() => {
+    if (!me) return; // role not known yet — this same effect re-fires once refreshMe() sets it
+    if (me.role === 'consultant') {
+      getAppVisibility().then(r => setWipApps(r.wip_apps)).catch(() => setWipApps({})).finally(() => setWipReady(true));
+    } else {
+      // Non-consultant roles (admin's own view) never read wipApps, so don't
+      // block anything on a fetch that's never going to happen.
+      setWipReady(true);
+    }
+  }, [me?.role]);
+
   function switchPreview(value: string) {
     if (value === 'admin') {
       setActiveClientTenant(null);
-      setPreview({ view: 'admin' });
+      navigate('/admin/clients');
     } else {
-      const [view, tenantId] = value.split(':') as ['consultant' | 'client', string];
-      const tenant = allClients.find(c => c.tenant_id === tenantId);
-      if (!tenant) return;
-      setActiveClientTenant(tenantId);
-      setPreview({ view, tenant });
+      navigate('/preview');
     }
   }
 
-  async function checkAndCompleteSignIn() {
-    const attrs = await fetchUserAttributes();
-    const role = attrs['custom:role'] ?? 'client';
-    if (!ADMIN_ROLES.has(role)) {
-      const mfaPref = await fetchMFAPreference();
-      const hasTOTP = mfaPref.preferred === 'TOTP' || (mfaPref.enabled ?? []).includes('TOTP');
-      if (!hasTOTP) {
-        await beginForcedSetup(attrs.email ?? '');
-        return;
-      }
+  function launchPreviewApp(appId: AppId) {
+    if (appId === 'process-intelligence') {
+      navigate('/preview/process-intelligence');
+    } else if (WORKSPACE_NAV[appId]) {
+      navigate(`/preview/workspace/${WORKSPACE_NAV[appId]}`);
     }
-    await refreshMe();
+    // Firm-wide apps (RFP Reimagine, Ask Stuey) aren't previewable here yet —
+    // Platform Home just won't call onLaunch for anything else since those
+    // tiles aren't wired to a preview destination.
   }
 
-  async function onSignIn(e: React.FormEvent) {
-    e.preventDefault();
+  async function onSignInClick() {
     setSigningIn(true);
     setError(null);
     try {
-      const { nextStep } = await signIn({ username: email, password });
-      if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
-        setNewPassword('');
-        setError(null);
-        setAuthStep('new-password');
-      } else if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
-        setTotpCode('');
-        setError(null);
-        setAuthStep('mfa-totp');
-      } else if (nextStep.signInStep === 'CONTINUE_SIGN_IN_WITH_TOTP_SETUP') {
-        const uri = nextStep.totpSetupDetails.getSetupUri('Lumina', email);
-        setTotpSecret(nextStep.totpSetupDetails.sharedSecret);
-        setQrDataUrl(await QRCode.toDataURL(uri.toString(), { width: 200, margin: 2 }));
-        setSetupIsConfirmSignIn(true);
-        setTotpCode('');
-        setError(null);
-        setAuthStep('mfa-setup');
-      } else {
-        await checkAndCompleteSignIn();
-      }
+      await instance.loginRedirect(loginRequest);
+      // Navigates away to Entra's hosted sign-in (password + any MFA
+      // Conditional Access policy requires); execution does not continue
+      // past this point in the current page load.
     } catch (err: any) {
       setError(err.message || String(err));
-    } finally {
       setSigningIn(false);
     }
   }
 
-  async function onSetNewPassword(e: React.FormEvent) {
-    e.preventDefault();
-    setMfaBusy(true);
-    setError(null);
-    try {
-      await confirmSignIn({ challengeResponse: newPassword });
-      await checkAndCompleteSignIn();
-    } catch (err: any) {
-      setError(err.message || String(err));
-    } finally {
-      setMfaBusy(false);
-    }
-  }
-
-  async function onConfirmTotp(e: React.FormEvent) {
-    e.preventDefault();
-    setMfaBusy(true);
-    setError(null);
-    try {
-      await confirmSignIn({ challengeResponse: totpCode });
-      await refreshMe();
-    } catch (err: any) {
-      setError(err.message || String(err));
-    } finally {
-      setMfaBusy(false);
-    }
-  }
-
-  async function onVerifySetup(e: React.FormEvent) {
-    e.preventDefault();
-    setMfaBusy(true);
-    setError(null);
-    try {
-      if (setupIsConfirmSignIn) {
-        await confirmSignIn({ challengeResponse: totpCode });
-      } else {
-        await verifyTOTPSetup({ code: totpCode });
-        await updateMFAPreference({ totp: 'PREFERRED' });
-      }
-      await refreshMe();
-    } catch (err: any) {
-      setError(err.message || String(err));
-    } finally {
-      setMfaBusy(false);
-    }
-  }
-
-  async function onCancelMfa() {
-    try { await signOut(); } catch {}
-    setAuthStep('signin');
-    setTotpCode('');
-    setNewPassword('');
-    setError(null);
-    setResetRequested(false);
-  }
-
-  async function onRequestMfaReset() {
-    setMfaBusy(true);
-    try {
-      await requestMfaReset(email);
-      setResetRequested(true);
-    } catch {
-      setResetRequested(true); // show confirmation regardless to avoid email enumeration
-    } finally {
-      setMfaBusy(false);
-    }
-  }
-
   async function onSignOut() {
-    await signOut();
     setActiveClientTenant(null);
     setMe(null);
     setMyClients([]);
-    setActiveClient(null);
-    setPreview({ view: 'admin' });
     setAllClients([]);
-    setAuthStep('signin');
-    setTotpCode('');
-    setTotpSecret('');
-    setQrDataUrl('');
+    setWipApps({});
+    setWipReady(false);
     setError(null);
+    await instance.logoutRedirect();
   }
 
   if (!authReady) {
@@ -335,64 +407,37 @@ export default function App() {
                 <span className="text-white/60 text-xs font-medium tracking-wide">Illuminate Your Enterprise</span>
               </div>
               <h1 className="text-4xl font-bold text-white leading-tight tracking-tight">
-                AI intelligence,<br />built for enterprise.
+                AI intelligence,<br />built for consultants.
               </h1>
               <p className="text-slate-400 text-sm leading-relaxed mt-4 max-w-xs">
-                One platform. Two powerful experiences — for the consultants who deliver, and the clients they serve.
+                One platform for the consultants who deliver — upload & analyze client
+                documents, generate deliverables, and ship faster.
               </p>
             </div>
 
-            {/* Persona cards */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Consultant */}
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-md bg-indigo-500/20 flex items-center justify-center">
-                    <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <span className="text-white text-xs font-semibold tracking-wide uppercase">Consultant</span>
+            {/* Consultant capabilities */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-3 max-w-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-md bg-indigo-500/20 flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                 </div>
-                <ul className="space-y-2">
-                  {[
-                    'Upload & index project docs',
-                    'AI risk & gap analysis',
-                    'SOW deliverable validation',
-                    'Publish docs to clients',
-                  ].map(item => (
-                    <li key={item} className="flex items-start gap-2">
-                      <span className="mt-1 w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0" />
-                      <span className="text-slate-400 text-xs leading-relaxed">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                <span className="text-white text-xs font-semibold tracking-wide uppercase">Consultant</span>
               </div>
-
-              {/* Client */}
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-md bg-teal-500/20 flex items-center justify-center">
-                    <svg className="w-3.5 h-3.5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-3 3v-3z" />
-                    </svg>
-                  </div>
-                  <span className="text-white text-xs font-semibold tracking-wide uppercase">Client</span>
-                </div>
-                <ul className="space-y-2">
-                  {[
-                    'Ask Lumina — AI chat advisor',
-                    'Browse shared documents',
-                    'Cite sources from knowledge base',
-                    'Instant answers, anytime',
-                  ].map(item => (
-                    <li key={item} className="flex items-start gap-2">
-                      <span className="mt-1 w-1 h-1 rounded-full bg-teal-400 flex-shrink-0" />
-                      <span className="text-slate-400 text-xs leading-relaxed">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <ul className="space-y-2">
+                {[
+                  'Upload & index project docs',
+                  'AI risk & gap analysis',
+                  'SOW deliverable validation',
+                  'Process intelligence & test generation',
+                ].map(item => (
+                  <li key={item} className="flex items-start gap-2">
+                    <span className="mt-1 w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0" />
+                    <span className="text-slate-400 text-xs leading-relaxed">{item}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
 
@@ -402,7 +447,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right login panel */}
+        {/* Right login panel — Entra handles password/MFA entirely on its own
+            hosted pages (Conditional Access policy, if any, applies there);
+            this is just the entry point into that redirect. */}
         <div className="flex-1 flex items-center justify-center bg-white px-8 py-12">
           <div className="w-full max-w-[360px]">
             {/* Mobile logo */}
@@ -413,261 +460,55 @@ export default function App() {
               <span className="font-semibold text-slate-900">Lumina</span>
             </div>
 
-            {/* ── Step 1: Email + Password ── */}
-            {authStep === 'signin' && (
-              <>
-                <div className="mb-8">
-                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
-                  <p className="text-slate-500 text-sm mt-1">Sign in to your workspace</p>
-                </div>
-                <form onSubmit={onSignIn} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="you@company.com"
-                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-300 transition-shadow"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-shadow"
-                      required
-                    />
-                  </div>
-                  {error && <MfaError message={error} />}
-                  <button
-                    type="submit"
-                    disabled={signingIn}
-                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors mt-1"
-                  >
-                    {signingIn ? 'Signing in…' : 'Sign in'}
-                  </button>
-                </form>
-                <p className="text-xs text-slate-400 mt-8 text-center">
-                  Need access? Contact your project administrator.
-                </p>
-              </>
-            )}
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
+              <p className="text-slate-500 text-sm mt-1">Sign in to your workspace with your organization account</p>
+            </div>
 
-            {/* ── Step 1b: Set new password (temp password on first login) ── */}
-            {authStep === 'new-password' && (
-              <>
-                <div className="mb-8">
-                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Set your password</h2>
-                  <p className="text-slate-500 text-sm mt-1">Your temporary password has expired. Please set a permanent password.</p>
-                </div>
-                <form onSubmit={onSetNewPassword} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">New password</label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                      autoFocus
-                      minLength={8}
-                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-shadow"
-                      required
-                    />
-                    <p className="text-xs text-slate-400 mt-1">Must be at least 8 characters with uppercase, lowercase, number and symbol.</p>
-                  </div>
-                  {error && <MfaError message={error} />}
-                  <button
-                    type="submit"
-                    disabled={mfaBusy || newPassword.length < 8}
-                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors mt-1"
-                  >
-                    {mfaBusy ? 'Setting password…' : 'Set password & continue'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onCancelMfa}
-                    className="w-full text-sm text-slate-500 hover:text-slate-800 py-1.5 transition-colors"
-                  >
-                    ← Back to sign in
-                  </button>
-                </form>
-              </>
-            )}
+            {error && <div className="mb-4"><MfaError message={error} /></div>}
 
-            {/* ── Step 2: Enter TOTP code (already configured) ── */}
-            {authStep === 'mfa-totp' && (
-              <>
-                <div className="flex flex-col items-center mb-8">
-                  <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-6 h-6 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-                    </svg>
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">Two-factor authentication</h2>
-                  <p className="text-slate-500 text-sm mt-1 text-center">Enter the 6-digit code from your authenticator app.</p>
-                </div>
-                <form onSubmit={onConfirmTotp} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Authentication code</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      value={totpCode}
-                      onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="000000"
-                      autoFocus
-                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-2xl font-mono tracking-[0.5em] text-center focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-200 transition-shadow"
-                      required
-                    />
-                  </div>
-                  {error && <MfaError message={error} />}
-                  <button
-                    type="submit"
-                    disabled={mfaBusy || totpCode.length < 6}
-                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors"
-                  >
-                    {mfaBusy ? 'Verifying…' : 'Verify'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onCancelMfa}
-                    className="w-full text-sm text-slate-500 hover:text-slate-800 py-1.5 transition-colors"
-                  >
-                    ← Back to sign in
-                  </button>
-                </form>
+            <button
+              type="button"
+              onClick={onSignInClick}
+              disabled={signingIn}
+              className="w-full flex items-center justify-center gap-2.5 bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+              </svg>
+              {signingIn ? 'Redirecting…' : 'Sign in with Microsoft'}
+            </button>
 
-                <div className="mt-6 pt-5 border-t border-slate-100">
-                  {resetRequested ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-800 text-center">
-                      Reset request sent. An administrator will verify your identity and reset your MFA.
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <p className="text-xs text-slate-400 mb-2">Lost access to your authenticator app?</p>
-                      <button
-                        onClick={onRequestMfaReset}
-                        disabled={mfaBusy}
-                        className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 disabled:opacity-50 transition-colors"
-                      >
-                        Request MFA Reset
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ── Step 3: Forced TOTP setup ── */}
-            {authStep === 'mfa-setup' && (
-              <>
-                <div className="mb-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900 tracking-tight">Secure your account</h2>
-                      <p className="text-slate-500 text-xs">MFA is required for your role</p>
-                    </div>
-                  </div>
-                  <p className="text-slate-600 text-sm leading-relaxed">
-                    Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code below.
-                  </p>
-                </div>
-
-                {qrDataUrl && (
-                  <div className="flex justify-center mb-4">
-                    <div className="border border-slate-200 rounded-xl p-3 bg-white shadow-sm">
-                      <img src={qrDataUrl} alt="TOTP QR code" width={180} height={180} />
-                    </div>
-                  </div>
-                )}
-
-                {totpSecret && (
-                  <div className="mb-5">
-                    <p className="text-xs text-slate-400 mb-1.5">Can't scan? Enter this key manually:</p>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-mono text-xs text-slate-700 tracking-widest break-all select-all">
-                      {totpSecret.match(/.{1,4}/g)?.join(' ') ?? totpSecret}
-                    </div>
-                  </div>
-                )}
-
-                <form onSubmit={onVerifySetup} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Enter the 6-digit code to verify</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      value={totpCode}
-                      onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="000000"
-                      autoFocus
-                      className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-2xl font-mono tracking-[0.5em] text-center focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent placeholder:text-slate-200 transition-shadow"
-                      required
-                    />
-                  </div>
-                  {error && <MfaError message={error} />}
-                  <button
-                    type="submit"
-                    disabled={mfaBusy || totpCode.length < 6}
-                    className="w-full bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-700 disabled:opacity-50 text-sm font-medium transition-colors"
-                  >
-                    {mfaBusy ? 'Activating…' : 'Activate two-factor authentication'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onCancelMfa}
-                    className="w-full text-sm text-slate-500 hover:text-slate-800 py-1.5 transition-colors"
-                  >
-                    ← Back to sign in
-                  </button>
-                </form>
-              </>
-            )}
+            <p className="text-xs text-slate-400 mt-8 text-center">
+              Need access? Contact your project administrator.
+            </p>
           </div>
         </div>
       </div>
     );
   }
 
-  const isConsultant = me.role === 'consultant';
-  const isAdmin = ADMIN_ROLES.has(me.role);
-
   const roleBadge: Record<string, string> = {
-    client:         'bg-[#86BC25]/20 text-[#86BC25] border border-[#86BC25]/30',
-    consultant:     'bg-[#86BC25]/20 text-[#86BC25] border border-[#86BC25]/30',
-    project_admin:  'bg-amber-500/20  text-amber-300  border border-amber-500/30',
-    security_admin: 'bg-red-500/20    text-red-300    border border-red-500/30',
-    admin:          'bg-white/10      text-white       border border-white/20',
+    consultant:    'bg-[#86BC25]/20 text-[#86BC25] border border-[#86BC25]/30',
+    project_admin: 'bg-amber-500/20  text-amber-300  border border-amber-500/30',
+    super_admin:   'bg-white/10      text-white       border border-white/20',
   };
   const roleLabel: Record<string, string> = {
-    client: 'Client',
     consultant: 'Consultant',
     project_admin: 'Project Admin',
-    security_admin: 'Security Admin',
-    admin: 'Admin',
+    super_admin: 'Super Admin',
   };
 
   function goHome() {
-    if (isAdmin) setPreview({ view: 'admin' });
-    else if (isConsultant) setActiveClient(null);
+    if (isAdmin) navigate('/admin/clients');
+    else if (isConsultant) navigate('/consultant');
   }
 
-  const previewValue = preview.view === 'admin'
-    ? 'admin'
-    : `${preview.view}:${(preview as any).tenant.tenant_id}`;
-
-  const isPreviewing = me.role === 'admin' && preview.view !== 'admin';
+  const previewValue = !isPreviewRoute ? 'admin' : `consultant:${previewTenant?.tenant_id ?? ''}`;
+  const isPreviewing = me.role === 'super_admin' && isPreviewRoute;
 
   return (
     <div className="h-screen flex flex-col">
@@ -676,17 +517,27 @@ export default function App() {
         <div className="bg-[#86BC25] text-black text-xs font-medium px-4 py-1.5 flex items-center justify-between flex-shrink-0">
           <span>
             Demo preview — viewing as{' '}
-            <span className="font-bold capitalize">{preview.view}</span>
-            {(preview.view === 'consultant' || preview.view === 'client') && (
-              <> · <span className="font-bold">{preview.tenant.name}</span></>
+            <span className="font-bold capitalize">consultant</span>
+            {previewTenant && (
+              <> · <span className="font-bold">{previewTenant.name}</span></>
             )}
           </span>
-          <button
-            onClick={() => switchPreview('admin')}
-            className="underline hover:no-underline ml-4 font-bold"
-          >
-            Back to Admin Panel
-          </button>
+          <span className="flex items-center gap-4">
+            {previewNav !== 'home' && (
+              <button
+                onClick={() => navigate('/preview')}
+                className="underline hover:no-underline font-bold"
+              >
+                Platform Home
+              </button>
+            )}
+            <button
+              onClick={() => switchPreview('admin')}
+              className="underline hover:no-underline font-bold"
+            >
+              Back to Admin Panel
+            </button>
+          </span>
         </div>
       )}
 
@@ -707,7 +558,7 @@ export default function App() {
 
         <div className="flex items-center gap-3">
           {/* Consultant client switcher */}
-          {isConsultant && myClients.length > 0 && (
+          {isConsultant && consultantView === 'workspace' && myClients.length > 0 && (
             <>
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
                 <span className="text-xs text-white/40">Client:</span>
@@ -732,18 +583,17 @@ export default function App() {
           )}
 
           {/* Admin demo previewer — pill switcher */}
-          {me.role === 'admin' && allClients.length > 0 && (
+          {me.role === 'super_admin' && allClients.length > 0 && (
             <>
               <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg p-0.5">
                 {[
                   { value: 'admin', label: 'Admin' },
                   { value: `consultant:${allClients[0].tenant_id}`, label: 'Consultant' },
-                  { value: `client:${allClients[0].tenant_id}`, label: 'Client' },
                 ].map(opt => (
                   <button
                     key={opt.value}
                     onClick={() => switchPreview(opt.value)}
-                    title={opt.value.startsWith('consultant') || opt.value.startsWith('client') ? `${opt.label} — ${allClients[0].name}` : opt.label}
+                    title={opt.value.startsWith('consultant') ? `${opt.label} — ${allClients[0].name}` : opt.label}
                     className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
                       previewValue === opt.value
                         ? 'bg-[#86BC25] text-black'
@@ -786,160 +636,142 @@ export default function App() {
       </header>
 
       <main className="flex-1 bg-[#f8f9fa] overflow-hidden" style={{ borderTop: '1px solid #1a1a1a' }}>
-        {isAdmin && preview.view === 'admin' && <AdminPanel role={me.role} />}
-
-        {isAdmin && preview.view === 'consultant' && (
-          <ConsultantPanel role="consultant" tenantId={(preview as any).tenant.tenant_id} clientName={(preview as any).tenant.name} />
+        {isAdmin && !isPreviewRoute && (
+          <AdminPanel role={me.role} email={me.email} tab={getAdminTab(location.pathname)} onTabChange={(t) => navigate(`/admin/${t}`)} />
         )}
 
-        {isAdmin && preview.view === 'client' && (
-          <div className="h-full overflow-hidden">
-            <ClientView />
-          </div>
-        )}
-
-        {isConsultant && (
-          activeClient ? (
-            <div className="h-full flex flex-col overflow-hidden">
-              <ConsultantPanel role={me.role} tenantId={activeClient.tenant_id} clientName={activeClient.name} />
-            </div>
+        {isAdmin && isPreviewRoute && (
+          previewNav === 'home' ? (
+            <PlatformHome firstName={me.firstName} onLaunch={launchPreviewApp} activeClientName={previewTenant?.name} wipApps={wipApps} />
+          ) : previewNav === 'process-intelligence' ? (
+            <ProcessIntelligence tenantId={previewTenant?.tenant_id ?? ''} clientName={previewTenant?.name} onBack={() => navigate('/preview')} />
           ) : (
-            <ConsultantHome
-              clients={myClients}
-              userEmail={me.email}
-              firstName={me.firstName}
-              onSelectClient={switchClient}
-            />
+            <ConsultantPanel role="consultant" tenantId={previewTenant?.tenant_id ?? ''} clientName={previewTenant?.name}
+              activeNav={getPreviewWorkspaceNav(location.pathname)} onNavChange={(n) => navigate(`/preview/workspace/${n}`)} />
           )
         )}
 
-        {me.role === 'client' && (
-          <div className="h-full overflow-hidden">
-            <ClientView />
-          </div>
+        {isConsultant && (
+          consultantView === 'home' ? (
+            wipReady ? (
+              <PlatformHome firstName={me.firstName} onLaunch={launchApp} activeClientName={activeClientName} wipApps={wipApps} />
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <div className="w-8 h-8 border-2 border-[#E5E5EA] border-t-[#0C0D0D] rounded-full animate-spin" />
+              </div>
+            )
+          ) : consultantView === 'client-picker' ? (
+            <ClientPicker
+              clients={myClients}
+              onSelect={c => {
+                const next = new URLSearchParams(location.search).get('next') || 'documents';
+                navigate(`/consultant/${c.tenant_id}/${next}`);
+              }}
+              onBack={() => navigate('/consultant')}
+            />
+          ) : consultantView === 'rfp' ? (
+            <div className="h-full overflow-hidden">
+              <RfpReimagine onBack={() => navigate('/consultant')} />
+            </div>
+          ) : consultantView === 'process-intelligence' && activeClient ? (
+            <div className="h-full overflow-hidden">
+              <ProcessIntelligence tenantId={activeClient.tenant_id} clientName={activeClient.name} onBack={() => navigate('/consultant')} />
+            </div>
+          ) : consultantView === 'test-automation' && activeClient ? (
+            <div className="h-full overflow-hidden">
+              <TestAutomationSuite
+                tenantId={activeClient.tenant_id} clientName={activeClient.name} onBack={() => navigate('/consultant')}
+                runId={getTestAutomationRunId(location.pathname)}
+                onRunIdChange={(runId) => navigate(`/consultant/${activeClient.tenant_id}/test-automation/${runId}`, { replace: true })}
+                view={getTestAutomationView(location.pathname)}
+                onViewChange={(v) => navigate(`/consultant/${activeClient.tenant_id}/test-automation${v === 'build' ? '' : `/${v}`}`)}
+                reportRunId={getTestAutomationReportRunId(location.pathname)}
+                onReportRunIdChange={(runId) => navigate(
+                  runId
+                    ? `/consultant/${activeClient.tenant_id}/test-automation/reports/${runId}`
+                    : `/consultant/${activeClient.tenant_id}/test-automation/reports`,
+                  { replace: true },
+                )}
+              />
+            </div>
+          ) : consultantView === 'bp-workbook-generation' && activeClient ? (
+            <div className="h-full overflow-hidden">
+              <BpWorkbookGeneration tenantId={activeClient.tenant_id} clientName={activeClient.name} onBack={() => navigate('/consultant')} />
+            </div>
+          ) : activeClient ? (
+            <div className="h-full flex flex-col overflow-hidden">
+              <ConsultantPanel role={me.role} tenantId={activeClient.tenant_id} clientName={activeClient.name}
+                activeNav={getWorkspaceNavSection(location.pathname)}
+                onNavChange={(n) => navigate(`/consultant/${activeClient.tenant_id}/${n}`)} />
+            </div>
+          ) : wipReady ? (
+            <PlatformHome firstName={me.firstName} onLaunch={launchApp} activeClientName={activeClientName} wipApps={wipApps} />
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-[#E5E5EA] border-t-[#0C0D0D] rounded-full animate-spin" />
+            </div>
+          )
+        )}
+
+        {isConsultant && (
+          <AskStuey context={STUEY_CONTEXT[consultantView]} open={askStueyOpen} onOpenChange={setAskStueyOpen} />
         )}
       </main>
 
       {showOnboarding && me && (
-        <OnboardingChecklist role={me.role} onDismiss={() => setShowOnboarding(false)} />
+        <OnboardingChecklist onDismiss={() => setShowOnboarding(false)} />
       )}
     </div>
   );
 }
 
-function ConsultantHome({
+function ClientPicker({
   clients,
-  userEmail,
-  firstName: propFirstName,
-  onSelectClient,
+  onSelect,
+  onBack,
 }: {
   clients: AssignedClient[];
-  userEmail: string;
-  firstName?: string;
-  onSelectClient: (c: AssignedClient) => void;
+  onSelect: (c: AssignedClient) => void;
+  onBack: () => void;
 }) {
-  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const firstName = propFirstName || cap(userEmail.split('@')[0].split('.')[0]);
-
-  const quickActions = [
-    {
-      icon: '📄',
-      title: 'Upload a document',
-      desc: 'Ingest a config workbook, BPD, or SOW into a client workspace.',
-    },
-    {
-      icon: '🔍',
-      title: 'Analyse a document',
-      desc: 'Surface risks, anti-patterns, and recommendations with AI.',
-    },
-    {
-      icon: '📋',
-      title: 'Validate a SOW',
-      desc: 'Cross-reference deliverables against project documents.',
-    },
-    {
-      icon: '💬',
-      title: 'Client AI Advisor',
-      desc: 'Preview how your client experiences the Lumina AI Advisor.',
-    },
-  ];
-
+  const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
   return (
-    <div className="h-full overflow-auto bg-slate-50">
-      <div className="max-w-3xl mx-auto px-8 py-10 space-y-10">
+    <div style={{ height: '100%', overflow: 'auto', fontFamily: FONT, background: '#F5F5F7' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', padding: '48px 24px 60px' }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#6E6E73', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 20 }}>
+          ← Back to Platform
+        </button>
+        <h1 style={{ fontSize: 26, fontWeight: 700, color: '#1D1D1F', margin: '0 0 6px', letterSpacing: '-0.01em' }}>
+          Choose a client
+        </h1>
+        <p style={{ fontSize: 14, color: '#6E6E73', margin: '0 0 28px' }}>
+          Process Intelligence works within a client engagement — pick which one.
+        </p>
 
-        {/* Greeting */}
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
-            Good {getTimeOfDay()}, {firstName}
-          </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Select a client workspace below to get started.
-          </p>
-        </div>
-
-        {/* Client cards */}
-        <div>
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
-            Your clients
-          </h2>
-          {clients.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-xl px-6 py-10 text-center">
-              <div className="text-3xl mb-3">🗂️</div>
-              <p className="text-sm font-medium text-slate-600">No clients assigned yet</p>
-              <p className="text-xs text-slate-400 mt-1">Ask a Project Admin to assign you to a client engagement.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {clients.map(c => (
-                <button
-                  key={c.tenant_id}
-                  onClick={() => onSelectClient(c)}
-                  className="group bg-white border border-slate-200 hover:border-slate-400 hover:shadow-md rounded-xl px-5 py-4 text-left transition-all duration-150"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-slate-100 group-hover:bg-slate-900 flex items-center justify-center text-slate-600 group-hover:text-white text-sm font-semibold transition-colors flex-shrink-0">
-                      {c.name.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-slate-300 group-hover:text-slate-600 mt-1 transition-colors text-lg">→</span>
-                  </div>
-                  <div className="mt-3">
-                    <div className="text-sm font-semibold text-slate-900">{c.name}</div>
-                    {c.industry && (
-                      <div className="text-xs text-slate-400 mt-0.5">{c.industry}</div>
-                    )}
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-slate-100 flex gap-3 text-xs text-slate-400">
-                    <span>Documents</span>
-                    <span>·</span>
-                    <span>Analysis</span>
-                    <span>·</span>
-                    <span>SOW Validation</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* What you can do */}
-        <div>
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
-            What you can do in a workspace
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {quickActions.map(a => (
-              <div key={a.title} className="bg-white border border-slate-200 rounded-xl px-4 py-4 flex gap-3">
-                <span className="text-xl flex-shrink-0 mt-0.5">{a.icon}</span>
-                <div>
-                  <div className="text-sm font-medium text-slate-800">{a.title}</div>
-                  <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">{a.desc}</div>
+        {clients.length === 0 ? (
+          <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E5E5EA', padding: 40, textAlign: 'center' }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#1D1D1F', margin: 0 }}>No clients assigned yet</p>
+            <p style={{ fontSize: 13, color: '#8E8E93', marginTop: 6 }}>Ask a Project Admin to assign you to a client engagement.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+            {clients.map(c => (
+              <button key={c.tenant_id} onClick={() => onSelect(c)} style={{
+                background: '#FFFFFF', border: '1px solid #E5E5EA', borderRadius: 14, padding: 20, textAlign: 'left',
+                cursor: 'pointer', fontFamily: FONT, transition: 'box-shadow 0.15s ease',
+              }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.06)'; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
+              >
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#F5F5F7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#3A3A3C', marginBottom: 12 }}>
+                  {c.name.charAt(0).toUpperCase()}
                 </div>
-              </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#1D1D1F' }}>{c.name}</div>
+                {c.industry && <div style={{ fontSize: 12.5, color: '#8E8E93', marginTop: 2 }}>{c.industry}</div>}
+              </button>
             ))}
           </div>
-        </div>
-
+        )}
       </div>
     </div>
   );
@@ -954,11 +786,4 @@ function MfaError({ message }: { message: string }) {
       {message}
     </div>
   );
-}
-
-function getTimeOfDay(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
 }

@@ -19,7 +19,7 @@ def handler(event, context):
     except TenantError as e:
         return http.forbidden(str(e))
 
-    if ctx.role not in ("consultant", "admin"):
+    if ctx.role not in ("consultant", "super_admin"):
         return http.forbidden("Only consultants and admins can publish documents")
 
     try:

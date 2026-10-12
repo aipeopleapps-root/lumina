@@ -4,6 +4,9 @@
 .env.*.local
 *.env
 
+# bicep/scripts/deploy.sh's transient full-secret copy of a .bicepparam file — never commit
+bicep/parameters/.deploy-*.bicepparam
+
 # AWS CDK
 infra/cdk.out/
 infra/node_modules/
@@ -14,6 +17,10 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/coverage/
+
+# Any other Node project in this repo (bp-workbook-api, etc.) — generic rule so a new
+# one doesn't need its own entry here every time.
+node_modules/
 
 # Python
 lambdas/**/__pycache__/

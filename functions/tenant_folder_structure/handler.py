@@ -12,7 +12,11 @@ from common import tenant_from_event, TenantError, http, db
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
 
-_TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "config", "folder-templates.json")
+# AWS packaged a private `config/` copy inside every Lambda's own deployment
+# asset (stack.ts's makeFn bundling step); Phase 7's single Function App
+# deploys the whole functions/ tree as one package, so this now points at the
+# one shared functions/config/ directory instead of a per-handler copy.
+_TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "folder-templates.json")
 
 with open(_TEMPLATES_PATH) as _f:
     _TEMPLATES = json.load(_f)["templates"]

@@ -17,7 +17,7 @@ from common import tenant_from_event, TenantError, ai, vectors, audit_events, ht
 log = logging.getLogger(__name__)
 log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
-_MODEL_ID = os.environ["GENERATION_MODEL_ID"]
+_MODEL_ID = os.environ["GENERATION_MODEL_NAME"]
 
 MAX_SOW_CHARS = 25_000
 MAX_EVIDENCE_CHARS = 35_000
@@ -56,7 +56,7 @@ Prioritise surfacing gaps and risks — these are most valuable to the consultan
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin", "project_admin")
+        ctx.require_role("consultant", "super_admin", "project_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

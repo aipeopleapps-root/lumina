@@ -1,7 +1,7 @@
 """
 Project Admin: cost summary — real Azure spend via Cost Management + AI usage from audit container.
 
-GET /admin/costs?days=30
+GET /manage/costs?days=30
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ _SERVICE_LABELS = {
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("project_admin", "admin")
+        ctx.require_role("project_admin", "super_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

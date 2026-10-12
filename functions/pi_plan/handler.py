@@ -76,7 +76,7 @@ Rules:
 def get_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -100,7 +100,7 @@ def get_handler(event: dict, context: object) -> dict:
 def post_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 

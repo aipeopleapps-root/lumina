@@ -1,7 +1,7 @@
 """
 Security Admin: query the audit log across all tenants.
 
-GET /admin/audit-log?limit=50&tenant_id=acme&action=document.upload
+GET /manage/audit-log?limit=50&tenant_id=acme&action=document.upload
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("security_admin", "admin")
+        ctx.require_role("super_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

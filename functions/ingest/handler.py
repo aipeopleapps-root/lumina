@@ -31,7 +31,7 @@ def handler(event, context):
         return http.forbidden(str(e))
 
     try:
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

@@ -21,9 +21,12 @@ import io
 import json
 import logging
 import os
+import posixpath
+import re
 import time
 import zipfile
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 
 from common import tenant_from_event, TenantError, ai, audit_events, blob, queue, http
 from common.tenant import TenantContext
@@ -35,9 +38,6 @@ from common.pi_aurora import (
 
 log = logging.getLogger(__name__)
 log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
-
-_NS = "http://schemas.microsoft.com/office/visio/2012/main"
-_TAG = lambda name: f"{{{_NS}}}{name}"  # noqa: E731
 
 # Statuses from which re-parse is allowed
 _REPARSEABLE = {"uploading", "needs_review", "failed", "ready"}
@@ -141,7 +141,7 @@ Rules:
 def handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -480,156 +480,579 @@ def _parse_pdf(data: bytes) -> dict:
 
 
 # ── Visio XML parser ─────────────────────────────────────────────────────────
+#
+# Real-world .vsdx swimlane/BPMN exports (confirmed against a Workday-style
+# fixture — see functions/tests/test_pi_vsdx_parser.py) nest shapes 2+ levels
+# deep and split a single logical node's text across several child shapes
+# (e.g. a process code on one child, the description on another). Lane
+# membership is NOT expressed by XML nesting either — lane "containers" are
+# decorative background shapes; every real node sits at the same tree depth
+# as the lanes and is assigned to one by comparing absolute page position
+# against each lane's Y-band. This module never assumes a fixed nesting
+# depth, a fixed namespace, or a fixed Master ID → meaning mapping; every one
+# of those is resolved per-file.
 
-def _parse_vsdx(data: bytes) -> dict:
-    """
-    Parse a .vsdx ZIP package. Returns:
-      {groups: [...], steps: [...], connectors: [...]}
-    where groups = top-level Group shapes (candidate swimlanes)
-    and   steps  = leaf shapes (candidate process steps).
-    """
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        # Collect all pages; parse page1 first, then additional pages
-        page_files = sorted(
-            [n for n in zf.namelist() if n.startswith("visio/pages/page") and n.endswith(".xml")],
-            key=lambda n: int("".join(c for c in n if c.isdigit()) or "0"),
+# Local-name tag/attribute matching — deliberately namespace-agnostic rather
+# than binding to one hardcoded namespace URI. Visio versions/templates vary
+# (2012/main vs older 2003/core), and a single package can mix the default
+# Visio namespace with the OOXML relationships namespace on `r:id` attributes
+# — stripping the "{uri}" prefix before comparing local names sidesteps all
+# of that without needing per-file namespace detection.
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _children(elem: ET.Element, local_name: str) -> list[ET.Element]:
+    return [c for c in elem if _local(c.tag) == local_name]
+
+
+def _child(elem: ET.Element, local_name: str) -> ET.Element | None:
+    for c in elem:
+        if _local(c.tag) == local_name:
+            return c
+    return None
+
+
+def _attr_local(elem: ET.Element, local_name: str) -> str | None:
+    """Read an attribute by local name regardless of its namespace prefix —
+    needed for pages.xml's `<Rel r:id="rId1" />`, where the attribute itself
+    is namespaced."""
+    for k, v in elem.attrib.items():
+        if _local(k) == local_name:
+            return v
+    return None
+
+
+_GEOMETRY_CELLS = {"PinX", "PinY", "Width", "Height", "Angle", "LocPinX", "LocPinY"}
+
+
+@dataclass
+class _ShapeNode:
+    id: str
+    type: str
+    master: str | None
+    mastershape: str | None
+    elem: ET.Element
+    cells: dict[str, float] = field(default_factory=dict)
+    properties: dict[str, str] = field(default_factory=dict)
+    children: list["_ShapeNode"] = field(default_factory=list)
+    abs_x: float = 0.0
+    abs_y: float = 0.0
+
+
+def _build_shape_tree(shapes_elem: ET.Element) -> list[_ShapeNode]:
+    """Recursively parse every <Shape>, at every depth, retaining the
+    parent/child structure — needed for both text merging and coordinate
+    composition. Does not flatten."""
+    nodes = []
+    for shape_elem in _children(shapes_elem, "Shape"):
+        cells: dict[str, float] = {}
+        for cell in _children(shape_elem, "Cell"):
+            n, v = cell.get("N"), cell.get("V")
+            if n in _GEOMETRY_CELLS and v is not None:
+                try:
+                    cells[n] = float(v)
+                except ValueError:
+                    pass
+        nested = _child(shape_elem, "Shapes")
+        node = _ShapeNode(
+            id=shape_elem.get("ID", ""),
+            type=shape_elem.get("Type", ""),
+            # `Master` looks up visio/masters/masters.xml's page-level Master
+            # ID → name table. `MasterShape` is a *different* reference — an
+            # internal part ID within a master's own definition — and must
+            # never be resolved against that same masters.xml table. It's
+            # still stored (not resolved) as a signal that a leaf is a
+            # decorative sub-component of its parent's compound master
+            # (a lane's own fill/label sub-shapes both carry one) rather
+            # than independent content — see _classify_tree's generic-leaf
+            # fallback, which must not treat a lane's own name label as a
+            # freestanding task.
+            master=shape_elem.get("Master"),
+            mastershape=shape_elem.get("MasterShape"),
+            cells=cells,
+            properties=_shape_properties(shape_elem),
+            elem=shape_elem,
+            children=_build_shape_tree(nested) if nested is not None else [],
         )
-        if not page_files:
-            raise ValueError("No Visio page XML found in .vsdx file")
-
-        # Parse first page (primary diagram page)
-        page_xml = zf.read(page_files[0])
-
-    root = ET.fromstring(page_xml)
-    shapes_elem = root.find(_TAG("Shapes"))
-    connects_elem = root.find(_TAG("Connects"))
-
-    groups: list[dict] = []
-    steps: list[dict] = []
-
-    if shapes_elem is not None:
-        _walk_shapes(shapes_elem, groups, steps, parent_group_id=None, depth=0)
-
-    connectors: list[dict] = []
-    if connects_elem is not None:
-        for conn in connects_elem.findall(_TAG("Connect")):
-            from_id = conn.get("FromSheet")
-            to_id   = conn.get("ToSheet")
-            if from_id and to_id:
-                connectors.append({
-                    "from":             from_id,
-                    "to":               to_id,
-                    "condition":        conn.get("FromCell"),  # branch label
-                    "parse_confidence": 1.0,
-                })
-
-    # Deduplicate connectors (Visio sometimes emits two Connect elements per edge)
-    seen_edges: set[tuple] = set()
-    unique_connectors = []
-    for c in connectors:
-        edge = (c["from"], c["to"])
-        if edge not in seen_edges:
-            seen_edges.add(edge)
-            unique_connectors.append(c)
-
-    return {"groups": groups, "steps": steps, "connectors": unique_connectors}
+        nodes.append(node)
+    return nodes
 
 
-def _walk_shapes(
-    shapes_elem: ET.Element,
-    groups: list[dict],
-    steps: list[dict],
-    parent_group_id: str | None,
-    depth: int,
-) -> None:
-    for shape in shapes_elem.findall(_TAG("Shape")):
-        shape_id   = shape.get("ID", "")
-        shape_type = shape.get("Type", "")
-        text       = _get_text(shape)
-        pin_x, pin_y = _get_pin(shape)
-
-        nested_shapes = shape.find(_TAG("Shapes"))
-        has_children  = nested_shapes is not None and len(list(nested_shapes)) > 0
-
-        # At depth 0, prefer structure (has_children) over the Type attribute.
-        # Visio cross-functional flowcharts and some templates don't set Type="Group"
-        # on swimlane containers; detecting by children is reliable in practice.
-        if depth == 0 and has_children:
-            # Top-level container: treat as swimlane candidate regardless of Type
-            groups.append({
-                "shape_id": shape_id,
-                "label":    text or f"Lane {len(groups)+1}",
-                "position_x": pin_x,
-                "position_y": pin_y,
-            })
-            _walk_shapes(nested_shapes, groups, steps, parent_group_id=shape_id, depth=depth + 1)
-
-        elif depth == 0 and text:
-            # Flat top-level leaf shape: no swimlane structure, treat as step
-            steps.append({
-                "shape_id":        shape_id,
-                "label":           text,
-                "parent_group_id": parent_group_id,
-                "position_x":      pin_x,
-                "position_y":      pin_y,
-            })
-
-        elif depth > 0 and has_children:
-            # Nested container inside a lane — sub-process step
-            steps.append({
-                "shape_id":        shape_id,
-                "label":           text or f"Sub-process {shape_id}",
-                "parent_group_id": parent_group_id,
-                "position_x":      pin_x,
-                "position_y":      pin_y,
-            })
-
-        elif depth > 0 and text:
-            # Leaf shape inside a lane: process step
-            steps.append({
-                "shape_id":        shape_id,
-                "label":           text,
-                "parent_group_id": parent_group_id,
-                "position_x":      pin_x,
-                "position_y":      pin_y,
-            })
+def _shape_properties(shape_elem: ET.Element) -> dict[str, str]:
+    """Visio Shape Data (a <Section N="Property"> the shape's master
+    defines) — e.g. an EC_Task master carries an explicit process-code field
+    separate from its human-readable name. Reading this directly, when
+    present, is unambiguous; _extract_code_label() falls back to merging
+    descendant shape text only when a shape has no such structured data."""
+    props: dict[str, str] = {}
+    for section in _children(shape_elem, "Section"):
+        if section.get("N") != "Property":
+            continue
+        for row in _children(section, "Row"):
+            row_name = row.get("N") or ""
+            for cell in _children(row, "Cell"):
+                if cell.get("N") == "Value":
+                    v = cell.get("V")
+                    if v:
+                        props[row_name] = v
+    return props
 
 
-def _get_text(shape: ET.Element) -> str:
-    text_elem = shape.find(_TAG("Text"))
+def _shape_own_text(node: _ShapeNode) -> str:
+    """A single shape's own <Text> content — direct text, child element
+    tails, and nested <cp>/<pp>/<tp>/<fld> run/paragraph nodes some Visio
+    versions emit — NOT descendant shapes' text. See _all_descendant_text()
+    for the recursive version used to merge a composite node's full label."""
+    text_elem = _child(node.elem, "Text")
     if text_elem is None:
         return ""
-    # Collect all text content: direct text, child element tails, and nested
-    # <cp>/<pp>/<tp>/<fld> run/paragraph nodes that some Visio versions emit.
     parts = []
     if text_elem.text:
         parts.append(text_elem.text.strip())
     for child in text_elem:
-        # Inline runs: the text node itself
         if child.text:
             parts.append(child.text.strip())
-        # Tail text after the closing tag of each child
         if child.tail:
             parts.append(child.tail.strip())
-    result = " ".join(p for p in parts if p)
-    return result
+    return " ".join(p for p in parts if p)
 
 
-def _get_pin(shape: ET.Element) -> tuple[float | None, float | None]:
-    x, y = None, None
-    for cell in shape.findall(_TAG("Cell")):
-        n = cell.get("N", "")
-        v = cell.get("V")
-        if v is None:
+def _all_descendant_text(node: _ShapeNode) -> list[str]:
+    """Every text-bearing shape in this subtree's own words, in document
+    order — a shape's own text first, then each child's (recursively). A
+    composite logical node (e.g. a Task group whose code and description
+    live on two separate leaf children) needs every one of these, not just
+    the first hit."""
+    out = []
+    own = _shape_own_text(node)
+    if own:
+        out.append(own)
+    for child in node.children:
+        out.extend(_all_descendant_text(child))
+    return out
+
+
+_CODE_RE = re.compile(r"^[A-Za-z]{1,8}-?\d[\w-]*$")
+
+
+def _looks_like_code(text: str) -> bool:
+    """A short, space-free, digit-bearing token (e.g. "HR-020-010-110")
+    reads as a process/reference code rather than a description."""
+    t = text.strip()
+    return bool(t) and " " not in t and len(t) <= 24 and bool(_CODE_RE.match(t))
+
+
+def _extract_code_label(node: _ShapeNode) -> tuple[str | None, str]:
+    """Resolve a classified node's code + label. Prefers Visio Shape Data
+    when the master defines it (unambiguous); otherwise merges every
+    descendant shape's text and heuristically splits a code-shaped token
+    from the rest."""
+    code: str | None = None
+    label: str | None = None
+    for key, val in node.properties.items():
+        if not val:
             continue
+        kl = key.lower()
+        if code is None and ("code" in kl or kl.endswith("id")):
+            code = val
+        elif label is None and ("name" in kl or "text" in kl or "label" in kl or "desc" in kl):
+            label = val
+    if label:
+        return code, label
+
+    texts = _all_descendant_text(node)
+    if not texts:
+        return code, f"(unlabeled {node.type or 'shape'} {node.id})"
+    if len(texts) > 1 and code is None:
+        code_idx = next((i for i, t in enumerate(texts) if _looks_like_code(t)), None)
+        if code_idx is not None:
+            code = texts.pop(code_idx)
+    label = max(texts, key=len) if texts else f"(unlabeled {node.type or 'shape'} {node.id})"
+    return code, label
+
+
+def _normalize_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+# Scaffolding masters describe the swimlane *chrome* (row backgrounds, phase
+# dividers, the list controls used to add/reorder lanes) rather than a real
+# process element — skipped, but still traversed into for descendants.
+_SCAFFOLD_PATTERNS = ("phaselist", "swimlanelist", "separator", "pool")
+
+# Ordered, first-match-wins. Checked against the shape's resolved Master
+# name (case/punctuation-insensitive, tolerant of "Integration Node" and
+# "EC_IntegrationNode" alike) and, when there's no Master at all, against
+# its bare Type attribute — covering hand-built or template-less .vsdx files
+# that classify shapes structurally instead of via a masters.xml lookup.
+_ROLE_PATTERNS: list[tuple[str, str]] = [
+    ("lane", "lane"), ("swimlane", "lane"),
+    ("decision", "decision"), ("diamond", "decision"),
+    ("startevent", "start"),
+    ("endevent", "end"),
+    ("integrationnode", "subprocess"), ("subprocess", "subprocess"), ("reference", "subprocess"),
+    ("dynamicconnector", "connector"), ("connector", "connector"),
+    ("task", "task"), ("activity", "task"), ("process", "task"),
+]
+
+
+def _classify_role(node: _ShapeNode, master_names: dict[str, str]) -> str | None:
+    name = master_names.get(node.master, "") if node.master else ""
+    if not name:
+        name = node.type or ""
+    norm = _normalize_name(name)
+    if not norm:
+        return None
+    if norm in ("start",):
+        return "start"
+    if norm in ("end",):
+        return "end"
+    for pat in _SCAFFOLD_PATTERNS:
+        if pat in norm:
+            return "scaffold"
+    for pat, role in _ROLE_PATTERNS:
+        if pat in norm:
+            return role
+    return None
+
+
+def _resolve_pin(node: _ShapeNode, parent_origin: tuple[float, float]) -> tuple[float, float]:
+    """A shape's PinX/PinY are expressed in its immediate parent group's
+    local coordinate space, not the page's — composing through every
+    ancestor is what turns that into an absolute page position. Only
+    translation is composed (no rotation): axis-aligned swimlane/BPMN
+    diagrams, the target use case here, don't rotate group containers, and
+    a partial rotation-aware transform would misplace nodes worse than
+    leaving it out."""
+    px, py = node.cells.get("PinX"), node.cells.get("PinY")
+    if px is None or py is None:
+        return parent_origin
+    return (parent_origin[0] + px, parent_origin[1] + py)
+
+
+def _child_origin(node: _ShapeNode, abs_pin: tuple[float, float]) -> tuple[float, float]:
+    loc_x = node.cells.get("LocPinX", 0.0) or 0.0
+    loc_y = node.cells.get("LocPinY", 0.0) or 0.0
+    return (abs_pin[0] - loc_x, abs_pin[1] - loc_y)
+
+
+def _register_subtree(node: _ShapeNode, node_id: str, id_to_node_id: dict[str, str]) -> None:
+    """Every shape inside a matched logical node's subtree resolves back to
+    that node's own id — needed because Visio connects a Dynamic connector
+    to a specific *child* shape inside a group (its visual connection
+    point), not to the group's own top-level ID."""
+    id_to_node_id[node.id] = node_id
+    for child in node.children:
+        _register_subtree(child, node_id, id_to_node_id)
+
+
+def _classify_tree(
+    node: _ShapeNode,
+    master_names: dict[str, str],
+    parent_origin: tuple[float, float],
+    lanes: list[dict],
+    nodes: list[dict],
+    id_to_node_id: dict[str, str],
+    shape_by_id: dict[str, _ShapeNode],
+    text_bearing_count: list[int],
+    is_top_level: bool = False,
+) -> None:
+    abs_pin = _resolve_pin(node, parent_origin)
+    node.abs_x, node.abs_y = abs_pin
+    shape_by_id[node.id] = node
+    if _shape_own_text(node):
+        text_bearing_count[0] += 1
+
+    role = _classify_role(node, master_names)
+
+    # Neither a Master nor a Type attribute resolved this shape to a known
+    # role — some .vsdx files (hand-built ones especially) carry no
+    # masters.xml and no Type hints at all, just plain shapes with text.
+    # Two narrow, well-scoped structural fallbacks, rather than dropping
+    # the shape silently:
+    if role is None:
+        if not node.children:
+            # A leaf with real text but no name signal is still a genuine
+            # process step — UNLESS it's a decorative sub-component of its
+            # parent's own compound master (identified by MasterShape,
+            # never Master): a lane's own fill/label sub-shapes both carry
+            # one, and the label's text was already consumed as the lane's
+            # `name` one level up. A leaf with no text is correctly ignored
+            # either way (pure decoration — a background rectangle).
+            if _shape_own_text(node) and not node.mastershape:
+                role = "task"
+        elif is_top_level:
+            # A page-root container that _classify_role already failed to
+            # match by name — the only case reaching here — is treated as a
+            # lane. Every real lane in a named template resolves via
+            # _classify_role before this point; this only fires for
+            # templates that never named their lane masters at all.
+            role = "lane"
+
+    if role == "lane":
+        texts = _all_descendant_text(node)
+        name = texts[0] if texts else f"Lane {node.id}"
+        height = node.cells.get("Height")
+        y_band = (abs_pin[1] - height / 2, abs_pin[1] + height / 2) if height is not None else None
+        lanes.append({"id": node.id, "name": name, "y": abs_pin[1], "y_band": y_band})
+        # Still descend — a different template might nest tasks inside the
+        # lane shape itself, even though this fixture doesn't.
+        child_origin = _child_origin(node, abs_pin)
+        for child in node.children:
+            _classify_tree(child, master_names, child_origin, lanes, nodes, id_to_node_id, shape_by_id, text_bearing_count)
+        return
+
+    if role in ("task", "decision", "start", "end", "subprocess"):
+        code, label = _extract_code_label(node)
+        nodes.append({
+            "id": node.id, "type": role, "label": label, "code": code,
+            "x": abs_pin[0], "y": abs_pin[1], "lane": None,
+        })
+        _register_subtree(node, node.id, id_to_node_id)
+        return  # a matched node's own subtree is fully consumed above
+
+    if role == "connector":
+        return  # resolved later, from the page's <Connects> section
+
+    # Scaffolding or unrecognised — no node of our own, but the real content
+    # may be nested one level further down.
+    child_origin = _child_origin(node, abs_pin)
+    for child in node.children:
+        _classify_tree(child, master_names, child_origin, lanes, nodes, id_to_node_id, shape_by_id, text_bearing_count)
+
+
+def _assign_lanes(nodes: list[dict], lanes: list[dict]) -> None:
+    if not lanes:
+        return
+    for n in nodes:
+        y = n["y"]
+        band_match = next(
+            (l for l in lanes if l["y_band"] and l["y_band"][0] - 1e-6 <= y <= l["y_band"][1] + 1e-6),
+            None,
+        )
+        n["lane"] = (band_match or min(lanes, key=lambda l: abs(l["y"] - y)))["id"]
+
+
+def _build_edges(
+    connects_elem: ET.Element | None,
+    id_to_node_id: dict[str, str],
+    shape_by_id: dict[str, _ShapeNode],
+) -> list[dict]:
+    """Edges are a flat list of <Connect> rows, not nesting — a 1-D Dynamic
+    connector shape has one row for its Begin point and one for its End
+    point, together giving (source, target). Some hand-built/simplified
+    .vsdx files skip the mediating connector shape entirely and connect two
+    node shapes directly; both patterns are handled here without assuming
+    either is "the" format."""
+    if connects_elem is None:
+        return []
+
+    by_from: dict[str, list[ET.Element]] = {}
+    for row in _children(connects_elem, "Connect"):
+        frm = row.get("FromSheet")
+        if frm:
+            by_from.setdefault(frm, []).append(row)
+
+    edges: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    for frm, rows in by_from.items():
+        resolved_frm = id_to_node_id.get(frm)
+
+        if resolved_frm == frm:
+            # `frm` is itself a real node (no mediating connector shape) —
+            # each row is a complete edge on its own.
+            for row in rows:
+                to = id_to_node_id.get(row.get("ToSheet") or "")
+                if to and (frm, to) not in seen:
+                    seen.add((frm, to))
+                    edges.append({"from": frm, "to": to, "label": None})
+            continue
+
+        # `frm` is a connector shape's ID: pair its Begin-point row with its
+        # End-point row to get (source node, target node).
+        begin_to = end_to = None
+        leftover: list[str] = []
+        for row in rows:
+            to = id_to_node_id.get(row.get("ToSheet") or "")
+            if not to:
+                continue
+            cell = row.get("FromCell") or ""
+            if cell.startswith("Begin"):
+                begin_to = to
+            elif cell.startswith("End"):
+                end_to = to
+            else:
+                leftover.append(to)
+        if begin_to is None and leftover:
+            begin_to = leftover.pop(0)
+        if end_to is None and leftover:
+            end_to = leftover.pop(0)
+        if begin_to and end_to and (begin_to, end_to) not in seen:
+            seen.add((begin_to, end_to))
+            connector_shape = shape_by_id.get(frm)
+            label = _shape_own_text(connector_shape) if connector_shape else ""
+            edges.append({"from": begin_to, "to": end_to, "label": label or None})
+
+    return edges
+
+
+def _load_master_names(zf: zipfile.ZipFile, names: set[str]) -> dict[str, str]:
+    """Master ID -> Name/NameU, i.e. what each shape *means*. Absent
+    entirely in some minimal/hand-built .vsdx packages (no swimlane
+    template involved) — callers must tolerate an empty map and fall back
+    to each shape's own Type attribute."""
+    path = "visio/masters/masters.xml"
+    if path not in names:
+        return {}
+    root = ET.fromstring(zf.read(path))
+    out = {}
+    for master in _children(root, "Master"):
+        mid = master.get("ID")
+        if mid:
+            out[mid] = master.get("NameU") or master.get("Name") or ""
+    return out
+
+
+def _resolve_primary_page(zf: zipfile.ZipFile, names: set[str]) -> tuple[str, str]:
+    """Resolve the primary page's actual XML part path and title via
+    visio/pages/pages.xml + its .rels — page part filenames are NOT
+    guaranteed to be "page1.xml" (that's a relationship target, resolved
+    per-file, not a filename convention to assume). Falls back to scanning
+    for any visio/pages/page*.xml part when pages.xml itself is absent
+    (seen in minimal/hand-built .vsdx packages that skip it)."""
+    pages_path = "visio/pages/pages.xml"
+    rels_path = "visio/pages/_rels/pages.xml.rels"
+    if pages_path in names and rels_path in names:
         try:
-            if n == "PinX":
-                x = float(v)
-            elif n == "PinY":
-                y = float(v)
-        except ValueError:
+            pages_root = ET.fromstring(zf.read(pages_path))
+            rels_root = ET.fromstring(zf.read(rels_path))
+            rel_targets = {r.get("Id"): r.get("Target") for r in _children(rels_root, "Relationship")}
+            for page in _children(pages_root, "Page"):
+                rel = _child(page, "Rel")
+                rid = _attr_local(rel, "id") if rel is not None else None
+                target = rel_targets.get(rid) if rid else None
+                if not target:
+                    continue
+                part_path = posixpath.normpath(posixpath.join("visio/pages", target))
+                if part_path in names:
+                    title = page.get("NameU") or page.get("Name") or "Page 1"
+                    return part_path, title
+        except ET.ParseError:
             pass
-    return x, y
+
+    page_files = sorted(
+        (n for n in names if n.startswith("visio/pages/page") and n.endswith(".xml")),
+        key=lambda n: int("".join(c for c in n if c.isdigit()) or "0"),
+    )
+    if page_files:
+        return page_files[0], "Page 1"
+    return "", ""
+
+
+def _parse_vsdx_structure(data: bytes) -> dict:
+    """
+    Parse a .vsdx ZIP package into a normalized, engine-agnostic structure:
+      {
+        "page": "...",
+        "lanes": [{"id", "name", "y_band"}],
+        "nodes": [{"id", "type", "label", "code", "lane", "x", "y"}],
+        "edges": [{"from", "to", "label"}],
+      }
+    `type` is one of task | decision | start | end | subprocess.
+    """
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = set(zf.namelist())
+        page_path, page_title = _resolve_primary_page(zf, names)
+        if not page_path:
+            raise ValueError("No Visio page XML found in .vsdx file")
+        page_xml = zf.read(page_path)
+        master_names = _load_master_names(zf, names)
+
+    root = ET.fromstring(page_xml)
+    shapes_elem = _child(root, "Shapes")
+    connects_elem = _child(root, "Connects")
+
+    shape_tree = _build_shape_tree(shapes_elem) if shapes_elem is not None else []
+
+    lanes: list[dict] = []
+    nodes: list[dict] = []
+    id_to_node_id: dict[str, str] = {}
+    shape_by_id: dict[str, _ShapeNode] = {}
+    text_bearing_count = [0]
+    total_shapes = [0]
+
+    def _count_all(n: _ShapeNode) -> None:
+        total_shapes[0] += 1
+        for c in n.children:
+            _count_all(c)
+
+    for top in shape_tree:
+        _count_all(top)
+        _classify_tree(top, master_names, (0.0, 0.0), lanes, nodes, id_to_node_id, shape_by_id, text_bearing_count, is_top_level=True)
+
+    _assign_lanes(nodes, lanes)
+    edges = _build_edges(connects_elem, id_to_node_id, shape_by_id)
+
+    if total_shapes[0] and text_bearing_count[0] == 0:
+        raise ValueError(
+            f"0 of {total_shapes[0]} shapes have resolvable text after recursive "
+            f"traversal — the file may use an unrecognised Visio schema variant"
+        )
+
+    return {
+        "page": page_title,
+        "lanes": [{"id": l["id"], "name": l["name"], "y_band": l["y_band"]} for l in lanes],
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def _parse_vsdx(data: bytes) -> dict:
+    """
+    Adapts _parse_vsdx_structure()'s normalized {lanes, nodes, edges} into
+    the {groups, steps, connectors} shape _classify() and worker_handler()
+    already consume, so the AI-classification step and Aurora storage need
+    no changes — only extraction was broken, not the downstream contract.
+    """
+    structure = _parse_vsdx_structure(data)
+
+    groups = [
+        {
+            "shape_id": lane["id"],
+            "label": lane["name"],
+            "position_x": None,
+            "position_y": lane["y_band"][0] if lane["y_band"] else None,
+        }
+        for lane in structure["lanes"]
+    ]
+
+    steps = [
+        {
+            "shape_id": n["id"],
+            # Fold the process code into the label (there's no dedicated
+            # column for it downstream) rather than discarding it — still
+            # visible to the AI classifier and to a human reviewer.
+            "label": f'{n["code"]}: {n["label"]}' if n.get("code") else n["label"],
+            "parent_group_id": n["lane"],
+            "position_x": n["x"],
+            "position_y": n["y"],
+        }
+        for n in structure["nodes"]
+    ]
+
+    connectors = [
+        {
+            "from": e["from"],
+            "to": e["to"],
+            "condition": e["label"],
+            "parse_confidence": 1.0,
+        }
+        for e in structure["edges"]
+    ]
+
+    return {"groups": groups, "steps": steps, "connectors": connectors}
 
 
 # ── AI classification ─────────────────────────────────────────────────────────

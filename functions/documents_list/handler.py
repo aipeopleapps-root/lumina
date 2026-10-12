@@ -25,7 +25,7 @@ def handler(event, context):
         log.info("Fetched %d chunks for tenant=%s", len(all_items), ctx.tenant_id)
 
         # Only consultants and admins see unpublished documents
-        is_client = ctx.role not in ("consultant", "admin", "project_admin", "security_admin")
+        is_client = ctx.role not in ("consultant", "super_admin", "project_admin")
         if is_client:
             all_items = [i for i in all_items if i.get("published")]
 

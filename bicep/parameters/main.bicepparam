@@ -1,11 +1,28 @@
 using '../main.bicep'
 
+// ⚠️ Reference/template file — do NOT deploy directly from this one. `az deployment sub create
+// --parameters main.bicepparam --parameters key=value` (supplementing a partial .bicepparam with
+// CLI overrides) does not work with the currently-installed Bicep CLI (BCP258, confirmed live —
+// see bicep/README.md's "Deploying" section and docs/AZURE_MIGRATION.md's Log). Use
+// `bicep/scripts/deploy.sh --env pilot` (or `--env deloitte` once that exists) instead, which
+// deploys from a fully-resolved per-environment file — see parameters/pilot.bicepparam. This
+// file remains useful as a plain-English reference for what every param means when creating a
+// new environment file.
+//
 // Default param values for the single environment (mirrors AWS side's single-stack setup).
 // postgresAdminPassword is deliberately NOT set here — pass it at deploy time, e.g.:
 //   az deployment sub create --location eastus2 --template-file ../main.bicep \
 //     --parameters main.bicepparam --parameters postgresAdminPassword=<secret>
 // uniqueSuffix is also left unset here for the same reason (pick something stable per
 // environment, e.g. a short hash of the subscription ID, and pass it at deploy time).
+// entraAppClientId/entraTenantId/apimPublisherEmail (Phase 7) are left unset for the same
+// reason — they're personal/environment-specific (see Phase 3a in docs/AZURE_MIGRATION.md for
+// the current dev values), not something to bake into a file every environment shares:
+//   --parameters entraAppClientId=<app-registration-client-id> \
+//   --parameters entraTenantId=<entra-tenant-id> \
+//   --parameters apimPublisherEmail=<your-email>
+// Re-registering against a new tenant (e.g. Deloitte)? Only entraAppClientId/entraTenantId
+// change — everything else in this file is unaffected.
 //
 // Repointing to a different subscription/environment/model: every value below is a plain
 // override of a main.bicep param default — nothing here is load-bearing infrastructure.

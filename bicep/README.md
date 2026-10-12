@@ -66,23 +66,51 @@ If the exact Claude model version has moved regions, update `claudeModelName`/`c
 
 ## Deploying
 
+**Use `bicep/scripts/deploy.sh`** — this is the tested, working path as of the Phase 7 live
+-deploy session:
 ```bash
 cd bicep
-az deployment sub create \
-  --name lumina-deploy-$(date +%Y%m%d%H%M%S) \
-  --location eastus2 \
-  --template-file main.bicep \
-  --parameters parameters/main.bicepparam \
-  --parameters uniqueSuffix=<your-short-unique-string> \
-  --parameters postgresAdminPassword=<your-secret-password>
+./scripts/deploy.sh --env pilot            # prompts for the Postgres admin password
+./scripts/deploy.sh --env pilot --what-if  # preview without applying
 ```
+`--env` picks one of `parameters/*.bicepparam` (`pilot.bicepparam` today — see below for the
+eventual `deloitte.bicepparam`). The script sanity-checks that your `az` session is pointed at the
+subscription the environment file expects (via a `SUBSCRIPTION_ID:` comment in the file) before
+doing anything, and never lets the Postgres password touch a committed file or the shell history —
+see the script's own header comment for exactly how.
 
-`uniqueSuffix` and `postgresAdminPassword` are deliberately left unset in `main.bicepparam` (no committed
-secrets, no default that would collide across deployers) — pass them as CLI overrides every time.
+**Per-environment `.bicepparam` files, not one shared template + a pile of CLI flags.** Each
+environment (`pilot.bicepparam`, and eventually `deloitte.bicepparam`) is a fully-resolved,
+committed file with that environment's real `uniqueSuffix`/`entraAppClientId`/`entraTenantId`/
+`apimPublisherEmail` already filled in — copy `parameters/deloitte.bicepparam.example` to
+`deloitte.bicepparam` and fill in four values when that migration happens, then
+`./scripts/deploy.sh --env deloitte`. `postgresAdminPassword` is the one value never committed to
+any of these files — `deploy.sh` prompts for it (or reads `POSTGRES_ADMIN_PASSWORD` from the
+environment, for non-interactive use e.g. from Phase 9 CI).
 
-To preview without applying:
+`parameters/main.bicepparam` is the older generic template these were cloned from — still useful
+as a reference for what every param means, but **do not deploy directly from it**: `az deployment
+sub create --parameters main.bicepparam --parameters key=value` (supplementing a partial
+`.bicepparam` file with CLI overrides) does not work with the currently-installed Bicep CLI
+(v0.46.1) — it throws `BCP258` regardless of whether the missing params are supplied via
+`--parameters` flags afterward. This was the previously-documented pattern in this file, and
+appears to have never actually been exercised end-to-end before the Phase 7 live-deploy session
+surfaced the failure (see `docs/AZURE_MIGRATION.md` Log). `deploy.sh` works around this by writing
+a short-lived, gitignored, fully-resolved copy of the chosen environment file (with the password
+appended) right before deploying, then deleting it immediately after.
+
+### Deploying the frontend (Phase 8)
+
+The deploy above provisions the Static Web App resource (output `staticWebAppHostname`) but does
+not build or push the frontend into it — see `modules/swa.bicep`'s docstring and this file's
+"What's deliberately NOT in this Bicep yet" section for why. Until Phase 9 sets up real CI:
 ```bash
-az deployment sub create ... --what-if
+cd ../frontend
+# .env.local: VITE_API_ENDPOINT=<apiGatewayUrl output>, VITE_AZURE_TENANT_ID=<entraTenantId>,
+# VITE_AZURE_CLIENT_ID=<entraAppClientId>, VITE_AZURE_API_SCOPE=api://<entraAppClientId>/access_as_user
+npm run build
+npx @azure/static-web-apps-cli deploy ./dist --deployment-token <token>
+# token: az staticwebapp secrets list --name lumina-swa --query properties.apiKey -o tsv
 ```
 
 ### Local validation (no Azure account needed)
@@ -92,22 +120,46 @@ bicep build main.bicep --outfile /tmp/main.json   # transitively compiles all mo
 bicep lint main.bicep
 ```
 
-As of this session, both commands run clean except for two expected, non-blocking warnings:
-- `BCP081` on `modules/ai.bicep`'s `projects` sub-resource — Bicep's type registry doesn't have full
-  schema info for this resource type yet (it's new); this does not block deployment.
-- None else after fixing an initial `isVersioningEnabled` placement bug (moved from `storageAccounts` to
-  `storageAccounts/blobServices`, where ARM actually accepts it) and suppressing one
-  `no-hardcoded-env-urls` lint warning on the `privatelink.blob.core.windows.net` private DNS zone name
-  (that exact hostname is the correct/required value for Azure Private Link — it's not a portability bug).
+As of the Phase 8 session, both commands run clean except for two expected, non-blocking warnings
+(re-verified with `az bicep build`/`az bicep lint` — the first session with `az`/Bicep CLI actually
+available; earlier "As of this session" notes in this file predate that and described different,
+now-stale warnings from before the `ai.bicep` API version bump documented in
+`../docs/AZURE_MIGRATION.md`'s Log):
+- `BCP037` on `modules/ai.bicep`'s `claudeDeployment` resource — `modelProviderData` is a real,
+  required property on the live ARM API (see that Log entry for the full story) that Bicep's
+  bundled type definitions don't know about yet. Does not block deployment.
+- `use-recognized-resource-type` on `modules/apim.bicep`'s `listKeys(...)` call against
+  `Microsoft.Web/sites/host` — this resource type is real (it's how you fetch a Function App's
+  host keys) and the API version *is* specified as the function's second argument; the linter's
+  local type-suggestion index just doesn't have it indexed. Does not block deployment.
+
+(Also fixed, prior to Phase 7, and no longer relevant to re-verify each time: an initial
+`isVersioningEnabled` placement bug — moved from `storageAccounts` to `storageAccounts/blobServices`,
+where ARM actually accepts it — and a suppressed `no-hardcoded-env-urls` warning on the
+`privatelink.blob.core.windows.net` private DNS zone name, which is the correct/required value for
+Azure Private Link, not a portability bug. `apim.bicep` suppresses the same lint rule once more, on
+`login.microsoftonline.com`, for the same reason.)
 
 ## What's deliberately NOT in this Bicep yet
 
 - **Phase 3a (Entra ID identity)** — app registration and the `tenant_id`/`role` custom attributes live
   in Microsoft Graph / the Entra admin center, not ARM. There's no `Microsoft.AzureActiveDirectory/*`
   Bicep resource type for this kind of config. Runbook below.
-- **Phase 5+ (application code, Function Apps, APIM, frontend, CI/CD, data migration)** — these need
-  live resource endpoints/connection info that only exist after the above is deployed. Out of scope for
-  this Bicep; see `../docs/AZURE_MIGRATION.md` for the full phase plan.
+- **Phase 7's Microsoft Graph app-role assignments** — granting the Function App's Managed Identity
+  `User.ReadWrite.All`/`UserAuthenticationMethod.ReadWrite.All` (needed by
+  `functions/common/graph.py`, Batch D) has no ARM/Bicep resource type either, same reason as Phase 3a
+  above. Runbook below (`grant-graph-permissions.sh`).
+- **Static Web Apps git integration / CI deploy** — `modules/swa.bicep` creates the hosting
+  resource itself, but deliberately without `repositoryUrl`/`branch`/`repositoryToken` params
+  (see that file's docstring: embedding a GitHub PAT in Bicep is a real secret-handling decision
+  that belongs to Phase 9 — "GitHub Actions Azure OIDC" — not this phase). Until Phase 9 lands,
+  deploy the frontend build with the Static Web Apps CLI (`npx @azure/static-web-apps-cli deploy`)
+  using this resource's deployment token, or connect GitHub through the Portal's one-click flow.
+- **Phase 9+ (CI/CD, data migration)** — these need a live, fully-deployed API endpoint and Entra
+  client config to exercise. Out of scope for this Bicep; see `../docs/AZURE_MIGRATION.md` for the
+  full phase plan. (Phases 5-8 — application code, the Function App, APIM, and Static Web Apps
+  hosting — are now represented here as of the Phase 8 session; this bullet used to say "Phase 5+"
+  before that work landed.)
 
 ## Manual runbook — Phase 1 remaining items
 
@@ -167,10 +219,12 @@ no ARM dependency on Phases 2/3b/4, per the dependency graph in the tracker).
    directory extension value is never included on any token unless the app explicitly opts in via
    `optionalClaims`, even after the user has a value set.** They appear in the ID token as
    `extension_<appid-no-dashes>_tenant_id` / `_role` — **write down the exact claim name**, Phase 5's
-   `functions/common/tenant.py` needs this exact string, not an approximation. Note: this covers the
-   **ID token** only; once Phase 7 exposes an API scope, the same two claims need adding to
-   `optionalClaims.accessToken` too (the token APIM's `validate-jwt` actually inspects), which the
-   script doesn't yet automate.
+   `functions/common/tenant.py` needs this exact string, not an approximation. As of the Phase 7
+   session, the script configures this on **both** the ID token and the access token (Phase 7
+   added an "Expose an API" step — `api://<client-id>/access_as_user` — since APIM's `validate-jwt`
+   policy, `bicep/modules/apim.bicep`, validates whatever token the frontend sends it, which per
+   standard MSAL usage against a backend API will be an access token scoped to that API, not the ID
+   token this step 6 smoke-tests directly).
 5. **Enable MFA**, as a baseline security measure (there's no self-service-signup to disable in a
    Workforce tenant — users are provisioned directly by an admin, so that half of the old runbook no
    longer applies): Entra admin center → Security → Authentication methods → enable TOTP
@@ -195,3 +249,42 @@ Once this runbook is done and the Bicep above is deployed, share back: the Entra
 ID, redirect URIs, the exact custom-claim names, and the resource outputs from `main.bicep` (Foundry/
 OpenAI endpoints, Postgres FQDN, Cosmos endpoint, Storage account name, Key Vault name) — that unblocks
 Phase 5 (porting `lambdas/common/`).
+
+## Manual runbook — Phase 7 (Microsoft Graph app-role assignments)
+
+Everything else in Phase 7 (Function App, RBAC role assignments, APIM) deploys via the
+`compute`/`rbac`/`apim` modules in the main `az deployment sub create` command above — this is the
+one Phase 7 step that, like Phase 3a, has no ARM/Bicep resource type and must be run separately
+against Microsoft Graph.
+
+1. **Deploy the Bicep first.** `functions/common/graph.py` (Batch D) needs the Function App's
+   Managed Identity to already exist before it can be granted anything, and that identity is only
+   created once `compute.bicep` deploys — this step comes *after* the main deploy, not before or
+   alongside it (unlike Phase 3a, which has no ARM dependency and can run any time after Phase 1).
+2. **Grant the Graph app roles.** Get the Managed Identity's principal ID from the deploy output
+   (`functionAppPrincipalId`), then:
+   ```bash
+   az login   # Application Administrator or Global Administrator in the target tenant
+   ./bicep/scripts/grant-graph-permissions.sh --principal-id <functionAppPrincipalId>
+   ```
+   Grants `User.ReadWrite.All` and `UserAuthenticationMethod.ReadWrite.All` (both resolved by name
+   against Microsoft Graph's own service principal, not a hardcoded GUID — see the script's own
+   comments). Safe to re-run; already-granted roles are skipped.
+3. **Verify the Entra app registration exposes an API scope with access-token optional claims.**
+   If Phase 3a's `register-entra-app.sh` was run *before* the Phase 7 session's update to that
+   script, re-run it once (same `--display-name`/`--redirect-uri` flags as before — it's
+   idempotent) so the app registration gets the `api://<client-id>/access_as_user` scope and
+   `optionalClaims.accessToken` entries `apim.bicep`'s `validate-jwt` policy depends on. If Phase 3a
+   was run for the first time during or after the Phase 7 session, this is already covered — nothing
+   to redo.
+4. **Smoke-test a route through APIM** once Phase 7's deploy and the two steps above are done —
+   see the Verification section of the original planning conversation, or hit any GET route (e.g.
+   `/admin/list-tenants`) with a real access token via `curl` and confirm a 200/403 (not a 401 from
+   APIM itself, which would mean JWT validation or the claim names are still wrong) — this is real
+   end-to-end verification that requires a live tenant and Azure credentials, which this session
+   doesn't have; it's the next thing to run once you do.
+
+Not yet decided in Phase 7 and left for whoever picks this up next: `functions/bootstrap`'s trigger
+mechanism (see that handler's own docstring — currently a manually/CI-triggered `POST
+/admin/bootstrap` admin action, not wired to anything automatic on deploy the way AWS's
+CloudFormation Custom Resource was).

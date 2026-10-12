@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture · Requirements to Test Steps</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --green:#27890d;--green-hi:#33aa10;--green-dim:#1d6609;--green-faint:#1a2918;
+  --surface:#1c1f1c;--bg:#161818;--text:#d4edcc;--text-bright:#e8f5e3;
+  --muted:#5a9e4a;--border:#263824;
+  --blue:#3b82f6;--blue-faint:#0c1a2e;--blue-dim:#1e3a6e;--blue-text:#93c5fd;
+  --purple:#a855f7;--purple-faint:#150d28;--purple-dim:#4a1d7a;--purple-text:#d8b4fe;
+  --orange:#f59e0b;--orange-faint:#1c1408;--orange-dim:#7a4a08;--orange-text:#fde68a;
+  --shadow:0 2px 6px rgba(0,0,0,.5);
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--text);
+  padding:28px 32px;min-height:100vh;
+}
+h1{font-size:1.3rem;font-weight:700;color:var(--text-bright);margin-bottom:4px}
+.sub{color:var(--muted);font-size:.8rem;margin-bottom:24px}
+
+/* ── Outer scroll wrapper ── */
+.scroll{overflow-x:auto;padding-bottom:8px}
+
+/* ── Swimlane grid ──
+   col 1 = lane label
+   cols 2-9 = phases 1-8
+   rows 1 = phase header
+   rows 2-5 = lanes
+*/
+.grid{
+  display:grid;
+  grid-template-columns: 96px repeat(8, minmax(148px, 1fr));
+  grid-template-rows: auto auto auto auto auto;
+  border:1px solid var(--border);
+  border-radius:10px;
+  overflow:hidden;
+  min-width:1300px;
+}
+
+/* ── Corner cell ── */
+.corner{
+  grid-row:1;grid-column:1;
+  background:#0a0c0a;
+  border-right:2px solid var(--border);
+  border-bottom:2px solid var(--border);
+}
+
+/* ── Phase header cells (row 1, cols 2-9) ── */
+.ph{
+  padding:10px 12px;
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  border-bottom:2px solid var(--border);
+  text-align:center;
+}
+.ph-num{
+  display:inline-block;
+  width:22px;height:22px;
+  border-radius:50%;
+  background:var(--green-dim);
+  color:#fff;font-size:.7rem;font-weight:700;
+  line-height:22px;
+  margin-bottom:4px;
+}
+.ph-title{font-size:.72rem;font-weight:700;color:var(--text-bright);display:block}
+.ph-sub{font-size:.65rem;color:var(--muted);margin-top:1px;display:block}
+
+/* ── Lane label cells (rows 2-5, col 1) ── */
+.lane-label{
+  grid-column:1;
+  padding:12px 8px;
+  border-right:2px solid var(--border);
+  border-bottom:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  text-align:center;
+}
+.lane-icon{font-size:1.4rem}
+.lane-name{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;line-height:1.3}
+.ll-browser{background:#0a1520;color:var(--blue-text)}
+.ll-auth{background:var(--purple-faint);color:var(--purple-text)}
+.ll-api{background:var(--green-faint);color:var(--green-hi)}
+.ll-azure{background:var(--orange-faint);color:var(--orange-text)}
+
+/* ── Content cells ── */
+.cell{
+  padding:12px 10px;
+  border-right:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  display:flex;flex-direction:column;gap:6px;
+}
+/* row assignment */
+.r-browser{grid-row:2}
+.r-auth{grid-row:3}
+.r-api{grid-row:4}
+.r-azure{grid-row:5}
+/* col assignment */
+.c1{grid-column:2}.c2{grid-column:3}.c3{grid-column:4}.c4{grid-column:5}
+.c5{grid-column:6}.c6{grid-column:7}.c7{grid-column:8}.c8{grid-column:9}
+
+/* ── Box styles by lane ── */
+.box{border-radius:6px;padding:8px 10px;font-size:.76rem;line-height:1.5}
+.bx-browser{background:var(--blue-faint);border:1px solid var(--blue-dim);color:var(--blue-text)}
+.bx-auth{background:var(--purple-faint);border:1px solid var(--purple-dim);color:var(--purple-text)}
+.bx-api{background:var(--green-faint);border:1px solid var(--green-dim);color:var(--text-bright)}
+.bx-azure{background:var(--orange-faint);border:1px solid var(--orange-dim);color:var(--orange-text)}
+.bx-dim{opacity:.22;pointer-events:none}
+.bx-check{background:transparent;border:none;font-size:.8rem;color:var(--green-dim);padding:4px 0}
+.box strong{display:block;font-weight:700;margin-bottom:2px;font-size:.77rem}
+.box span{font-size:.7rem;color:inherit;opacity:.8}
+
+/* ── Vertical connector arrows ── */
+.vconn{
+  display:flex;align-items:center;justify-content:center;
+  font-size:.8rem;color:var(--muted);padding:2px 0;
+}
+/* ── Horizontal flow arrow at top of each lane row ── */
+.flow-arrow{
+  grid-column:2/-1;
+  height:1px;background:linear-gradient(to right, var(--green-dim), transparent);
+  opacity:.3;
+}
+
+/* ── Bottom summary strip ── */
+.summary{
+  margin-top:20px;
+  display:grid;grid-template-columns:repeat(3,1fr);gap:14px;
+}
+.sum-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:14px 16px;
+}
+.sum-title{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:8px}
+.sum-body{font-size:.76rem;line-height:1.9;color:var(--text)}
+</style>
+</head>
+<body>
+
+<h1>📋 Requirements to Test Steps — Architecture</h1>
+<p class="sub">High-level swimlane · read left → right through 8 phases</p>
+
+<div class="scroll">
+<div class="grid">
+
+  <!-- ── Corner ── -->
+  <div class="corner"></div>
+
+  <!-- ── Phase headers ── -->
+  <div class="ph"><div class="ph-num">1</div><span class="ph-title">App Load</span><span class="ph-sub">Startup</span></div>
+  <div class="ph"><div class="ph-num">2</div><span class="ph-title">Sign In / Up</span><span class="ph-sub">Authentication</span></div>
+  <div class="ph"><div class="ph-num">3</div><span class="ph-title">Auth Guard</span><span class="ph-sub">Every API call</span></div>
+  <div class="ph"><div class="ph-num">4</div><span class="ph-title">Upload &amp; Parse</span><span class="ph-sub">Input processing</span></div>
+  <div class="ph"><div class="ph-num">5</div><span class="ph-title">User Stories</span><span class="ph-sub">Agent 1</span></div>
+  <div class="ph"><div class="ph-num">6</div><span class="ph-title">Test Scenarios</span><span class="ph-sub">Agent 2</span></div>
+  <div class="ph"><div class="ph-num">7</div><span class="ph-title">Test Steps</span><span class="ph-sub">Agent 3</span></div>
+  <div class="ph"><div class="ph-num">8</div><span class="ph-title">Export &amp; History</span><span class="ph-sub">Output &amp; persist</span></div>
+
+  <!-- ══════════════ BROWSER ROW ══════════════ -->
+  <div class="lane-label ll-browser r-browser">
+    <span class="lane-icon">🌐</span>
+    <span class="lane-name">Browser</span>
+  </div>
+
+  <!-- Ph1 Browser -->
+  <div class="cell r-browser c1">
+    <div class="box bx-browser">
+      <strong>Visit localhost:8001</strong>
+      <span>Loads index.html + MSAL.js, fetches /api/auth/config</span>
+    </div>
+  </div>
+
+  <!-- Ph2 Browser -->
+  <div class="cell r-browser c2">
+    <div class="box bx-browser">
+      <strong>Login Screen</strong>
+      <span>MSAL.js shows overlay, user clicks "Sign in / Create account"</span>
+    </div>
+    <div class="vconn">↕ popup</div>
+  </div>
+
+  <!-- Ph3 Browser -->
+  <div class="cell r-browser c3">
+    <div class="box bx-browser">
+      <strong>authFetch()</strong>
+      <span>JS wrapper attaches Authorization: Bearer token to every API request</span>
+    </div>
+    <div class="vconn">↓ token</div>
+  </div>
+
+  <!-- Ph4 Browser -->
+  <div class="cell r-browser c4">
+    <div class="box bx-browser">
+      <strong>Upload File</strong>
+      <span>Drops .xlsx or .docx, enters Workstream + Wave labels</span>
+    </div>
+  </div>
+
+  <!-- Ph5 Browser -->
+  <div class="cell r-browser c5">
+    <div class="box bx-browser">
+      <strong>Review User Stories</strong>
+      <span>Editable table — accepts or modifies before proceeding</span>
+    </div>
+  </div>
+
+  <!-- Ph6 Browser -->
+  <div class="cell r-browser c6">
+    <div class="box bx-browser">
+      <strong>Review Scenarios</strong>
+      <span>Positive + Negative per story, all editable inline</span>
+    </div>
+  </div>
+
+  <!-- Ph7 Browser -->
+  <div class="cell r-browser c7">
+    <div class="box bx-browser">
+      <strong>Review Steps</strong>
+      <span>Full step table: Action, Expected Result, Test Data</span>
+    </div>
+  </div>
+
+  <!-- Ph8 Browser -->
+  <div class="cell r-browser c8">
+    <div class="box bx-browser">
+      <strong>Download .xlsx</strong>
+      <span>File downloads automatically + sidebar shows run history with re-download links</span>
+    </div>
+  </div>
+
+  <!-- ══════════════ AUTH ROW ══════════════ -->
+  <div class="lane-label ll-auth r-auth">
+    <span class="lane-icon">🔐</span>
+    <span class="lane-name">Auth (Entra)</span>
+  </div>
+
+  <!-- Ph1 Auth — empty -->
+  <div class="cell r-auth c1">
+    <div class="box bx-dim bx-auth"><strong>—</strong></div>
+  </div>
+
+  <!-- Ph2 Auth -->
+  <div class="cell r-auth c2">
+    <div class="box bx-auth">
+      <strong>Entra External ID</strong>
+      <span>Google or Email sign-in/sign-up via reqtotestdev.ciamlogin.com user flow</span>
+    </div>
+    <div class="vconn">↓ JWT</div>
+  </div>
+
+  <!-- Ph3 Auth -->
+  <div class="cell r-auth c3">
+    <div class="box bx-auth">
+      <strong>JWKS Validation</strong>
+      <span>Public keys fetched from ciamlogin.com and cached 1 hr — signature, issuer &amp; expiry checked</span>
+    </div>
+    <div class="vconn">↓ user identity</div>
+  </div>
+
+  <!-- Ph4–7 Auth — just checkmarks -->
+  <div class="cell r-auth c4"><div class="box bx-check" style="text-align:center;font-size:1rem">✅ Token verified</div></div>
+  <div class="cell r-auth c5"><div class="box bx-check" style="text-align:center;font-size:1rem">✅ Token verified</div></div>
+  <div class="cell r-auth c6"><div class="box bx-check" style="text-align:center;font-size:1rem">✅ Token verified</div></div>
+  <div class="cell r-auth c7"><div class="box bx-check" style="text-align:center;font-size:1rem">✅ Token verified</div></div>
+  <div class="cell r-auth c8"><div class="box bx-check" style="text-align:center;font-size:1rem">✅ Token verified</div></div>
+
+  <!-- ══════════════ API ROW ══════════════ -->
+  <div class="lane-label ll-api r-api">
+    <span class="lane-icon">⚙️</span>
+    <span class="lane-name">FastAPI Backend</span>
+  </div>
+
+  <!-- Ph1 API -->
+  <div class="cell r-api c1">
+    <div class="box bx-api">
+      <strong>App Startup</strong>
+      <span>Serves static files, exposes /api/auth/config, initialises Cosmos DB</span>
+    </div>
+  </div>
+
+  <!-- Ph2 API — empty -->
+  <div class="cell r-api c2">
+    <div class="box bx-dim bx-api"><strong>—</strong></div>
+  </div>
+
+  <!-- Ph3 API -->
+  <div class="cell r-api c3">
+    <div class="box bx-api">
+      <strong>get_current_user()</strong>
+      <span>FastAPI dependency on all /api/stage/* endpoints — extracts user_id, email, name from JWT</span>
+    </div>
+  </div>
+
+  <!-- Ph4 API -->
+  <div class="cell r-api c4">
+    <div class="box bx-api">
+      <strong>Input Detection + Parse</strong>
+      <span>Auto-detects: requirements / user stories / config workbook / BPW (Word)</span>
+    </div>
+  </div>
+
+  <!-- Ph5 API -->
+  <div class="cell r-api c5">
+    <div class="box bx-api">
+      <strong>Agent 1 — User Stories</strong>
+      <span>One story per requirement, runs concurrently (asyncio + Semaphore 5)</span>
+    </div>
+    <div class="vconn">↕ LLM call</div>
+  </div>
+
+  <!-- Ph6 API -->
+  <div class="cell r-api c6">
+    <div class="box bx-api">
+      <strong>Agent 2 — Scenarios</strong>
+      <span>1 positive + 1 negative per story. Config &amp; BPW use specialist agents</span>
+    </div>
+    <div class="vconn">↕ LLM call</div>
+  </div>
+
+  <!-- Ph7 API -->
+  <div class="cell r-api c7">
+    <div class="box bx-api">
+      <strong>Agent 3 — Test Steps</strong>
+      <span>Numbered steps with action + expected result per scenario</span>
+    </div>
+    <div class="vconn">↕ LLM call</div>
+  </div>
+
+  <!-- Ph8 API -->
+  <div class="cell r-api c8">
+    <div class="box bx-api">
+      <strong>Excel Writer + Proxy</strong>
+      <span>Builds 3-sheet workbook, streams to browser. /download/{id} proxies blob without exposing URL</span>
+    </div>
+    <div class="vconn">↕ upload / query</div>
+  </div>
+
+  <!-- ══════════════ AZURE ROW ══════════════ -->
+  <div class="lane-label ll-azure r-azure">
+    <span class="lane-icon">☁️</span>
+    <span class="lane-name">Azure Services</span>
+  </div>
+
+  <!-- Ph1 Azure -->
+  <div class="cell r-azure c1">
+    <div class="box bx-azure">
+      <strong>Cosmos DB Init</strong>
+      <span>Database &amp; container created if missing on every startup</span>
+    </div>
+  </div>
+
+  <!-- Ph2 Azure -->
+  <div class="cell r-azure c2">
+    <div class="box bx-azure">
+      <strong>JWT Issued</strong>
+      <span>Signed RS256 token · claims: oid, email, name · expires 1 hr</span>
+    </div>
+  </div>
+
+  <!-- Ph3 Azure — JWKS -->
+  <div class="cell r-azure c3">
+    <div class="box bx-azure">
+      <strong>JWKS Endpoint</strong>
+      <span>ciamlogin.com/…/discovery/v2.0/keys — issuer read from OIDC discovery doc</span>
+    </div>
+  </div>
+
+  <!-- Ph4 Azure — empty -->
+  <div class="cell r-azure c4">
+    <div class="box bx-dim bx-azure"><strong>—</strong></div>
+  </div>
+
+  <!-- Ph5 Azure -->
+  <div class="cell r-azure c5">
+    <div class="box bx-azure">
+      <strong>LLM Gateway</strong>
+      <span>GPT model via Deloitte API · Retry on 429: 2s/4s/8s</span>
+    </div>
+  </div>
+
+  <!-- Ph6 Azure -->
+  <div class="cell r-azure c6">
+    <div class="box bx-azure">
+      <strong>LLM Gateway</strong>
+      <span>Same endpoint · en-AU Workday HCM specialist prompt</span>
+    </div>
+  </div>
+
+  <!-- Ph7 Azure -->
+  <div class="cell r-azure c7">
+    <div class="box bx-azure">
+      <strong>LLM Gateway</strong>
+      <span>Plain-English steps for end-clients with limited Workday experience</span>
+    </div>
+  </div>
+
+  <!-- Ph8 Azure -->
+  <div class="cell r-azure c8">
+    <div class="box bx-azure">
+      <strong>Blob Storage + Cosmos DB</strong>
+      <span>Output .xlsx stored in blob · Run record (user_id, name, counts, blob URL) saved to Cosmos</span>
+    </div>
+  </div>
+
+</div><!-- /grid -->
+</div><!-- /scroll -->
+
+<!-- ── Summary ── -->
+<div class="summary">
+  <div class="sum-card">
+    <div class="sum-title">4 Input Types</div>
+    <div class="sum-body">
+      📄 Requirements Workbook (.xlsx) → Agents 1, 2, 3<br>
+      📄 User Stories Workbook (.xlsx) → Agents 2, 3<br>
+      📄 Config Workbook (.xlsx) → Config Agent, Agent 3<br>
+      📝 Business Process Workbook (.docx) → BPW Agent, Agent 3
+    </div>
+  </div>
+  <div class="sum-card">
+    <div class="sum-title">3-Sheet Excel Output</div>
+    <div class="sum-body">
+      📊 User Stories — Story ID, Requirement, As a / I want / So that<br>
+      📊 Test Scenarios — Scenario ID, Type (Pos/Neg), Title, Preconditions<br>
+      📊 Test Steps — Step #, Action, Expected Result, Test Data
+    </div>
+  </div>
+  <div class="sum-card">
+    <div class="sum-title">User Isolation</div>
+    <div class="sum-body">
+      🔐 JWT <code>oid</code> claim = permanent user ID across sessions<br>
+      🗂️ Every run tagged with <code>user_id</code> in Cosmos DB<br>
+      👁️ Run history shows only the signed-in user's runs<br>
+      🏢 <code>PROJECT_ID</code> env var isolates per engagement
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:16px;font-size:.68rem;color:var(--muted);text-align:right">
+  Requirements to Test Steps · Architecture · 2026-08-06
+</div>
+
+</body>
+</html>

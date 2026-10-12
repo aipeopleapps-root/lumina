@@ -1,0 +1,24 @@
+{# Live-Demo tab body for kind="conversational". The transcript itself is NOT
+   rendered here — only the static chat-card shell. Turn content is animated
+   client-side from CHAT_SCRIPTS[agent_id], built in Python and embedded by
+   shell.html.j2 (see script.js.j2's playChat()). #}
+<div class="section-title">Awaiting Your Action</div>
+<div class="chat-card">
+  <div class="chat-card-head">
+    <div class="agent-orb">{% import "macros.html.j2" as m %}{{ m.agent_icon(agent.kind) }}</div>
+    <div class="titles">
+      <div class="t1">{{ agent.name }}</div>
+      <div class="t2">{{ agent.description or '' }}</div>
+    </div>
+    <div class="live-dot"><span class="d"></span>Active</div>
+    <button class="replay-btn" data-replay="{{ agent.agent_id }}">
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+      Replay
+    </button>
+  </div>
+  <div class="messages" id="messages-{{ agent.agent_id }}"></div>
+  <div class="inputbar">
+    <div class="field">Message {{ agent.name }}…</div>
+    <button class="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 14-7-7 14-2-6z"/></svg></button>
+  </div>
+</div>

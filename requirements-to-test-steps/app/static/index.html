@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Requirements → Test Steps</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --green:#27890d;
+  --green-hi:#33aa10;
+  --green-dim:#1d6609;
+  --green-faint:#1a2918;
+  --green-glow:rgba(39,137,13,.25);
+  --surface:#1c1f1c;
+  --surface-2:#212421;
+  --bg:#161818;
+  --text:#d4edcc;
+  --text-bright:#e8f5e3;
+  --muted:#5a9e4a;
+  --border:#263824;
+  --red:#ff5555;
+  --shadow:0 1px 6px rgba(0,0,0,.4);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.6);
+  --r:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+/* ── Header ── */
+header{background:var(--surface);color:var(--text-bright);padding:14px 32px;display:flex;align-items:center;gap:14px;border-bottom:2px solid var(--green);box-shadow:var(--shadow)}
+.logo{font-size:1.6rem;line-height:1}
+header h1{font-size:1.15rem;font-weight:600;letter-spacing:-.01em;color:var(--text-bright)}
+header p{font-size:.78rem;color:var(--muted);margin-top:2px}
+
+/* ── Layout ── */
+main{flex:1;padding:28px 32px;max-width:1440px;margin:0 auto;width:100%}
+
+/* ── Progress ── */
+.progress-wrap{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:20px 32px;margin-bottom:22px;border:1px solid var(--border)}
+.steps{display:flex;align-items:flex-start;justify-content:center}
+.step{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;position:relative}
+.step:not(:last-child)::after{content:'';position:absolute;top:17px;left:calc(50% + 18px);right:calc(-50% + 18px);height:2px;background:var(--border)}
+.step.done:not(:last-child)::after,.step.active:not(:last-child)::after{background:var(--green)}
+.step-dot{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.82rem;font-weight:700;border:2px solid var(--border);background:var(--surface-2);color:var(--muted);position:relative;z-index:1;transition:all .25s}
+.step.active .step-dot{background:var(--green);border-color:var(--green);color:#fff;box-shadow:0 0 0 4px var(--green-glow)}
+.step.done .step-dot{background:var(--green-dim);border-color:var(--green-dim);color:#fff}
+.step-lbl{font-size:.72rem;font-weight:500;color:var(--muted);text-align:center;white-space:nowrap}
+.step.active .step-lbl{color:var(--green-hi);font-weight:700}
+.step.done .step-lbl{color:var(--green-dim)}
+
+/* ── Card ── */
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--border)}
+.card-head{background:var(--green);color:#fff;padding:14px 22px;display:flex;align-items:center;justify-content:space-between}
+.card-head h2{font-size:.95rem;font-weight:600}
+.badge{background:rgba(0,0,0,.25);padding:3px 12px;border-radius:20px;font-size:.74rem}
+.card-body{padding:20px 22px}
+
+/* ── Input Type Selector ── */
+.type-selector{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.type-btn{flex:1;min-width:160px;padding:14px 16px;border-radius:var(--r);border:2px solid var(--border);background:var(--surface-2);color:var(--muted);cursor:pointer;text-align:left;transition:all .2s;font-family:inherit}
+.type-btn:hover{border-color:var(--green-dim);background:var(--green-faint);color:var(--text)}
+.type-btn.selected{border-color:var(--green);background:var(--green-faint);color:var(--text-bright)}
+.type-btn .tb-icon{font-size:1.5rem;display:block;margin-bottom:6px}
+.type-btn .tb-title{font-size:.88rem;font-weight:600;display:block;margin-bottom:3px}
+.type-btn .tb-desc{font-size:.74rem;color:var(--muted);display:block;line-height:1.4}
+.type-btn.selected .tb-desc{color:var(--green-hi)}
+
+/* ── Upload ── */
+.drop-zone{border:2px dashed var(--border);border-radius:var(--r);padding:48px 32px;text-align:center;cursor:pointer;transition:all .2s}
+.drop-zone:hover,.drop-zone.over{border-color:var(--green);background:var(--green-faint)}
+.drop-icon{font-size:2.8rem;margin-bottom:14px}
+.drop-zone h3{font-size:1.05rem;color:var(--green-hi);margin-bottom:6px}
+.drop-zone p{color:var(--muted);font-size:.875rem}
+.fmt-hint{display:inline-block;margin-top:12px;background:var(--green-faint);color:var(--green-hi);border:1px solid var(--green-dim);padding:4px 14px;border-radius:4px;font-size:.78rem;font-weight:500}
+
+/* ── Hint bar ── */
+.hint{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--green-faint);border:1px solid var(--green-dim);border-radius:6px;font-size:.8rem;color:var(--muted);margin-bottom:14px}
+
+/* ── Table ── */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:6px}
+table{width:100%;border-collapse:collapse;font-size:.845rem}
+thead tr{background:var(--green-dim)}
+th{padding:11px 14px;text-align:left;font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;color:#fff}
+tbody tr{background:var(--surface)}
+tbody tr:nth-child(even){background:var(--green-faint)}
+tbody tr:hover{background:#1e3320}
+td{padding:9px 14px;vertical-align:top;border-bottom:1px solid var(--border);color:var(--text)}
+td.ed:focus-within{background:#1a2e18;outline:2px solid var(--green);outline-offset:-2px}
+.cel{outline:none;min-width:120px;line-height:1.5;word-break:break-word;color:var(--text-bright)}
+.cel:empty::before{content:'Click to edit…';color:var(--muted);font-style:italic}
+.ta{width:100%;min-width:180px;border:none;background:transparent;font:inherit;font-size:.845rem;line-height:1.5;resize:vertical;min-height:52px;outline:none;color:var(--text-bright)}
+.ro{color:var(--muted);font-family:monospace;font-size:.78rem;white-space:nowrap}
+.pos{display:inline-block;padding:2px 9px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--green-faint);color:var(--green-hi);border:1px solid var(--green-dim)}
+.neg{display:inline-block;padding:2px 9px;border-radius:12px;font-size:.72rem;font-weight:700;background:#2a1515;color:#ff8080;border:1px solid #5a2020}
+.wday{display:inline-block;padding:2px 9px;border-radius:12px;font-size:.72rem;font-weight:700;background:#1a2530;color:#80b8ff;border:1px solid #203050}
+.nonwd{display:inline-block;padding:2px 9px;border-radius:12px;font-size:.72rem;font-weight:700;background:#2a2518;color:#ffc080;border:1px solid #504020}
+.add{color:#80ff80;font-weight:700;font-size:.78rem}
+.upd{color:#80c8ff;font-weight:700;font-size:.78rem}
+.rem{color:#ff8080;font-weight:700;font-size:.78rem}
+
+/* ── Actions ── */
+.actions{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 22px;border-radius:6px;font-size:.875rem;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--green);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--green-hi)}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover:not(:disabled){background:var(--green-faint);border-color:var(--green-dim);color:var(--text-bright)}
+.btn-green{background:var(--green);color:#fff}
+.btn-green:hover:not(:disabled){background:var(--green-hi)}
+
+/* ── Loading overlay ── */
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(4px)}
+#overlay.hide{display:none}
+.ld-card{background:var(--surface);border:1px solid var(--green-dim);border-radius:12px;padding:40px 48px;text-align:center;box-shadow:var(--shadow-lg);min-width:300px}
+.spinner{width:46px;height:46px;border:4px solid var(--green-faint);border-top-color:var(--green);border-radius:50%;animation:spin .75s linear infinite;margin:0 auto 18px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ld-title{font-weight:700;font-size:1rem;color:var(--green-hi);margin-bottom:6px}
+.ld-msg{color:var(--muted);font-size:.85rem;line-height:1.5}
+
+/* ── Export done ── */
+.done-wrap{text-align:center;padding:52px 32px}
+.done-icon{font-size:3.6rem;margin-bottom:16px}
+.done-wrap h3{font-size:1.3rem;color:var(--green-hi);margin-bottom:6px}
+.done-wrap p{color:var(--muted);margin-bottom:22px}
+.stats{display:flex;gap:14px;justify-content:center;margin-bottom:28px;flex-wrap:wrap}
+.stat{background:var(--green-faint);border:1px solid var(--green-dim);padding:8px 20px;border-radius:20px;font-size:.84rem;color:var(--text)}
+.stat strong{color:var(--green-hi)}
+
+/* ── Meta fields (workstream / wave) ── */
+.meta-fields{display:flex;gap:12px;margin-bottom:16px}
+.meta-field{flex:1}
+.meta-field label{display:block;font-size:.76rem;color:var(--muted);margin-bottom:5px;font-weight:500}
+.meta-field input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:9px 12px;color:var(--text-bright);font:inherit;font-size:.875rem;outline:none;transition:border-color .15s}
+.meta-field input:focus{border-color:var(--green)}
+.meta-field input::placeholder{color:var(--muted)}
+
+/* ── Workspace layout ── */
+.workspace{display:flex;gap:18px;align-items:flex-start}
+.workspace-main{flex:1;min-width:0}
+@media(max-width:960px){.workspace{flex-direction:column}.history-panel{width:100%!important;position:static!important}}
+
+/* ── History sidebar panel ── */
+.history-panel{width:300px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);position:sticky;top:16px;overflow:hidden}
+.hp-head{background:var(--green-dim);color:#fff;padding:11px 14px;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:6px}
+.hp-count{background:rgba(0,0,0,.25);padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600}
+.hp-body{padding:10px 8px;max-height:calc(100vh - 160px);overflow-y:auto}
+.run-item{padding:10px 11px;border-radius:6px;border:1px solid var(--border);margin-bottom:7px;background:var(--surface-2);transition:border-color .15s}
+.run-item:last-child{margin-bottom:0}
+.run-item:hover{border-color:var(--green-dim)}
+.run-item-name{font-size:.78rem;font-weight:600;color:var(--text-bright);margin-bottom:3px;line-height:1.35;word-break:break-word}
+.run-item-meta{font-size:.70rem;color:var(--muted);margin-bottom:7px;line-height:1.4}
+.run-item-dl{display:inline-flex;align-items:center;gap:4px;background:var(--green-dim);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:.72rem;font-weight:500;cursor:pointer;text-decoration:none;transition:background .15s}
+.run-item-dl:hover{background:var(--green)}
+.run-item-nodl{font-size:.71rem;color:var(--muted);font-style:italic}
+
+/* ── Error ── */
+.err{background:#1f0f0f;border:1px solid #5a2020;border-radius:6px;padding:12px 16px;color:var(--red);font-size:.84rem;margin-bottom:14px}
+
+/* ── Login screen ── */
+#login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000}
+#login-screen.hide{display:none}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:48px 52px;text-align:center;max-width:400px;width:90%;box-shadow:var(--shadow-lg)}
+.login-logo{font-size:3rem;margin-bottom:16px}
+.login-card h2{font-size:1.2rem;font-weight:700;color:var(--text-bright);margin-bottom:8px}
+.login-card p{color:var(--muted);font-size:.875rem;margin-bottom:28px;line-height:1.5}
+.btn-signin{width:100%;padding:12px 20px;background:#0078d4;color:#fff;border:none;border-radius:6px;font-size:.925rem;font-weight:600;cursor:pointer;transition:background .15s;display:flex;align-items:center;justify-content:center;gap:10px}
+.btn-signin:hover{background:#106ebe}
+.btn-signin:disabled{opacity:.5;cursor:not-allowed}
+.login-note{margin-top:16px;font-size:.76rem;color:var(--muted)}
+.login-err{margin-top:12px;font-size:.8rem;color:var(--red)}
+/* ── Header user display ── */
+.user-display{display:flex;align-items:center;gap:12px;margin-left:auto}
+.user-name{font-size:.83rem;color:var(--text-bright);font-weight:500}
+.user-email{font-size:.75rem;color:var(--muted)}
+.btn-signout{background:transparent;border:1px solid var(--border);color:var(--muted);padding:5px 14px;border-radius:5px;font-size:.78rem;cursor:pointer;transition:all .15s}
+.btn-signout:hover{border-color:var(--red);color:var(--red)}
+</style>
+<script src="https://unpkg.com/@azure/msal-browser@3/lib/msal-browser.min.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="logo">📋</div>
+  <div>
+    <h1>Requirements to Test Steps</h1>
+    <p>AI-powered test generation · Workday HCM &amp; ERP · Supports Requirements, User Stories, Configuration Workbooks &amp; BPWs</p>
+  </div>
+  <div class="user-display" id="user-display" style="display:none">
+    <div>
+      <div class="user-name" id="user-name"></div>
+      <div class="user-email" id="user-email"></div>
+    </div>
+    <button class="btn-signout" onclick="signOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- Login screen -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">📋</div>
+    <h2>Requirements to Test Steps</h2>
+    <p>AI-powered test generation for Workday HCM &amp; ERP implementations.</p>
+    <button class="btn-signin" id="signin-btn" onclick="signIn()">
+      <svg width="20" height="20" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 0C4.7 0 0 4.7 0 10.5S4.7 21 10.5 21 21 16.3 21 10.5 16.3 0 10.5 0z" fill="#fff" fill-opacity=".15"/><path d="M10.5 3.5a7 7 0 100 14 7 7 0 000-14z" fill="#fff" fill-opacity=".2"/></svg>
+      Sign in / Create account
+    </button>
+    <div class="login-note">Use your Microsoft or Google account · New users can create a free account</div>
+    <div class="login-err" id="login-err" style="display:none"></div>
+  </div>
+</div>
+
+<main>
+  <!-- Progress bar -->
+  <div class="progress-wrap">
+    <div class="steps" id="steps">
+      <div class="step active" id="s0"><div class="step-dot">1</div><div class="step-lbl">Upload</div></div>
+      <div class="step"        id="s1"><div class="step-dot">2</div><div class="step-lbl" id="lbl-s1">Review</div></div>
+      <div class="step"        id="s2"><div class="step-dot">3</div><div class="step-lbl">Test Scenarios</div></div>
+      <div class="step"        id="s3"><div class="step-dot">4</div><div class="step-lbl">Test Steps</div></div>
+      <div class="step"        id="s4"><div class="step-dot">5</div><div class="step-lbl">Export</div></div>
+    </div>
+  </div>
+
+  <!-- Workspace: main flow + history sidebar -->
+  <div class="workspace">
+    <div class="workspace-main">
+      <div class="card" id="card"></div>
+    </div>
+    <aside class="history-panel">
+      <div class="hp-head">
+        Previous Runs
+        <span class="hp-count" id="hp-count" style="display:none"></span>
+      </div>
+      <div class="hp-body" id="hp-body">
+        <div style="color:var(--muted);font-size:.81rem;padding:4px 2px">Loading…</div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<!-- Loading overlay -->
+<div id="overlay" class="hide">
+  <div class="ld-card">
+    <div class="spinner"></div>
+    <div class="ld-title" id="ld-title">Processing…</div>
+    <div class="ld-msg"   id="ld-msg">Please wait</div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".xlsx" style="display:none">
+
+<script>
+// ── Auth / MSAL ───────────────────────────────────────────────────────────────
+let _msalInstance = null;
+let _authEnabled  = false;
+let _currentAccount = null;
+
+async function initApp() {
+  const cfg = await fetch('/api/auth/config').then(r=>r.json()).catch(()=>({auth_enabled:false}));
+  _authEnabled = cfg.auth_enabled;
+
+  if (!_authEnabled) {
+    _showApp({name:'Local Dev', username:''});
+    return;
+  }
+
+  const msalCfg = {
+    auth: {
+      clientId:   cfg.client_id,
+      authority:  cfg.authority,
+      knownAuthorities: [cfg.tenant_name + '.ciamlogin.com'],
+      redirectUri: window.location.origin,
+      postLogoutRedirectUri: window.location.origin,
+    },
+    cache: { cacheLocation:'sessionStorage', storeAuthStateInCookie:false },
+  };
+  _msalInstance = new msal.PublicClientApplication(msalCfg);
+  await _msalInstance.initialize();
+  await _msalInstance.handleRedirectPromise().catch(()=>{});
+
+  const accounts = _msalInstance.getAllAccounts();
+  if (accounts.length > 0) {
+    _currentAccount = accounts[0];
+    _showApp(_currentAccount);
+  } else {
+    _showLoginScreen();
+  }
+}
+
+function _showApp(account) {
+  document.getElementById('login-screen').classList.add('hide');
+  const ud = document.getElementById('user-display');
+  if (ud) {
+    ud.style.display='flex';
+    document.getElementById('user-name').textContent  = account.name || account.username || 'User';
+    document.getElementById('user-email').textContent = account.username || '';
+  }
+  go(0);
+}
+
+function _showLoginScreen() {
+  document.getElementById('login-screen').classList.remove('hide');
+  const ud = document.getElementById('user-display');
+  if (ud) ud.style.display='none';
+}
+
+async function signIn() {
+  const btn = document.getElementById('signin-btn');
+  const errEl = document.getElementById('login-err');
+  if (btn) btn.disabled=true;
+  if (errEl) errEl.style.display='none';
+  try {
+    const result = await _msalInstance.loginPopup({scopes:['openid','profile','email']});
+    _currentAccount = result.account;
+    _showApp(_currentAccount);
+  } catch(e) {
+    if (errEl) { errEl.textContent='Sign-in failed: '+(e.message||e); errEl.style.display=''; }
+  } finally {
+    if (btn) btn.disabled=false;
+  }
+}
+
+async function signOut() {
+  if (!_msalInstance || !_currentAccount) { location.reload(); return; }
+  try {
+    await _msalInstance.logoutPopup({account:_currentAccount});
+  } catch {}
+  _currentAccount=null;
+  _showLoginScreen();
+}
+
+async function _getToken() {
+  if (!_authEnabled || !_msalInstance) return null;
+  try {
+    const r = await _msalInstance.acquireTokenSilent({
+      scopes:['openid','profile','email'], account:_currentAccount
+    });
+    return r.idToken;
+  } catch {
+    const r = await _msalInstance.acquireTokenPopup({
+      scopes:['openid','profile','email'], account:_currentAccount
+    });
+    return r.idToken;
+  }
+}
+
+async function authFetch(url, options={}) {
+  const token = await _getToken();
+  const headers = token
+    ? {Authorization:`Bearer ${token}`, ...(options.headers||{})}
+    : (options.headers||{});
+  return fetch(url, {...options, headers});
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const S = {
+  stage: 0,
+  inputType: 'requirements',   // requirements | user_stories | config_workbook | bpw
+  runId: null,
+  filename: null,
+  workstream: '',
+  wave: '',
+  stories: null,        // for requirements / user_stories path
+  configItems: null,    // for config_workbook path
+  bpwSteps: null,       // for bpw path
+  bpwContext: null,     // for bpw path — process metadata passed to /scenarios
+  scenarios: null,
+  steps: null,
+  historyRuns: [],
+};
+
+// ── Input type metadata ───────────────────────────────────────────────────────
+const TYPE_META = {
+  requirements: {
+    icon: '📄',
+    title: 'Requirements Workbook',
+    desc: 'Excel with Requirement ID & Requirement columns',
+    accept: '.xlsx',
+    fmtHint: 'Accepts .xlsx · Columns: Requirement ID, Requirement, Module, Priority',
+    step2Label: 'User Stories',
+    dropTitle: 'Drop your Requirements Workbook here',
+    loadMsg: 'Parsing requirements and generating User Stories…',
+    agentLabel: 'Agent 1 of 3 — Generating User Stories',
+  },
+  user_stories: {
+    icon: '📖',
+    title: 'User Stories File',
+    desc: 'Excel with As a / I want / So that columns',
+    accept: '.xlsx',
+    fmtHint: 'Accepts .xlsx · Columns: Story ID, As a, I want, So that, Acceptance Criteria',
+    step2Label: 'User Stories',
+    dropTitle: 'Drop your User Stories file here',
+    loadMsg: 'Parsing user stories from file…',
+    agentLabel: 'Loading User Stories',
+  },
+  config_workbook: {
+    icon: '⚙️',
+    title: 'Configuration Workbook',
+    desc: 'Any Workday module configuration Excel workbook',
+    accept: '.xlsx',
+    fmtHint: 'Accepts .xlsx · Any Workday Configuration Workbook (Absence, HCM, Payroll, Finance…)',
+    step2Label: 'Config Items',
+    dropTitle: 'Drop your Configuration Workbook here',
+    loadMsg: 'Parsing configuration items from workbook…',
+    agentLabel: 'Parsing Configuration Workbook',
+  },
+  bpw: {
+    icon: '🔄',
+    title: 'Business Process Workbook',
+    desc: 'Workday BPW document (.docx)',
+    accept: '.docx',
+    fmtHint: 'Accepts .docx · Workday Business Process Workbook format',
+    step2Label: 'BP Steps',
+    dropTitle: 'Drop your Business Process Workbook here',
+    loadMsg: 'Extracting process steps from BPW document…',
+    agentLabel: 'Parsing Business Process Workbook',
+  },
+};
+
+// ── Progress bar ──────────────────────────────────────────────────────────────
+function setProgress(n) {
+  for (let i = 0; i <= 4; i++) {
+    const el = document.getElementById('s'+i);
+    const dot = el.querySelector('.step-dot');
+    el.className = 'step' + (i===n?' active':i<n?' done':'');
+    dot.textContent = i < n ? '✓' : i+1;
+  }
+  const meta = TYPE_META[S.inputType] || TYPE_META.requirements;
+  document.getElementById('lbl-s1').textContent = meta.step2Label;
+}
+
+// ── Loading ───────────────────────────────────────────────────────────────────
+function loading(title, msg) {
+  document.getElementById('ld-title').textContent = title;
+  document.getElementById('ld-msg').textContent   = msg;
+  document.getElementById('overlay').classList.remove('hide');
+}
+function doneLoading() { document.getElementById('overlay').classList.add('hide'); }
+
+// ── Error banner ──────────────────────────────────────────────────────────────
+function showErr(msg) {
+  document.querySelectorAll('.err').forEach(e=>e.remove());
+  const d = document.createElement('div');
+  d.className='err'; d.textContent='⚠ '+msg;
+  const b = document.querySelector('.card-body');
+  if (b) b.prepend(d);
+}
+
+// ── HTML helpers ──────────────────────────────────────────────────────────────
+const esc = s => s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const ro  = v => `<td><span class="ro">${esc(v)}</span></td>`;
+const ed  = (v,w='130px') => `<td class="ed"><div class="cel" contenteditable="true" style="min-width:${w}">${esc(v)}</div></td>`;
+const lst = (arr,w='190px') => { const t=Array.isArray(arr)?arr.join('\n'):(arr||''); return `<td class="ed"><textarea class="ta" style="min-width:${w}" rows="${Math.max(2,t.split('\n').length)}">${esc(t)}</textarea></td>`; };
+const readEd  = td => { const d=td.querySelector('.cel'); return d?d.textContent.trim():''; };
+const readLst = td => { const a=td.querySelector('textarea'); return a?a.value.split('\n').map(l=>l.trim()).filter(Boolean):[]; };
+
+// ── STAGE 0 — Upload ──────────────────────────────────────────────────────────
+function renderUpload() {
+  const meta = TYPE_META[S.inputType] || TYPE_META.requirements;
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>Upload Workday Document</h2><span class="badge">Step 1 of 5</span></div>
+    <div class="card-body">
+      <div class="type-selector">
+        ${Object.entries(TYPE_META).map(([k,m])=>`
+          <button class="type-btn${S.inputType===k?' selected':''}" onclick="selectType('${k}')">
+            <span class="tb-icon">${m.icon}</span>
+            <span class="tb-title">${m.title}</span>
+            <span class="tb-desc">${m.desc}</span>
+          </button>`).join('')}
+      </div>
+      <div class="meta-fields">
+        <div class="meta-field">
+          <label>Workstream <span style="font-weight:400">(optional)</span></label>
+          <input type="text" id="inp-workstream" placeholder="e.g. HCM, Payroll, Finance" value="${esc(S.workstream)}">
+        </div>
+        <div class="meta-field">
+          <label>Wave <span style="font-weight:400">(optional)</span></label>
+          <input type="text" id="inp-wave" placeholder="e.g. Wave 1, Pilot" value="${esc(S.wave)}">
+        </div>
+      </div>
+      <div class="drop-zone" id="dz">
+        <div class="drop-icon">${meta.icon}</div>
+        <h3 id="dz-title">${meta.dropTitle}</h3>
+        <p>or click to browse</p>
+        <span class="fmt-hint" id="dz-hint">${meta.fmtHint}</span>
+      </div>
+    </div>`;
+
+  const dz = document.getElementById('dz');
+  dz.addEventListener('click', ()=>document.getElementById('file-input').click());
+  dz.addEventListener('dragover', e=>{e.preventDefault();dz.classList.add('over')});
+  dz.addEventListener('dragleave', ()=>dz.classList.remove('over'));
+  dz.addEventListener('drop', e=>{e.preventDefault();dz.classList.remove('over');if(e.dataTransfer.files[0])pickFile(e.dataTransfer.files[0])});
+
+  const fi = document.getElementById('file-input');
+  fi.accept = meta.accept;
+  fi.onchange = e=>{if(e.target.files[0])pickFile(e.target.files[0])};
+}
+
+function selectType(t) {
+  S.inputType = t;
+  renderUpload();
+}
+
+async function pickFile(f) {
+  const meta = TYPE_META[S.inputType];
+  const ext = meta.accept;
+  if (!f.name.toLowerCase().endsWith(ext.replace('.',''))) {
+    alert(`Please choose a ${ext} file for ${meta.title}.`); return;
+  }
+  S.filename = f.name;
+  S.workstream = (document.getElementById('inp-workstream')?.value || '').trim();
+  S.wave = (document.getElementById('inp-wave')?.value || '').trim();
+  loading(meta.agentLabel, meta.loadMsg);
+  try {
+    const fd = new FormData(); fd.append('file', f);
+    const r = await authFetch('/api/stage/upload', {method:'POST',body:fd});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||JSON.stringify(d));
+
+    S.runId = d.run_id;
+    // Route to correct state based on returned input_type
+    const itype = d.input_type || S.inputType;
+    S.inputType = itype;
+
+    if (itype === 'bpw') {
+      S.bpwSteps = d.bpw_steps;
+      S.bpwContext = d.bpw_context;
+      doneLoading(); go(1);
+    } else if (itype === 'config_workbook') {
+      S.configItems = d.config_items;
+      doneLoading(); go(1);
+    } else if (itype === 'user_stories') {
+      // User stories are pre-authored — skip the review step and go straight to scenarios
+      S.stories = d.user_stories;
+      doneLoading();
+      await _autoGenerateScenarios();
+    } else {
+      // requirements — AI generated user stories, show for review first
+      S.stories = d.user_stories;
+      doneLoading(); go(1);
+    }
+  } catch(e) { doneLoading(); renderUpload(); showErr(e.message); }
+}
+
+// ── STAGE 1 — Review (adapts per input type) ──────────────────────────────────
+function renderReview() {
+  if (S.inputType === 'config_workbook') renderConfigItems();
+  else if (S.inputType === 'bpw') renderBPWSteps();
+  else renderStories();
+}
+
+// User Stories review (requirements + user_stories paths)
+function renderStories() {
+  const rows = S.stories.map(s=>`<tr>
+    ${ro(s.story_id)}${ro(s.requirement_id)}
+    ${ed(s.as_a,'130px')}${ed(s.i_want,'170px')}${ed(s.so_that,'170px')}
+    ${lst(s.acceptance_criteria,'210px')}
+  </tr>`).join('');
+
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>User Stories</h2><span class="badge">${S.stories.length} stories</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="go(0)">← Back to Upload</button>
+      <button class="btn btn-primary" onclick="acceptStories()">Accept &amp; Generate Test Scenarios →</button>
+    </div>
+    <div class="card-body">
+      <div class="hint">✏️ <span><strong>Review and edit</strong> the User Stories. Click any cell to edit inline. Acceptance criteria — one per line.</span></div>
+      <div class="tbl-wrap"><table id="t1">
+        <thead><tr><th>Story ID</th><th>Req ID</th><th>As a…</th><th>I want…</th><th>So that…</th><th>Acceptance Criteria</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+// Config Items review
+function renderConfigItems() {
+  const actionClass = a => a==='Add'?'add':a==='Update'?'upd':a==='Remove'?'rem':'ro';
+  const rows = S.configItems.map(c=>`<tr>
+    ${ro(c.item_id)}
+    ${ro(c.sheet_name)}
+    <td><span class="${actionClass(c.action)}">${esc(c.action)}</span></td>
+    ${ro(c.reference_id)}
+    ${ed(c.display_name,'160px')}
+    <td style="font-size:.78rem;color:var(--muted);max-width:260px">${esc(Object.entries(c.additional_fields||{}).slice(0,4).map(([k,v])=>`${k}: ${v}`).join(' · '))}</td>
+  </tr>`).join('');
+
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>Configuration Items</h2><span class="badge">${S.configItems.length} items</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="go(0)">← Back to Upload</button>
+      <button class="btn btn-primary" onclick="acceptConfigItems()">Accept &amp; Generate Test Scenarios →</button>
+    </div>
+    <div class="card-body">
+      <div class="hint">✏️ <span><strong>Review</strong> the extracted config items. Only Add, Update and Remove rows are included. Display Name is editable.</span></div>
+      <div class="tbl-wrap"><table id="t-cfg">
+        <thead><tr><th>Item ID</th><th>Workday Object</th><th>Action</th><th>Reference ID</th><th>Display Name</th><th>Key Fields</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+// BPW Steps review
+function renderBPWSteps() {
+  const typeClass = t => t==='Workday'?'wday':'nonwd';
+  const rows = S.bpwSteps.map(s=>`<tr>
+    ${ro(s.process_name)}
+    ${ro(s.step_number)}
+    <td><span class="${typeClass(s.step_type)}">${esc(s.step_type)}</span></td>
+    ${ed(s.step_name,'140px')}
+    ${ro(s.role)}
+    ${ed(s.description,'200px')}
+    <td style="font-size:.78rem;color:var(--muted)">${esc(s.condition||'')}</td>
+  </tr>`).join('');
+
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>Business Process Steps</h2><span class="badge">${S.bpwSteps.length} steps</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="go(0)">← Back to Upload</button>
+      <button class="btn btn-primary" onclick="acceptBPWSteps()">Accept &amp; Generate Test Scenarios →</button>
+    </div>
+    <div class="card-body">
+      <div class="hint">✏️ <span><strong>Review</strong> the extracted process steps. Workday steps become test actions. Non-Workday steps become preconditions. Step Name and Description are editable.</span></div>
+      <div class="tbl-wrap"><table id="t-bpw">
+        <thead><tr><th>Process</th><th>Step #</th><th>Type</th><th>Step Name</th><th>Role</th><th>Description</th><th>Condition</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+// ── Capture helpers for stage 1 ───────────────────────────────────────────────
+function captureStories() {
+  return Array.from(document.querySelector('#t1 tbody').rows).map((tr,i)=>{
+    const o=S.stories[i], td=tr.cells;
+    return {story_id:o.story_id, requirement_id:o.requirement_id,
+      as_a:readEd(td[2]), i_want:readEd(td[3]), so_that:readEd(td[4]),
+      acceptance_criteria:readLst(td[5])};
+  });
+}
+
+function captureConfigItems() {
+  return Array.from(document.querySelector('#t-cfg tbody').rows).map((tr,i)=>{
+    const o=S.configItems[i], td=tr.cells;
+    return {...o, display_name:readEd(td[4])};
+  });
+}
+
+function captureBPWSteps() {
+  return Array.from(document.querySelector('#t-bpw tbody').rows).map((tr,i)=>{
+    const o=S.bpwSteps[i], td=tr.cells;
+    return {...o, step_name:readEd(td[3]), description:readEd(td[5])};
+  });
+}
+
+// ── Accept handlers for stage 1 → stage 2 ────────────────────────────────────
+async function acceptStories() {
+  S.stories = captureStories();
+  loading('Agent 2 of 3 — Generating Test Scenarios',
+    `Creating positive & negative scenarios for ${S.stories.length} user stories…`);
+  try {
+    const r = await authFetch('/api/stage/scenarios',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({input_type:S.inputType, user_stories:S.stories})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||JSON.stringify(d));
+    S.scenarios=d.test_scenarios; doneLoading(); go(2);
+  } catch(e) { doneLoading(); showErr(e.message); }
+}
+
+async function acceptConfigItems() {
+  S.configItems = captureConfigItems();
+  loading('Agent 2 of 3 — Generating Test Scenarios',
+    `Creating config validation scenarios for ${S.configItems.length} items…`);
+  try {
+    const r = await authFetch('/api/stage/scenarios',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({input_type:'config_workbook', config_items:S.configItems})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||JSON.stringify(d));
+    S.scenarios=d.test_scenarios; doneLoading(); go(2);
+  } catch(e) { doneLoading(); showErr(e.message); }
+}
+
+async function acceptBPWSteps() {
+  S.bpwSteps = captureBPWSteps();
+  const processCount = S.bpwContext ? S.bpwContext.length : '?';
+  loading('Agent 2 of 3 — Generating Test Scenarios',
+    `Creating process test scenarios for ${processCount} business process(es)…`);
+  try {
+    const r = await authFetch('/api/stage/scenarios',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({input_type:'bpw', bpw_steps:S.bpwSteps, bpw_context:S.bpwContext||[]})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||JSON.stringify(d));
+    S.scenarios=d.test_scenarios; doneLoading(); go(2);
+  } catch(e) { doneLoading(); showErr(e.message); }
+}
+
+// ── Auto-generate scenarios (used by user_stories path to skip review) ───────
+async function _autoGenerateScenarios() {
+  loading('Agent 2 of 3 — Generating Test Scenarios',
+    `Creating positive & negative scenarios for ${S.stories.length} user stories…`);
+  // Mark step 2 as done (skipped) in progress bar before showing step 3
+  setProgress(1); // briefly set active to show it was processed
+  try {
+    const r = await authFetch('/api/stage/scenarios',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({input_type:'user_stories', user_stories:S.stories})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||JSON.stringify(d));
+    S.scenarios = d.test_scenarios;
+    doneLoading(); go(2);
+  } catch(e) { doneLoading(); renderUpload(); showErr(e.message); }
+}
+
+// ── STAGE 2 — Test Scenarios ──────────────────────────────────────────────────
+function renderScenarios() {
+  const refLabel = {config_workbook:'Config Item', bpw:'Process'}[S.inputType] || 'Story ID';
+  const rows = S.scenarios.map(sc=>`<tr>
+    ${ro(sc.scenario_id)}${ro(sc.story_id)}
+    <td><span class="${sc.scenario_type==='Positive'?'pos':'neg'}">${esc(sc.scenario_type)}</span></td>
+    ${ed(sc.title,'150px')}${ed(sc.description,'200px')}${lst(sc.preconditions,'200px')}
+  </tr>`).join('');
+
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>Test Scenarios</h2><span class="badge">${S.scenarios.length} scenarios</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="go(1)">← Back</button>
+      <button class="btn btn-primary" onclick="acceptScenarios()">Accept &amp; Generate Test Steps →</button>
+    </div>
+    <div class="card-body">
+      <div class="hint">✏️ <span><strong>Review and edit</strong> the Test Scenarios. Preconditions — one per line.</span></div>
+      <div class="tbl-wrap"><table id="t2">
+        <thead><tr><th>Scenario ID</th><th>${esc(refLabel)}</th><th>Type</th><th>Title</th><th>Description</th><th>Preconditions</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function captureScenarios() {
+  return Array.from(document.querySelector('#t2 tbody').rows).map((tr,i)=>{
+    const o=S.scenarios[i], td=tr.cells;
+    return {scenario_id:o.scenario_id, story_id:o.story_id, scenario_type:o.scenario_type,
+      title:readEd(td[3]), description:readEd(td[4]), preconditions:readLst(td[5])};
+  });
+}
+
+async function acceptScenarios() {
+  S.scenarios = captureScenarios();
+  loading('Agent 3 of 3 — Generating Test Steps',
+    `Creating detailed test steps for ${S.scenarios.length} scenarios…`);
+  try {
+    const r = await authFetch('/api/stage/steps',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({test_scenarios:S.scenarios})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||JSON.stringify(d));
+    S.steps=d.test_steps; doneLoading(); go(3);
+  } catch(e) { doneLoading(); showErr(e.message); }
+}
+
+// ── STAGE 3 — Test Steps ──────────────────────────────────────────────────────
+function renderSteps() {
+  const rows = S.steps.map(s=>`<tr>
+    ${ro(s.step_id)}${ro(s.scenario_id)}
+    <td style="text-align:center"><span class="ro">${s.step_number}</span></td>
+    ${ed(s.action,'200px')}${ed(s.expected_result,'200px')}${ed(s.test_data||'','130px')}
+  </tr>`).join('');
+
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>Test Steps</h2><span class="badge">${S.steps.length} steps</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="go(2)">← Back to Test Scenarios</button>
+      <button class="btn btn-green" onclick="acceptAndExport()">✓ Accept &amp; Export Excel</button>
+    </div>
+    <div class="card-body">
+      <div class="hint">✏️ <span><strong>Review and edit</strong> the Test Steps. Each step should be actionable and self-contained. Click <em>Accept &amp; Export</em> to download.</span></div>
+      <div class="tbl-wrap"><table id="t3">
+        <thead><tr><th>Step ID</th><th>Scenario ID</th><th>#</th><th>Action</th><th>Expected Result</th><th>Test Data</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function captureSteps() {
+  return Array.from(document.querySelector('#t3 tbody').rows).map((tr,i)=>{
+    const o=S.steps[i], td=tr.cells;
+    return {step_id:o.step_id, scenario_id:o.scenario_id, step_number:o.step_number,
+      action:readEd(td[3]), expected_result:readEd(td[4]), test_data:readEd(td[5])||null};
+  });
+}
+
+async function acceptAndExport() {
+  S.steps = captureSteps();
+  loading('Building Excel File','Assembling the three-sheet workbook…');
+  try {
+    const payload = {
+      run_id: S.runId,
+      filename: S.filename,
+      input_type: S.inputType,
+      workstream: S.workstream || '',
+      wave: S.wave || '',
+      user_stories: S.stories || [],
+      config_items: S.configItems || [],
+      bpw_steps: S.bpwSteps || [],
+      test_scenarios: S.scenarios,
+      test_steps: S.steps,
+    };
+    const r = await authFetch('/api/stage/export',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    if (!r.ok) { const e=await r.json(); throw new Error(e.detail||JSON.stringify(e)); }
+    const blob = await r.blob();
+    triggerDownload(blob);
+    doneLoading(); go(4);
+  } catch(e) { doneLoading(); showErr(e.message); }
+}
+
+// ── STAGE 4 — Done ────────────────────────────────────────────────────────────
+function renderDone() {
+  const meta = TYPE_META[S.inputType] || TYPE_META.requirements;
+  const count1 = (S.stories||S.configItems||S.bpwSteps||[]).length;
+  const label1 = meta.step2Label;
+  document.getElementById('card').innerHTML = `
+    <div class="card-head"><h2>Export Complete</h2><span class="badge">All done!</span></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="go(3)">← Edit Test Steps</button>
+      <button class="btn btn-ghost" onclick="startOver()">Start New Run</button>
+    </div>
+    <div class="card-body">
+      <div class="done-wrap">
+        <div class="done-icon">✅</div>
+        <h3>Your test artefacts are ready</h3>
+        <p>The Excel file has three sheets: ${label1}, Test Scenarios, and Test Steps.</p>
+        <div class="stats">
+          <div class="stat"><strong>${count1}</strong> ${label1}</div>
+          <div class="stat"><strong>${(S.scenarios||[]).length}</strong> Test Scenarios</div>
+          <div class="stat"><strong>${(S.steps||[]).length}</strong> Test Steps</div>
+        </div>
+        <button class="btn btn-green" onclick="redownload()">⬇ Download Again</button>
+      </div>
+    </div>`;
+}
+
+async function fetchRunHistory() {
+  const bodyEl  = document.getElementById('hp-body');
+  const countEl = document.getElementById('hp-count');
+  if (!bodyEl) return;
+  try {
+    const r = await authFetch('/api/stage/runs');
+    const runs = await r.json();
+    S.historyRuns = Array.isArray(runs) ? runs : [];
+    if (!S.historyRuns.length) {
+      if (countEl) { countEl.textContent=''; countEl.style.display='none'; }
+      bodyEl.innerHTML = '<div style="color:var(--muted);font-size:.81rem;padding:4px 2px">No previous runs for this project.</div>';
+      return;
+    }
+    if (countEl) { countEl.textContent=S.historyRuns.length; countEl.style.display=''; }
+    bodyEl.innerHTML = S.historyRuns.map((run, i) => {
+      const name = run.run_name || (run.run_id||'').slice(0,8);
+      const meta = [
+        (run.input_type||'').replace(/_/g,' '),
+        run.test_scenarios_count ? `${run.test_scenarios_count} scenarios` : '',
+        run.test_steps_count     ? `${run.test_steps_count} steps`         : '',
+      ].filter(Boolean).join(' \xb7 ');
+      const dlBtn = run.output_blob_url
+        ? `<button class="run-item-dl" onclick="downloadRun(${i})">⬇ Download</button>`
+        : `<span class="run-item-nodl">Not saved to storage</span>`;
+      return `<div class="run-item">
+        <div class="run-item-name">${esc(name)}</div>
+        <div class="run-item-meta">${esc(meta)}</div>
+        ${dlBtn}
+      </div>`;
+    }).join('');
+  } catch {
+    if (bodyEl) bodyEl.innerHTML = '<div style="color:var(--muted);font-size:.81rem">History unavailable.</div>';
+  }
+}
+
+async function redownload() {
+  loading('Rebuilding Excel…','');
+  try {
+    const payload = {
+      run_id: S.runId, filename: S.filename, input_type: S.inputType,
+      workstream: S.workstream||'', wave: S.wave||'',
+      user_stories: S.stories||[], config_items: S.configItems||[],
+      bpw_steps: S.bpwSteps||[], test_scenarios: S.scenarios, test_steps: S.steps,
+    };
+    const r = await authFetch('/api/stage/export',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const blob = await r.blob(); triggerDownload(blob); doneLoading();
+  } catch(e) { doneLoading(); alert(e.message); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function triggerDownload(blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`results-${(S.runId||'run').slice(0,8)}.xlsx`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function go(n) {
+  // Capture edits before navigating away
+  if (S.stage===1) {
+    if (document.querySelector('#t1') && S.stories)     S.stories     = captureStories();
+    if (document.querySelector('#t-cfg') && S.configItems) S.configItems = captureConfigItems();
+    if (document.querySelector('#t-bpw') && S.bpwSteps)   S.bpwSteps    = captureBPWSteps();
+  }
+  if (S.stage===2 && document.querySelector('#t2'))  S.scenarios = captureScenarios();
+  if (S.stage===3 && document.querySelector('#t3'))  S.steps     = captureSteps();
+  S.stage=n; setProgress(n);
+  if (n===0) renderUpload();
+  else if (n===1) renderReview();
+  else if (n===2) renderScenarios();
+  else if (n===3) renderSteps();
+  else if (n===4) renderDone();
+  window.scrollTo(0,0);
+  fetchRunHistory();
+}
+
+function startOver() {
+  Object.assign(S,{stage:0,runId:null,filename:null,workstream:'',wave:'',
+    stories:null,configItems:null,bpwSteps:null,bpwContext:null,scenarios:null,steps:null});
+  document.getElementById('file-input').value='';
+  go(0);
+}
+
+async function downloadRun(idx) {
+  const run = (S.historyRuns||[])[idx];
+  if (!run) return;
+  try {
+    const qs = run.file_name ? '?fn='+encodeURIComponent(run.file_name) : '';
+    const r = await authFetch(`/api/stage/download/${encodeURIComponent(run.run_id||'')}${qs}`);
+    if (!r.ok) throw new Error('Download failed');
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url; a.download=run.file_name||`results-${(run.run_id||'').slice(0,8)}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Download failed: '+e.message); }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+initApp();
+</script>
+</body>
+</html>

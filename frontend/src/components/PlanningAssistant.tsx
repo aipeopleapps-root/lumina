@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getPlan, updatePlanWithInstruction, savePlanTasks, type PiPlan, type PiPlanTask, type PiChatMessage } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
+import { PipelineStepper, HomeButton } from './PipelineStepper';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
 
@@ -31,10 +32,27 @@ function newTaskId(): string {
 
 interface Props {
   processId: string;
-  onBack: () => void;
+  // Leaves Process Intelligence entirely, back to the platform's landing
+  // page — the one consistent "back" affordance every PI screen now shares.
+  // Navigating between As-Is/Agentic/Demo/Plan themselves is handled by the
+  // stepper below (its nodes close Planning Assistant and land on the
+  // target screen in one click), so there's no separate in-context "back to
+  // Agentic Workflow" link anymore — that used to duplicate what the
+  // stepper's own Agentic Redesign node already did.
+  onHome: () => void;
+  // The overall-flow stepper — optional so this component still works if a
+  // caller doesn't have this context handy, but every current call site
+  // passes it: without it, Planning Assistant was a full-screen dead end
+  // with no visible link back to As-Is/Agentic/Demo, which is exactly what
+  // got reported as "loses the overall flow screen".
+  stepper?: {
+    agenticUnlocked: boolean;
+    stepCount: number; confPct: number; agentCount: number;
+    onNavigate: (screen: 'asis' | 'agentic') => void;
+  };
 }
 
-export function PlanningAssistant({ processId, onBack }: Props) {
+export function PlanningAssistant({ processId, onHome, stepper }: Props) {
   const [plan, setPlan] = useState<PiPlan | null>(null);
   const [tasks, setTasks] = useState<PiPlanTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,7 +178,7 @@ export function PlanningAssistant({ processId, onBack }: Props) {
     ticks.push(dt.toISOString().slice(0, 10));
   }
 
-  const PHASE_COLORS = ['#0071E3', '#34C759', '#FF9F0A', '#AF52DE', '#FF2D55', '#5AC8FA'];
+  const PHASE_COLORS = ['#0C0D0D', '#34C759', '#FF9F0A', '#AF52DE', '#FF2D55', '#5AC8FA'];
   const phaseColor = (phase: string) => {
     const phaseNames = [...new Set(tasks.filter(t => t.is_phase_header).map(t => t.phase))];
     const idx = phaseNames.indexOf(phase);
@@ -170,7 +188,7 @@ export function PlanningAssistant({ processId, onBack }: Props) {
   if (loading) {
     return (
       <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F5F5F7', fontFamily: FONT }}>
-        <div style={{ width: 32, height: 32, border: '3px solid #E5E5EA', borderTopColor: '#0071E3', borderRadius: '50%',
+        <div style={{ width: 32, height: 32, border: '3px solid #E5E5EA', borderTopColor: '#0C0D0D', borderRadius: '50%',
           animation: 'plan-spin 0.9s linear infinite' }} />
         <style>{`@keyframes plan-spin { to { transform: rotate(360deg) } }`}</style>
       </div>
@@ -183,16 +201,20 @@ export function PlanningAssistant({ processId, onBack }: Props) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#F5F5F7', fontFamily: FONT, overflow: 'hidden' }}>
       {/* Top bar */}
       <div style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #E5E5EA',
-        padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <button onClick={onBack}
-          style={{ padding: '7px 14px', borderRadius: 980, fontSize: 13, fontWeight: 500, border: '1px solid #E5E5EA',
-            cursor: 'pointer', background: '#fff', color: '#6E6E73', display: 'flex', alignItems: 'center', gap: 5, fontFamily: FONT }}>
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-          Agentic Workflow
-        </button>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#1D1D1F' }}>AI Planning Assistant</span>
+        padding: '12px 24px', display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <HomeButton onClick={onHome} />
+          <span style={{ width: 1, height: 18, background: '#E5E5EA', flexShrink: 0 }} />
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1D1D1F' }}>AI Planning Assistant</span>
+        </div>
+        {stepper && (
+          <PipelineStepper
+            activeScreen="plan"
+            agenticUnlocked={stepper.agenticUnlocked}
+            stepCount={stepper.stepCount} confPct={stepper.confPct} agentCount={stepper.agentCount}
+            onNavigate={stepper.onNavigate}
+          />
+        )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
@@ -218,7 +240,7 @@ export function PlanningAssistant({ processId, onBack }: Props) {
                   fontSize: 13, fontFamily: FONT, outline: 'none', color: '#1D1D1F' }} />
               <button onClick={handleChatSend} disabled={sending || !chatInput.trim()}
                 style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,
-                  background: chatInput.trim() ? '#0071E3' : '#E5E5EA', color: '#fff', cursor: chatInput.trim() ? 'pointer' : 'not-allowed' }}>
+                  background: chatInput.trim() ? '#0C0D0D' : '#E5E5EA', color: '#fff', cursor: chatInput.trim() ? 'pointer' : 'not-allowed' }}>
                 ↑
               </button>
             </div>
@@ -235,7 +257,7 @@ export function PlanningAssistant({ processId, onBack }: Props) {
             <div style={{ display: 'flex', background: '#F5F5F7', borderRadius: 8, padding: 2, marginLeft: 4 }}>
               {(['day', 'week', 'month'] as const).map(g => (
                 <button key={g} onClick={() => setGranularity(g)}
-                  style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none',
+                  style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, border: 'none',
                     cursor: 'pointer', textTransform: 'capitalize', fontFamily: FONT,
                     background: granularity === g ? '#fff' : 'transparent',
                     color: granularity === g ? '#1D1D1F' : '#8E8E93',
@@ -247,7 +269,7 @@ export function PlanningAssistant({ processId, onBack }: Props) {
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: '#8E8E93', fontWeight: 600 }}>{tasks.filter(t => !t.is_phase_header).length} TASKS</span>
             <button onClick={handleSave} disabled={!dirty || saving}
-              style={{ padding: '7px 16px', borderRadius: 980, fontSize: 13, fontWeight: 600, border: 'none',
+              style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 600, border: 'none',
                 cursor: dirty && !saving ? 'pointer' : 'not-allowed',
                 background: dirty && !saving ? '#1D1D1F' : '#E5E5EA',
                 color: dirty && !saving ? '#fff' : '#C7C7CC', fontFamily: FONT }}>
@@ -263,9 +285,9 @@ export function PlanningAssistant({ processId, onBack }: Props) {
               style={{ flex: 1, border: '1.5px solid #E5E5EA', borderRadius: 10, padding: '9px 12px',
                 fontSize: 13, fontFamily: FONT, outline: 'none', color: '#1D1D1F', background: '#F5F5F7' }} />
             <button onClick={handleNlUpdate} disabled={sending || !nlInput.trim()}
-              style={{ padding: '9px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: 'none',
+              style={{ padding: '9px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, border: 'none',
                 cursor: nlInput.trim() ? 'pointer' : 'not-allowed',
-                background: nlInput.trim() ? '#0071E3' : '#E5E5EA', color: nlInput.trim() ? '#fff' : '#C7C7CC', fontFamily: FONT }}>
+                background: nlInput.trim() ? '#0C0D0D' : '#E5E5EA', color: nlInput.trim() ? '#fff' : '#C7C7CC', fontFamily: FONT }}>
               Update
             </button>
           </div>
@@ -360,7 +382,7 @@ const tdStyle: React.CSSProperties = { padding: '6px 10px', color: '#1D1D1F', ve
 function ToolbarButton({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      style={{ padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: '1px solid #E5E5EA',
+      style={{ padding: '7px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, border: '1px solid #E5E5EA',
         cursor: disabled ? 'not-allowed' : 'pointer', background: '#fff', color: disabled ? '#C7C7CC' : '#1D1D1F', fontFamily: FONT }}>
       {children}
     </button>

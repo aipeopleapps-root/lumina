@@ -6,6 +6,8 @@ it replaces, so call sites (e.g. pi_aurora.py) that already use native
 %s-style placeholders need zero changes.
 """
 
+from __future__ import annotations
+
 import os
 from contextlib import contextmanager
 

@@ -21,11 +21,10 @@ const STEPS = [
 ];
 
 interface Props {
-  role: string;
   onDismiss: () => void;
 }
 
-export function OnboardingChecklist({ role, onDismiss }: Props) {
+export function OnboardingChecklist({ onDismiss }: Props) {
   const [dismissed, setDismissed] = useState(false);
 
   function dismiss() {
@@ -36,13 +35,7 @@ export function OnboardingChecklist({ role, onDismiss }: Props) {
 
   if (dismissed) return null;
 
-  const steps = role === 'client'
-    ? [
-        { icon: '📂', title: 'Browse your documents', desc: 'Your consultant has uploaded documents to your workspace.' },
-        { icon: '✨', title: 'Ask the AI Coach', desc: 'Ask questions about your Workday configuration in the chat.' },
-        { icon: '📋', title: 'Try PolicyBot', desc: 'Get instant answers from your HR policies — click the PolicyBot tab at the top.' },
-      ]
-    : STEPS;
+  const steps = STEPS;
 
   return (
     <div className="fixed bottom-6 right-6 z-50 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
@@ -67,7 +60,7 @@ export function OnboardingChecklist({ role, onDismiss }: Props) {
       <div className="px-4 pb-4">
         <button
           onClick={dismiss}
-          className="w-full py-2 text-xs font-medium text-white bg-[#86BC25] hover:bg-[#75a820] rounded-lg transition-colors"
+          className="w-full py-2 text-xs font-medium text-white bg-[#86BC25] hover:bg-[#75a820] rounded-full transition-colors"
         >
           Got it, let's go →
         </button>

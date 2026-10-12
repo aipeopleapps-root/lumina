@@ -24,6 +24,22 @@ _BATCH_SIZE = 100
 
 _client: CosmosClient | None = None
 
+# Cosmos document `id` forbids '/', '\', '?', '#' — but chunk_id values are
+# built as "{doc_id}#{chunk_index}" (composite-key convention, same as
+# cosmos_config.py's pk/sk sk values). Point operations (read_item/
+# delete_item) build a resource URL from `id`, where an un-sanitized '#'
+# gets interpreted as a URL fragment delimiter and silently truncates the
+# lookup — confirmed live: delete_item succeeded with no error but deleted
+# nothing, because it was actually looking up "{doc_id}" instead of
+# "{doc_id}#{chunk_index}". Batch upsert (index_chunks) doesn't hit this,
+# since it sends the id in the request body, not a URL — which is why
+# indexing worked while delete/publish silently didn't.
+_ID_ILLEGAL_CHARS = str.maketrans({c: "_" for c in "/\\?#"})
+
+
+def _sanitize_id(raw: str) -> str:
+    return raw.translate(_ID_ILLEGAL_CHARS)
+
 
 def _container():
     global _client
@@ -49,7 +65,7 @@ def index_chunks(ctx: TenantContext, chunks: list[dict[str, Any]]) -> int:
     for c in chunks:
         embedding_b64 = _pack_vector(c["embedding"])
         docs.append({
-            "id": f"{c['doc_id']}#{c['chunk_index']}",
+            "id": _sanitize_id(f"{c['doc_id']}#{c['chunk_index']}"),
             "tenant_id": ctx.tenant_id,
             "chunk_id": f"{c['doc_id']}#{c['chunk_index']}",
             "doc_id": c["doc_id"],
@@ -152,7 +168,7 @@ def put_item(item: dict[str, Any]) -> None:
     assumptions about chunk shape (embedding, doc_id, etc.).
     """
     doc = dict(item)
-    doc.setdefault("id", doc["chunk_id"])
+    doc.setdefault("id", _sanitize_id(doc["chunk_id"]))
     _container().upsert_item(doc)
 
 
@@ -161,7 +177,7 @@ def get_item(tenant_id: str, chunk_id: str) -> dict[str, Any] | None:
     from azure.cosmos import exceptions
 
     try:
-        return _container().read_item(item=chunk_id, partition_key=tenant_id)
+        return _container().read_item(item=_sanitize_id(chunk_id), partition_key=tenant_id)
     except exceptions.CosmosResourceNotFoundError:
         return None
 
@@ -179,7 +195,7 @@ def delete_item(tenant_id: str, chunk_id: str) -> None:
     from azure.cosmos import exceptions
 
     try:
-        _container().delete_item(item=chunk_id, partition_key=tenant_id)
+        _container().delete_item(item=_sanitize_id(chunk_id), partition_key=tenant_id)
     except exceptions.CosmosResourceNotFoundError:
         pass
 

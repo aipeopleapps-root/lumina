@@ -29,8 +29,8 @@ export function FolderTemplateSelector({ templates, selected, onChange }: Props)
   const [previewing, setPreviewing] = useState<string | null>(null);
 
   return (
-    <div className="space-y-2">
-      {templates.map((t) => {
+    <div className="border border-slate-200 rounded-lg overflow-hidden">
+      {templates.map((t, idx) => {
         const isSelected = selected === t.id;
         const isExpanded = previewing === t.id;
 
@@ -38,10 +38,8 @@ export function FolderTemplateSelector({ templates, selected, onChange }: Props)
           <div
             key={t.id}
             onClick={() => onChange(t.id)}
-            className={`border rounded-lg cursor-pointer transition-all ${
-              isSelected
-                ? 'border-slate-900 bg-slate-50'
-                : 'border-slate-200 hover:border-slate-400'
+            className={`cursor-pointer transition-colors ${idx > 0 ? 'border-t border-slate-100' : ''} ${
+              isSelected ? 'bg-slate-50' : 'hover:bg-slate-50'
             }`}
           >
             <div className="flex items-center justify-between p-3">

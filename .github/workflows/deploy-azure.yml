@@ -1,0 +1,117 @@
+name: Deploy Azure Infrastructure
+
+# Phase 9 — the Azure-side CI/CD workflow, kept as a SEPARATE file from deploy.yml (the AWS/CDK
+# workflow) rather than replacing it in place. Same reasoning as functions/ living alongside
+# lambdas/ instead of overwriting it (see Phase 5's structural decision in
+# docs/AZURE_MIGRATION.md): deploy.yml auto-deploys the still-live AWS stack on every push to main
+# touching infra/**/lambdas/**, and must keep doing that untouched until Phase 10's actual
+# cutover. This workflow only triggers on bicep/**/functions/** — disjoint paths, so both
+# workflows can coexist safely on every push to main during the migration.
+#
+# Decision this workflow's design already makes (Phase 9 tracker checklist explicitly asked for
+# this call): NO hotswap-vs-full-deploy distinction, unlike the AWS workflow's
+# `detect change type` step. CDK's hotswap existed to skip a full CloudFormation changeset for
+# Lambda-code-only changes; ARM/Bicep deployments are natively incremental (a deployment only
+# touches resources whose properties actually changed — confirmed live in Phase 7's session,
+# where already-deployed resources repeatedly showed as "no change" in `what-if` runs), so
+# there's no equivalent optimization to build or maintain here. Always full `deploy.sh`.
+#
+# Auth: OIDC federated credentials (bicep/scripts/setup-github-oidc.sh), not a stored client
+# secret — azure/login@v2 exchanges GitHub's own OIDC token for an Azure one at run time.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bicep/**'
+      - 'functions/**'
+      - '.github/workflows/deploy-azure.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'bicep/**'
+      - 'functions/**'
+
+concurrency:
+  group: deploy-azure-main
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # required for OIDC federated login
+  contents: read
+
+env:
+  # Single shared environment for now, matching this migration's Phase 0 locked-in decision
+  # ("no evidence of production load — dual-write/multi-env complexity isn't worth it"), same
+  # as the AWS side's single-stack setup. Change to 'deloitte' (and add that environment's
+  # AZURE_CLIENT_ID/AZURE_TENANT_ID/AZURE_SUBSCRIPTION_ID repo variables + re-run
+  # setup-github-oidc.sh against that tenant) when that migration happens — see
+  # bicep/parameters/deloitte.bicepparam.example.
+  DEPLOY_ENV: pilot
+
+jobs:
+  validate-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile-check every handler module
+        run: find functions -name "*.py" -print0 | xargs -0 python3 -m py_compile
+
+  validate-bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az bicep install
+        run: az bicep install
+
+      - name: Bicep build + lint
+        run: |
+          cd bicep
+          az bicep build --file main.bicep --outfile /tmp/main.json
+          az bicep lint --file main.bicep
+
+      - name: What-if preview
+        if: github.event_name == 'pull_request'
+        env:
+          POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+        run: |
+          cd bicep
+          ./scripts/deploy.sh --env "$DEPLOY_ENV" --what-if
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [validate-python, validate-bicep]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az bicep install
+        run: az bicep install
+
+      - name: Deploy
+        env:
+          POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+        run: |
+          cd bicep
+          ./scripts/deploy.sh --env "$DEPLOY_ENV"

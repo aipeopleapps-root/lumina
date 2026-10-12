@@ -20,7 +20,7 @@ from common import tenant_from_event, TenantError, ai, audit_events, vectors, bl
 log = logging.getLogger(__name__)
 log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
-_MODEL_ID = os.environ["GENERATION_MODEL_ID"]
+_MODEL_ID = os.environ["GENERATION_MODEL_NAME"]
 
 MAX_DOC_CHARS = 40_000
 MAX_ACTIVITY_ITEMS = 30
@@ -97,7 +97,7 @@ Rules:
 def handler(event, context):
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin", "project_admin")
+        ctx.require_role("consultant", "super_admin", "project_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

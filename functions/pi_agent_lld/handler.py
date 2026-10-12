@@ -36,8 +36,28 @@ log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 _LLD_SYSTEM = """You are a senior AI solutions architect writing a formal Low-Level Design (LLD) document for a \
 single proposed AI agent within a Workday transformation program. You will receive the agent's name, \
-description, proposed model, tools, the process domain, and the specific as-is process steps this agent \
-replaces or touches.
+description, proposed model, tools, kind (conversational or workspace), the process domain, and the specific \
+as-is process steps this agent replaces or touches.
+
+Ground the design in how this would actually be BUILT on the Workday platform, not a generic AI-agent \
+architecture that could belong to any vendor. Every agent is built one of two ways — decide which one this \
+agent is and be explicit about it, don't hedge:
+- **Native Sana Agent** — this agent maps to (or closely extends) an existing Sana capability category (e.g. \
+  a Talent Acquisition Agent, Payroll Agent, Self-Service Agent, Talent Mobility Agent). It's configured and \
+  extended using the **Sana Developer Agent** tooling rather than built from scratch — describe specifically \
+  what gets configured through it (triggers, tool bindings, guardrails) versus what's inherited from the base \
+  Sana capability.
+- **Custom agent on Workday Extend + LLM** — this agent doesn't map to an existing Sana category, or its kind \
+  is "workspace" (a document/dashboard a human reviews, not a conversational exchange) — these are typically \
+  built as a custom **Workday Extend** application (Extend owns the UI, custom data objects, and orchestration \
+  logic) that calls out to the given LLM for the generative/reasoning step (drafting, summarizing, or \
+  synthesizing across the data Extend has assembled). Be specific about the division of labor: what Extend's \
+  data model and screens handle versus what's delegated to the LLM call, and roughly where in the Extend \
+  orchestration flow that call happens.
+
+Do NOT use the deprecated "Illuminate" brand — use "Sana", "Workday Extend", and "Sana Developer Agent" \
+by name wherever they apply. Never describe an agent's underlying platform in generic terms ("a cloud AI \
+service", "the agent platform") when one of the two real paths above applies.
 
 Write the FULL document directly as markdown (no JSON, no preamble, no meta-commentary — output starts with \
 the first heading and ends with the last line of content). Use this exact structure:
@@ -66,6 +86,16 @@ the first heading and ends with the last line of content). Use this exact struct
 - **Payload**: ...
 
 ## 3. Architecture & Components
+### Platform & Build Approach
+- **Build Approach**: Native Sana Agent | Custom Agent (Workday Extend + LLM) — pick one, justify it in \
+  1-2 sentences against the agent's actual description and kind.
+- If Native Sana Agent: **Base Capability** (which Sana category this extends) and **Sana Developer Agent \
+  Configuration** (what's configured through it — triggers, tool bindings, guardrails — versus inherited \
+  from the base capability).
+- If Custom Agent (Workday Extend + LLM): **Extend App Scope** (the custom data objects, screens, and \
+  orchestration logic Extend owns) and **LLM Integration Point** (exactly where in the Extend flow the LLM \
+  is called, what it's given as input, and what it returns).
+
 ### Model Configuration
 - **Model**: {the given model}
 - **Temperature**: a specific value with a one-line justification
@@ -139,7 +169,7 @@ def handler(event: dict, context: object) -> dict:
 def trigger_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -184,7 +214,7 @@ def trigger_handler(event: dict, context: object) -> dict:
 def poll_handler(event: dict, context: object) -> dict:
     try:
         ctx = tenant_from_event(event)
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as exc:
         return http.forbidden(str(exc))
 
@@ -238,6 +268,7 @@ def worker_handler(payload: dict) -> None:
                 "model":             agent["model"],
                 "tools":             agent["tools"],
                 "replaces_step_ids": agent["replaces_step_ids"],
+                "kind":              agent.get("kind") or "workspace",
             }, indent=2) + "\n</agent>"
         )
 

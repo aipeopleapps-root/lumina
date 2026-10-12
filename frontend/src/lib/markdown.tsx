@@ -3,11 +3,11 @@ import React from 'react';
 /**
  * Lightweight markdown renderer for the Agent Design (LLD) document and the
  * Planning Assistant chat. Extends the feature set of the hand-rolled parsers
- * already duplicated in ConsultantChat.tsx / ClientView.tsx / PolicyAdvisor.tsx
- * (headings, bold, bullets, numbered lists, hr, inline code) with h1/h3 and
- * GFM-style table support, needed for the LLD doc's "Tools & Function Calls"
- * table. Intentionally not a refactor of those three — this is a separate,
- * purpose-built function for the new Process Intelligence surfaces.
+ * already duplicated in ConsultantChat.tsx / PolicyAdvisor.tsx (headings,
+ * bold, bullets, numbered lists, hr, inline code) with h1/h3 and GFM-style
+ * table support, needed for the LLD doc's "Tools & Function Calls" table.
+ * Intentionally not a refactor of those — this is a separate, purpose-built
+ * function for the new Process Intelligence surfaces.
  */
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {

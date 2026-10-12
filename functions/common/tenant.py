@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 _TENANT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}$")
 
-VALID_ROLES = {"consultant", "client", "project_admin", "security_admin", "admin"}
+VALID_ROLES = {"consultant", "project_admin", "super_admin"}
 
 
 class TenantError(Exception):
@@ -81,7 +81,7 @@ def tenant_from_event(event: dict[str, Any]) -> TenantContext:
 
     tenant_id = (headers.get("x-tenant-id") or "").strip().lower()
     user_id = (headers.get("x-user-sub") or "").strip()
-    role = (headers.get("x-user-role") or "client").strip().lower()
+    role = (headers.get("x-user-role") or "").strip().lower()
     email = (headers.get("x-user-email") or "").strip().lower()
 
     if not _TENANT_ID_PATTERN.match(tenant_id):
@@ -94,14 +94,16 @@ def tenant_from_event(event: dict[str, Any]) -> TenantContext:
     if role not in VALID_ROLES:
         raise TenantError(f"invalid role claim: {role!r}")
 
-    # Consultants and admins can switch to a client tenant via header.
-    # Consultants require an assignment check; admins have unrestricted access.
-    if role in ("consultant", "admin", "project_admin", "security_admin"):
+    # Consultants, project_admins, and super_admins can switch to a client tenant via header.
+    # Consultants and project_admins require an assignment check (project_admin's whole
+    # "scoped to their assigned client(s)" model depends on this); super_admin has
+    # unrestricted access, matching "everything, every client".
+    if role in ("consultant", "project_admin", "super_admin"):
         target = (headers.get("x-client-tenant") or "").strip().lower()
         if target:
             if not _TENANT_ID_PATTERN.match(target):
                 raise TenantError("invalid x-client-tenant header value")
-            if role == "consultant":
+            if role in ("consultant", "project_admin"):
                 _verify_assignment(user_id, target)
             tenant_id = target
 
@@ -125,21 +127,38 @@ def _config_container():
     return database.get_container_client(os.environ.get("CONFIG_CONTAINER_NAME", "config"))
 
 
-def _verify_assignment(consultant_sub: str, client_tenant_id: str) -> None:
-    """Raise TenantError if the consultant is not assigned to the client tenant."""
+def is_assigned(user_id: str, client_tenant_id: str) -> bool:
+    """True if user_id (consultant or project_admin) has an ASSIGN# record for
+    client_tenant_id. Non-raising — used both by _verify_assignment (below) and by
+    admin_assign_consultant's permission check (a project_admin can only assign a
+    consultant to a client they're themselves assigned to)."""
     container = _config_container()
-    pk = f"ASSIGN#{consultant_sub}"
-    item_id = f"CLIENT#{client_tenant_id}"
+    pk = f"ASSIGN#{user_id}"
+    # Cosmos document `id` forbids '/', '\', '?', '#' — point operations like
+    # read_item build a resource URL from the id, where an un-sanitized '#'
+    # is treated as a URL fragment delimiter and silently truncates the
+    # lookup. cosmos_config.py's put_item/create_item already sanitize `#`
+    # out of the physical id when writing an ASSIGN# record (see its
+    # _sanitize_id), so the stored id for "CLIENT#yellow-bank" is actually
+    # "CLIENT_yellow-bank" — this lookup must match that, not the raw sk.
+    item_id = f"CLIENT#{client_tenant_id}".translate(str.maketrans({c: "_" for c in "/\\?#"}))
     try:
         container.read_item(item=item_id, partition_key=pk)
+        return True
     except Exception:
+        return False
+
+
+def _verify_assignment(user_id: str, client_tenant_id: str) -> None:
+    """Raise TenantError if user_id is not assigned to the client tenant."""
+    if not is_assigned(user_id, client_tenant_id):
         log.warning(
-            "consultant %s attempted access to unassigned tenant %s",
-            consultant_sub,
+            "user %s attempted access to unassigned tenant %s",
+            user_id,
             client_tenant_id,
         )
         raise TenantError(
-            f"consultant is not assigned to client tenant '{client_tenant_id}'"
+            f"caller is not assigned to client tenant '{client_tenant_id}'"
         )
 
 

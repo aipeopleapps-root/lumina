@@ -1,0 +1,8 @@
+# Pinned exactly to the base image's tag (mcr.microsoft.com/playwright/python:v1.47.0-jammy) —
+# that image ships browser binaries built for playwright==1.47.0 specifically; a wider range
+# here previously resolved to 1.62.0 at build time, a driver/browser protocol version mismatch
+# against the pre-installed Chromium that risks launch failures or hangs.
+playwright==1.47.0
+requests>=2.31,<3
+azure-identity>=1.16,<2
+azure-storage-queue>=12.9,<13

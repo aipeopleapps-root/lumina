@@ -59,9 +59,17 @@ def chunk_xlsx_workbook(
     data: bytes, *, doc_type: str, source_name: str, module: str | None
 ) -> list[dict[str, Any]]:
     """
-    Row-block chunking for Workday workbooks. Every sheet is rendered as
-    a labeled block of rows; we pack rows into target-sized chunks so
-    related rows stay together.
+    One chunk per row for Workday workbooks — deliberately NOT packed toward
+    TARGET_CHARS the way prose chunking is. A row in one of these sheets
+    (a SKU, a config setting, a packaging entry) is already a complete,
+    semantically distinct unit; embedding several unrelated rows together in
+    one chunk dilutes that unit's signal in the vector, and directly hurt
+    real retrieval — confirmed live (session 15): a "what does the Talent
+    Optimization SKU cost" query kept missing a price list where that row
+    was buried in the same packed chunk as ~7 unrelated SKUs, only matching
+    once the user pasted the row's exact text as the query. Each row's chunk
+    still carries the sheet name + column headers as context, so it reads
+    the same as before, just alone rather than bundled.
     """
     import openpyxl  # imported lazily; lambda layer has it
 
@@ -74,25 +82,14 @@ def chunk_xlsx_workbook(
         if not rows:
             continue
         headers = [str(h) if h is not None else "" for h in rows[0]]
-        buf_lines: list[str] = [f"# Sheet: {sheet_name}", "Headers: " + " | ".join(headers)]
-        buf_len = sum(len(line) + 1 for line in buf_lines)
+        header_line = f"# Sheet: {sheet_name}\nHeaders: " + " | ".join(headers)
         for row in rows[1:]:
             cells = [str(c) if c is not None else "" for c in row]
             if not any(cells):
                 continue
             row_text = " | ".join(f"{h}: {v}" for h, v in zip(headers, cells) if v)
-            if buf_len + len(row_text) + 1 > TARGET_CHARS and len(buf_lines) > 2:
-                text = "\n".join(buf_lines)
-                chunks.append(_mk_chunk(text, idx, doc_type, source_name, module, sheet=sheet_name))
-                idx += 1
-                buf_lines = [f"# Sheet: {sheet_name} (continued)", "Headers: " + " | ".join(headers)]
-                buf_len = sum(len(line) + 1 for line in buf_lines)
-            buf_lines.append(row_text)
-            buf_len += len(row_text) + 1
-        if len(buf_lines) > 2:
-            chunks.append(
-                _mk_chunk("\n".join(buf_lines), idx, doc_type, source_name, module, sheet=sheet_name)
-            )
+            text = f"{header_line}\n{row_text}"
+            chunks.append(_mk_chunk(text, idx, doc_type, source_name, module, sheet=sheet_name))
             idx += 1
     return chunks
 
@@ -133,6 +130,39 @@ def chunk_docx(
             lines.append(p.text)
     full = "\n".join(lines)
     return chunk_text_document(full, doc_type=doc_type, source_name=source_name, module=module)
+
+
+def chunk_pptx(
+    data: bytes, *, doc_type: str, source_name: str, module: str | None
+) -> list[dict[str, Any]]:
+    """
+    One chunk per slide (titles/body text boxes and table cells, in shape
+    order) — a slide is naturally already the right retrieval granularity for
+    proposal decks, unlike prose documents where paragraph-packing makes more
+    sense, so this skips chunk_text_document's packing/overlap entirely.
+    """
+    from pptx import Presentation  # python-pptx
+
+    prs = Presentation(io.BytesIO(data))
+    chunks: list[dict[str, Any]] = []
+    for slide_idx, slide in enumerate(prs.slides, start=1):
+        lines: list[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    text = "".join(run.text for run in para.runs).strip()
+                    if text:
+                        lines.append(text)
+            elif shape.has_table:
+                for row in shape.table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    if any(cells):
+                        lines.append(" | ".join(cells))
+        if not lines:
+            continue
+        text = f"[Slide {slide_idx}]\n" + "\n".join(lines)
+        chunks.append(_mk_chunk(text, slide_idx - 1, doc_type, source_name, module))
+    return chunks
 
 
 # -----------------------------------------------------------------------------

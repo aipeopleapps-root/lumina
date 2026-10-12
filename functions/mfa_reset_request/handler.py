@@ -3,12 +3,12 @@ POST /mfa/request-reset  (PUBLIC — no auth)
   User requests an admin to reset their MFA (e.g. lost authenticator device).
   Stores one pending request per email; duplicate requests update the timestamp.
 
-GET /admin/mfa-reset-requests  (admin only)
+GET /manage/mfa-reset-requests  (admin only)
   Lists all pending reset requests for the admin to review.
 
-POST /admin/mfa-reset-requests  (admin only)
+POST /manage/mfa-reset-requests  (admin only)
   { "email": "...", "action": "dismiss" }  — removes the pending request
-  (Actual MFA reset goes through /admin/manage-user with action reset_mfa)
+  (Actual MFA reset goes through /manage/manage-user with action reset_mfa)
 """
 
 from __future__ import annotations
@@ -33,10 +33,10 @@ def handler(event, context):
     path = event.get("rawPath", "")
 
     # ── Admin routes ──────────────────────────────────────────────────────────
-    if "/admin/" in path:
+    if "/manage/" in path:
         try:
             ctx = tenant_from_event(event)
-            ctx.require_role("admin", "security_admin")
+            ctx.require_role("super_admin")
         except TenantError as e:
             return http.forbidden(str(e))
 

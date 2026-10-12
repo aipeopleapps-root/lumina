@@ -1,0 +1,25 @@
+{
+  "name": "bp-workbook-api",
+  "version": "1.0.0",
+  "description": "Azure Functions API for BP Workbook Generator — ported into Lumina from a colleague's standalone app; see this directory's lib/ comments for what changed and why.",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start",
+    "test": "node --test",
+    "build": "echo 'No build step required'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.0.0",
+    "@azure/functions": "^4.16.2",
+    "@azure/identity": "^4.5.0",
+    "@azure/storage-blob": "^12.26.0",
+    "@xmldom/xmldom": "^0.9.5",
+    "docx": "^7.8.2",
+    "jszip": "^3.10.1",
+    "uuid": "^11.0.4",
+    "xlsx": "^0.18.5"
+  }
+}

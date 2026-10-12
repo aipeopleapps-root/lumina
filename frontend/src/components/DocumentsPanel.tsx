@@ -76,9 +76,9 @@ export function DocumentsPanel() {
         />
       ) : (
         // Fallback: flat list if template couldn't be loaded
-        <div className="space-y-3">
-          {documents.map((doc) => (
-            <div key={doc.doc_id} className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          {documents.map((doc, i) => (
+            <div key={doc.doc_id} className={`p-4 ${i > 0 ? 'border-t border-slate-100' : ''}`}>
               <div className="flex items-start justify-between">
                 <div>
                   <div className="font-medium text-slate-900 mb-1">{doc.source_name}</div>

@@ -26,6 +26,17 @@ _TTL_DAYS = 90
 
 _client: CosmosClient | None = None
 
+# Cosmos document `id` forbids '/', '\', '?', '#' — event_ts (used as `id` below)
+# is built as "{isoformat}#{event_id}" for correct chronological ordering, and
+# the literal '#' gets interpreted as a URL fragment delimiter by point
+# operations, silently corrupting the id. Same failure mode already found and
+# fixed in cosmos_config.py/cosmos_vectors.py/industry_knowledge.py/tenant.py —
+# confirmed live here too via a ValueError this upsert_item was actually raising
+# on every single audit write, not just point-reads. Sanitize only the physical
+# `id` field; `event_ts` itself is kept unsanitized since range queries
+# (query_recent's `c.event_ts > @since`) depend on its exact, sortable format.
+_ID_ILLEGAL_CHARS = str.maketrans({c: "_" for c in "/\\?#"})
+
 
 def _container():
     global _client
@@ -71,7 +82,7 @@ def write(
         ttl = _TTL_DAYS * 86400
 
         item: dict[str, Any] = {
-            "id": event_ts,
+            "id": event_ts.translate(_ID_ILLEGAL_CHARS),
             "tenant_id": ctx.tenant_id,
             "event_ts": event_ts,
             "event_id": event_id,
@@ -151,7 +162,7 @@ def query_by_tenant(tenant_id: str, limit: int = 100, action_prefix: str | None 
 
 
 def query_all(limit: int = 100, action_prefix: str | None = None) -> list[dict[str, Any]]:
-    """Cross-tenant recent events (security_admin audit log view), optionally filtered
+    """Cross-tenant recent events (super_admin audit log view), optionally filtered
     by action prefix, newest first."""
     container = _container()
     if container is None:

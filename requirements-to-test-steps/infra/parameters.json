@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "australiaeast"
+    },
+    "appName": {
+      "value": "req-to-test"
+    },
+    "acrLoginServer": {
+      "value": "YOUR_ACR_LOGIN_SERVER.azurecr.io"
+    },
+    "llmGatewayUrl": {
+      "value": "https://genai-dev.example.com/openai/v1/chat/completions"
+    },
+    "llmGatewayApiKey": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/YOUR_SUBSCRIPTION_ID/resourceGroups/YOUR_RG/providers/Microsoft.KeyVault/vaults/YOUR_KEYVAULT"
+        },
+        "secretName": "llm-gateway-api-key"
+      }
+    }
+  }
+}

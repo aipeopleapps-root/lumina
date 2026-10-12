@@ -159,7 +159,7 @@ export function ConsultantChat({ clientName }: { clientName?: string }) {
                 <button
                   key={s}
                   onClick={() => sendMessage(s)}
-                  className="text-left text-xs px-3 py-2.5 rounded-lg border border-gray-200 hover:border-slate-900 hover:bg-slate-50 text-gray-600 hover:text-slate-900 transition-colors"
+                  className="text-left text-xs px-3 py-2.5 rounded-full border border-gray-200 hover:border-slate-900 hover:bg-slate-50 text-gray-600 hover:text-slate-900 transition-colors"
                 >
                   {s}
                 </button>

@@ -83,6 +83,41 @@ def get_process_graph_status(*, process_id: str, tenant_id: str) -> dict | None:
     }
 
 
+def list_processes(*, tenant_id: str, limit: int = 20) -> list[dict]:
+    """
+    Recent processes for this tenant, newest first — backs the Process
+    Intelligence "Recent Processes" home-page panel. Tenant-scoped (not
+    per-user): PI analyses are shared client-engagement artifacts, same model
+    as ConsultantPanel's document list, not individual-user work.
+    Returns [{process_id, source_name, domain, parse_status, created_at, agent_count}].
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT process_id, source_name, domain, parse_status, created_at,
+                       (SELECT COUNT(*) FROM pi.agents WHERE agents.process_id = process_graphs.process_id) AS agent_count
+                FROM pi.process_graphs
+                WHERE tenant_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                [tenant_id, limit],
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "process_id":   r[0],
+            "source_name":  r[1],
+            "domain":       r[2],
+            "parse_status": r[3],
+            "created_at":   str(r[4]),
+            "agent_count":  r[5],
+        }
+        for r in rows
+    ]
+
+
 def update_parse_status(
     *,
     process_id: str,
@@ -280,7 +315,7 @@ def get_full_graph(*, process_id: str, tenant_id: str) -> dict | None:
                     "lane_id":            r[1],
                     "label":              r[2],
                     "type":               r[3],
-                    "systems_touched":    json.loads(r[4]) if r[4] else [],
+                    "systems_touched":    json.loads(r[4]) if isinstance(r[4], str) else (r[4] or []),
                     "ai_opportunity":     r[5],
                     "ai_rationale":       r[6],
                     "avg_cycle_time_hrs": r[7],
@@ -510,12 +545,15 @@ def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> lis
             inserted: list[dict] = []
             for position, agent in enumerate(agents):
                 agent_id = str(uuid.uuid4())
+                kind = agent.get("kind")
+                if kind not in ("conversational", "workspace"):
+                    kind = None
                 cur.execute(
                     """
                     INSERT INTO pi.agents
                       (agent_id, process_id, tenant_id, name, description,
-                       model, tools, replaces_step_ids, position)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       model, tools, replaces_step_ids, position, kind)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         agent_id,
@@ -527,6 +565,7 @@ def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> lis
                         json.dumps(agent.get("tools") or []),
                         json.dumps(agent.get("replaces_step_ids") or []),
                         position,
+                        kind,
                     ],
                 )
                 inserted.append({
@@ -539,6 +578,8 @@ def create_agents(*, process_id: str, tenant_id: str, agents: list[dict]) -> lis
                     "lld_status":        "not_generated",
                     "lld_markdown":      None,
                     "lld_error":         None,
+                    "kind":              kind,
+                    "demo_profile":      None,
                 })
             return inserted
 
@@ -549,7 +590,8 @@ def list_agents(*, process_id: str, tenant_id: str) -> list[dict]:
             cur.execute(
                 """
                 SELECT agent_id, name, description, model, tools,
-                       replaces_step_ids, lld_status, lld_markdown, lld_error
+                       replaces_step_ids, lld_status, lld_markdown, lld_error,
+                       kind, demo_profile
                 FROM pi.agents
                 WHERE process_id = %s AND tenant_id = %s
                 ORDER BY position
@@ -566,7 +608,8 @@ def get_agent(*, agent_id: str, tenant_id: str) -> dict | None:
             cur.execute(
                 """
                 SELECT agent_id, process_id, name, description, model, tools,
-                       replaces_step_ids, lld_status, lld_markdown, lld_error
+                       replaces_step_ids, lld_status, lld_markdown, lld_error,
+                       kind, demo_profile
                 FROM pi.agents
                 WHERE agent_id = %s AND tenant_id = %s
                 """,
@@ -575,14 +618,21 @@ def get_agent(*, agent_id: str, tenant_id: str) -> dict | None:
             row = cur.fetchone()
     if not row:
         return None
-    agent = _agent_row_to_dict((row[0], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]))
+    agent = _agent_row_to_dict((
+        row[0], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10], row[11],
+    ))
     agent["process_id"] = row[1]
     return agent
 
 
 def _agent_row_to_dict(r: tuple) -> dict:
+    # Fixed column order: 0-agent_id, 1-name, 2-description, 3-model, 4-tools,
+    # 5-replaces_step_ids, 6-lld_status, 7-lld_markdown, 8-lld_error, 9-kind,
+    # 10-demo_profile — every caller (list_agents, get_agent) must pass tuples
+    # in this exact order regardless of their own SELECT column order.
     tools_raw = r[4]
     replaces_raw = r[5]
+    demo_profile_raw = r[10]
     return {
         "agent_id":          r[0],
         "name":              r[1],
@@ -593,6 +643,8 @@ def _agent_row_to_dict(r: tuple) -> dict:
         "lld_status":        r[6],
         "lld_markdown":      r[7],
         "lld_error":         r[8],
+        "kind":              r[9],
+        "demo_profile":      json.loads(demo_profile_raw) if isinstance(demo_profile_raw, str) else (demo_profile_raw or None),
     }
 
 
@@ -614,6 +666,110 @@ def update_agent_lld(
                 """,
                 [status, markdown, error, agent_id, tenant_id],
             )
+
+
+def update_agent_review(
+    *,
+    agent_id: str,
+    tenant_id: str,
+    name: str,
+    description: str | None,
+    kind: str | None,
+    position: int,
+) -> None:
+    """
+    Apply consultant edits from the demo review step (name/description/kind
+    override/reorder). Called once per confirmed agent when "Confirm & Generate
+    Demo" is submitted — there is no separate autosave path for review edits.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.agents
+                SET name = %s, description = %s, kind = %s, position = %s, updated_at = NOW()
+                WHERE agent_id = %s AND tenant_id = %s
+                """,
+                [name, description, kind, position, agent_id, tenant_id],
+            )
+
+
+def update_agent_demo_profile(*, agent_id: str, tenant_id: str, demo_profile: dict) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.agents
+                SET demo_profile = %s, updated_at = NOW()
+                WHERE agent_id = %s AND tenant_id = %s
+                """,
+                [json.dumps(demo_profile), agent_id, tenant_id],
+            )
+
+
+# ── Demo generation (one HTML artifact per process — see pi_demo_generate) ────
+
+def set_demo_generating(*, process_id: str, tenant_id: str, agent_ids: list[str], theme: dict) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.process_graphs
+                SET demo_status = 'generating', demo_error = NULL,
+                    demo_agent_ids = %s, demo_theme = %s, updated_at = NOW()
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [json.dumps(agent_ids), json.dumps(theme), process_id, tenant_id],
+            )
+
+
+def set_demo_done(*, process_id: str, tenant_id: str, blob_key: str) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.process_graphs
+                SET demo_status = 'done', demo_blob_key = %s, demo_error = NULL, updated_at = NOW()
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [blob_key, process_id, tenant_id],
+            )
+
+
+def set_demo_failed(*, process_id: str, tenant_id: str, error: str) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pi.process_graphs
+                SET demo_status = 'failed', demo_error = %s, updated_at = NOW()
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [error, process_id, tenant_id],
+            )
+
+
+def get_demo_status(*, process_id: str, tenant_id: str) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT demo_status, demo_blob_key, demo_error, demo_agent_ids
+                FROM pi.process_graphs
+                WHERE process_id = %s AND tenant_id = %s
+                """,
+                [process_id, tenant_id],
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    agent_ids_raw = row[3]
+    return {
+        "demo_status":    row[0],
+        "demo_blob_key":  row[1],
+        "demo_error":     row[2],
+        "demo_agent_ids": json.loads(agent_ids_raw) if isinstance(agent_ids_raw, str) else (agent_ids_raw or []),
+    }
 
 
 # ── Plans ──────────────────────────────────────────────────────────────────────

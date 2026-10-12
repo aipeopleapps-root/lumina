@@ -1,0 +1,34 @@
+# Root requirements.txt for the whole Function App — Phase 7 packaging model.
+#
+# Azure Functions deploys ONE package for the whole app (unlike AWS's makeFn,
+# which pip-installed a per-handler requirements.txt into 37 separate Lambda
+# packages — see Phase 6 handler directories' one-line placeholder
+# requirements.txt files, now vestigial but left as-is for the historical
+# record). This file is the union of every handler's actual needs:
+# functions/common/requirements.txt content, plus the Functions worker SDK.
+#
+# THIS is the file Oryx's remote build actually installs from on deploy —
+# confirmed live (session 15): a change made only to common/requirements.txt
+# (adding python-pptx) silently had zero effect after two full redeploys,
+# because Oryx never reads that one. Any dependency change to
+# common/requirements.txt MUST be mirrored here too, or it will look
+# deployed (no error, deploy reports success) while the actual import fails
+# at runtime with ModuleNotFoundError the next time that code path runs.
+
+azure-functions>=1.21,<2
+
+azure-cosmos>=4.5,<5
+azure-identity>=1.16,<2
+azure-storage-blob>=12.19,<13
+azure-storage-queue>=12.9,<13
+azure-keyvault-secrets>=4.8,<5
+azure-mgmt-costmanagement>=4.0,<5
+openai>=1.30,<2
+psycopg2-binary>=2.9,<3
+pypdf>=4.2,<5
+python-docx>=1.1,<2
+python-pptx>=1.0,<2
+openpyxl>=3.1,<4
+lxml>=5.3,<6
+requests>=2.31,<3
+jinja2>=3.1,<4

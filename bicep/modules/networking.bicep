@@ -105,11 +105,18 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
           natGateway: {
             id: natGateway.id
           }
+          // 'Microsoft.App/environments', not the classic 'Microsoft.Web/serverFarms' — Flex
+          // Consumption's VNet integration is built on Container-Apps-style networking
+          // infrastructure under the hood, unlike Premium/Dedicated plans. Confirmed live
+          // (Phase 7 session 14): `az functionapp vnet-integration add` against a real FC1
+          // Flex Consumption app auto-registered the `Microsoft.App` resource provider and
+          // required exactly this delegation — the classic delegation fails deployment with
+          // `SubnetMissingRequiredDelegation`.
           delegations: [
             {
               name: 'webapp-delegation'
               properties: {
-                serviceName: 'Microsoft.Web/serverFarms'
+                serviceName: 'Microsoft.App/environments'
               }
             }
           ]

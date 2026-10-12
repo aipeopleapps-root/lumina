@@ -28,6 +28,9 @@ param claudeModelVersion string = '2'
 @description('GlobalStandard quota capacity (in units) for the Claude deployment — quota varies per subscription/model/region, check Microsoft.CognitiveServices/locations/{region}/usages before changing the model')
 param claudeDeploymentCapacity int = 1
 
+@description('Whether to actually create the Claude model deployment. Default true; set false to stand up everything else (the Foundry account itself, Azure OpenAI/embeddings, and every other module) on a subscription that does not have Claude/GlobalStandard quota approved yet — ARM validates quota for ALL resources at preflight, so a 0-quota claudeDeployment fails the WHOLE subscription-scope deployment, not just this one resource (confirmed live — see docs/AZURE_MIGRATION.md Log). Re-run with this back at true once quota is granted.')
+param deployClaudeModel bool = true
+
 @description('Azure OpenAI embedding model — must support the `dimensions` param to match EMBEDDING_DIM=1024 (ada-002 does not support it)')
 param embeddingModelName string = 'text-embedding-3-large'
 
@@ -71,7 +74,7 @@ resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2026-05-1
   properties: {}
 }
 
-resource claudeDeployment 'Microsoft.CognitiveServices/accounts/deployments@2026-05-15-preview' = {
+resource claudeDeployment 'Microsoft.CognitiveServices/accounts/deployments@2026-05-15-preview' = if (deployClaudeModel) {
   parent: aiFoundry
   name: claudeModelName
   sku: {

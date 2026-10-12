@@ -5,6 +5,9 @@
 #   - SPA app registration + redirect URIs
 #   - the app's service principal (needed for sign-in to work at all)
 #   - two directory extension attributes for tenant_id / role
+#   - exposing an API (api://<client-id>/access_as_user) so Phase 8's frontend has a scope to
+#     request an access token for — the token APIM's validate-jwt policy (Phase 7) validates
+#   - optionalClaims on both the ID token and access token for the two extension attributes above
 #
 # What this deliberately does NOT automate (portal-wizard-only / shifting Entra External ID
 # feature surface — see bicep/README.md's caveats):
@@ -101,12 +104,22 @@ echo "== Extension attributes (tenant_id, role) =="
 # trust whichever one you actually configured and update functions/common/tenant.py's header
 # contract to match. This script's approach is the safe fallback since v1.0 extensionProperty
 # has been stable for years and is scriptable/idempotent, unlike the newer CIAM-specific UI.
+#
+# Graph auto-prefixes whatever short `name` you POST (e.g. "tenant_id") into
+# extension_<appId-no-dashes>_tenant_id when it stores/returns it — the idempotency check
+# below must compare against that full prefixed form, not the short name, or it never finds
+# a match and tries to re-create on every re-run (409 Conflict — this exact bug shipped in an
+# earlier session and was only caught the first time the script was actually re-run against a
+# live tenant; see docs/AZURE_MIGRATION.md Log).
+ext_prefix="extension_$(echo -n "$app_client_id" | tr -d '-')"
+
 for attr in tenant_id role; do
+  full_name="${ext_prefix}_${attr}"
   existing=$(az rest --method GET \
     --url "https://graph.microsoft.com/v1.0/applications/$app_object_id/extensionProperties" \
-    | jq -r --arg n "$attr" '.value[] | select(.name == $n) | .name' | head -1)
+    | jq -r --arg n "$full_name" '.value[] | select(.name == $n) | .name' | head -1)
   if [[ -n "$existing" ]]; then
-    echo "extension attribute '$attr' already exists, skipping"
+    echo "extension attribute '$attr' already exists as '$existing', skipping"
   else
     az rest --method POST \
       --url "https://graph.microsoft.com/v1.0/applications/$app_object_id/extensionProperties" \
@@ -117,20 +130,83 @@ for attr in tenant_id role; do
 done
 
 echo
-echo "== Optional claims (expose extension attrs on the ID token) =="
+echo "== Expose an API (Phase 7 — APIM's validate-jwt needs an access token to validate, not the ID token) =="
+# Phase 3a only got the ID token working (fine for a temporary jwt.ms smoke test with no backend
+# API yet). Phase 7 stands up a real backend behind APIM, and the frontend (Phase 8) will request
+# an ACCESS token scoped to this API via MSAL — that's the token APIM's validate-jwt policy
+# actually receives on every request, and it needs its own optionalClaims entry (below) plus a
+# defined scope to request in the first place. `identifierUris` must be set before/alongside a
+# scope — using the api://<client-id> form since no custom/verified domain is assumed.
+current_app=$(az rest --method GET --url "https://graph.microsoft.com/v1.0/applications/$app_object_id")
+existing_scope_id=$(echo "$current_app" | jq -r '.api.oauth2PermissionScopes[]? | select(.value == "access_as_user") | .id' | head -1)
+
+if [[ -n "$existing_scope_id" ]]; then
+  echo "API scope 'access_as_user' already exposed (id=$existing_scope_id), skipping"
+else
+  echo "exposing API scope 'access_as_user'"
+  scope_id=$(python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')
+  az rest --method PATCH \
+    --url "https://graph.microsoft.com/v1.0/applications/$app_object_id" \
+    --headers "Content-Type=application/json" \
+    --body "$(jq -n --arg uri "api://$app_client_id" --arg id "$scope_id" '{
+      identifierUris: [$uri],
+      api: {
+        oauth2PermissionScopes: [{
+          id: $id,
+          value: "access_as_user",
+          type: "User",
+          isEnabled: true,
+          adminConsentDisplayName: "Access Lumina API",
+          adminConsentDescription: "Allows the app to call the Lumina API as the signed-in user.",
+          userConsentDisplayName: "Access Lumina API",
+          userConsentDescription: "Allow the app to access the Lumina API on your behalf."
+        }]
+      }
+    }')"
+  echo "exposed api://$app_client_id/access_as_user (scope id=$scope_id)"
+fi
+
+echo
+echo "== Optional claims (expose extension attrs on both the ID token and access token) =="
 # Directory extensionProperty values are NOT emitted on any token by default — Entra only puts
 # them on a token if the app registration explicitly lists them under optionalClaims. Without
 # this step tenant_id/role will silently be absent from every JWT, no matter what the user's
-# attribute values are set to.
-ext_prefix="extension_$(echo -n "$app_client_id" | tr -d '-')"
+# attribute values are set to. Both token types are configured together (idempotent either way):
+# idToken for any direct-to-frontend use (Phase 3a's original jwt.ms smoke test), accessToken for
+# the token APIM's validate-jwt policy (bicep/modules/apim.bicep) actually inspects on every API call.
+# (ext_prefix computed earlier, above the extension-attributes loop.)
+#
+# `source: "user"` is REQUIRED on each entry — it's what tells Entra "resolve this claim name as
+# a directory extension attribute read from the user object", as opposed to a built-in claim.
+# Omitting it (as an earlier version of this script did) doesn't error; Entra just silently
+# drops the claim from every issued token, which is much harder to notice than a hard failure —
+# confirmed via GET .../applications/{id}?$select=optionalClaims showing "source": null on all
+# four entries, and reproduced live: the claim was still missing even for a fresh, directly
+# -created native Member account, ruling out the MSA-guest-account theory this was first
+# attributed to. See docs/AZURE_MIGRATION.md Log for the full diagnosis trail.
+#
+# NOTE: this PATCH *replaces* the whole optionalClaims object (Graph doesn't merge per-entry) —
+# `email` was added here too because an earlier run of this script (before the source:"user" fix)
+# clobbered a pre-existing `email` optional claim from Phase 3a by omitting it from the body.
+# If you add another optional claim by hand later, it needs to be listed here too or a future
+# re-run of this script will silently drop it the same way.
 az rest --method PATCH \
   --url "https://graph.microsoft.com/v1.0/applications/$app_object_id" \
   --headers "Content-Type=application/json" \
   --body "$(jq -n --arg t "${ext_prefix}_tenant_id" --arg r "${ext_prefix}_role" \
-    '{optionalClaims: {idToken: [{name: $t, essential: false}, {name: $r, essential: false}]}}')"
-echo "configured optionalClaims.idToken: ${ext_prefix}_tenant_id, ${ext_prefix}_role"
-echo "(access-token optional claims need the same treatment once Phase 7 exposes an API scope —"
-echo " re-run this against accessToken at that point; see bicep/README.md Phase 3a step 4.)"
+    '{optionalClaims: {
+      idToken: [
+        {name: $t, source: "user", essential: false},
+        {name: $r, source: "user", essential: false},
+        {name: "email", essential: false}
+      ],
+      accessToken: [
+        {name: $t, source: "user", essential: false},
+        {name: $r, source: "user", essential: false},
+        {name: "email", essential: false}
+      ]
+    }}')"
+echo "configured optionalClaims.idToken AND .accessToken (with source: user, plus email): ${ext_prefix}_tenant_id, ${ext_prefix}_role"
 
 echo
 echo "== Summary — record these in docs/AZURE_MIGRATION.md and your env config =="
@@ -140,6 +216,9 @@ echo "app_object_id:    $app_object_id"
 echo "redirect_uris:    ${REDIRECT_URIS[*]}"
 echo "extension attrs:  extension_<appId-no-dashes>_tenant_id, extension_<appId-no-dashes>_role"
 echo "                  (query /applications/$app_object_id/extensionProperties for the exact names)"
+echo "api scope:        api://$app_client_id/access_as_user"
+echo "                  (Phase 8's MSAL config requests this scope; pass entraAppClientId="
+echo "                  \"$app_client_id\" and entraTenantId=\"$tenant_id\" to Phase 7's Bicep deploy)"
 echo
 echo "Still manual (portal-only, redo by hand in any new tenant): Entra External ID tenant"
 echo "creation, MFA/authentication-methods policy, user flow / self-service-signup config."

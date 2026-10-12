@@ -1,0 +1,38 @@
+{# Shared by both kinds — always driven by currentState.steps + agenticWorkflow.stages.
+   Never conditional on kind; this tab is structurally guaranteed to render for
+   every agent (spec §4 rule 5). #}
+{% set profile = agent.demo_profile or {} %}
+{% set current_state = (profile.currentState.steps) if profile.currentState else [] %}
+{% set stages = (profile.agenticWorkflow.stages) if profile.agenticWorkflow else [] %}
+<p class="hiw-desc">{{ agent.description or '' }}</p>
+{% if profile.agenticAbilities %}
+<div class="hiw-meta-row">
+  {% for ability in profile.agenticAbilities %}
+  <span class="hiw-meta-chip">{{ ability }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+<div class="hiw-columns">
+  <div class="hiw-col">
+    <div class="hiw-col-head">Today — manual process</div>
+    {% for step in current_state %}
+    <div class="hiw-item">
+      <div class="num">{{ loop.index }}</div>
+      <div class="txt">{{ step.text }}{% if step.role %}<span class="meta-tag">{{ step.role }}</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="hiw-col agentic">
+    <div class="hiw-col-head agentic">With the agent</div>
+    {% for stage in stages %}
+    <div class="hiw-item agentic">
+      <div class="num">{{ loop.index }}</div>
+      <div class="txt">
+        <span class="stage-tag">{{ stage.stage }}</span>{{ stage.description }}
+        {% if stage.builtOn %}<span class="meta-tag">{{ stage.builtOn }}</span>{% endif %}
+        {% if stage.executionMode %}<span class="meta-tag">{{ stage.executionMode }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

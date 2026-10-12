@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateTestScripts, getTestScriptJob, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream, type GenerateTestsResponse, type PiDomain } from '../lib/api';
+import { analyzeDoc, deleteDoc, publishDoc, validateSow, generateStatusReport, api, type Finding, type AnalyzeResponse, type SowFinding, type SowValidateResponse, type StatusReportResponse, type StatusWorkstream } from '../lib/api';
 import { type BulkAction } from './FileExplorer';
 import { PublishReviewModal } from './PublishReviewModal';
 import { UploadModal } from './UploadModal';
 import { PolicyAdvisor } from './PolicyAdvisor';
 import { ConsultantChat } from './ConsultantChat';
 import { Toast } from './Toast';
-import ProcessIntelligence from './ProcessIntelligence';
+import { Spinner } from './Spinner';
 import type { FolderTemplate } from './FolderTemplateSelector';
 
 interface Document {
@@ -21,8 +21,19 @@ interface Document {
   published?: boolean;
 }
 
-type Props = { role: string; tenantId: string; clientName?: string };
-type NavSection = 'overview' | 'documents' | 'process' | 'assistant';
+// Process Intelligence is no longer a sub-page here — it's its own top-level
+// view (App.tsx renders <ProcessIntelligence> directly, same pattern as RFP
+// Reimagine), so a consultant launching it never sees this Documents shell
+// at all. 'go-live-check' | 'weekly-report' | 'workday-coach' are reachable
+// only via initialNav (App.tsx routes their Platform Home tiles straight
+// here) — they deliberately don't appear as sidebar buttons, since each is
+// its own focused destination. See StandaloneResultPane/AssistantPane below.
+export type NavSection = 'documents' | 'go-live-check' | 'weekly-report' | 'workday-coach';
+// activeNav/onNavChange are controlled by the caller (App.tsx, backed by the URL) rather than
+// owned here — a plain `initialNav` seed previously meant the parent never learned when the
+// user switched panes inside the workspace (a real bug: refresh always landed back on
+// whichever pane the workspace was launched into, not wherever the user actually was).
+type Props = { role: string; tenantId: string; clientName?: string; activeNav: NavSection; onNavChange: (nav: NavSection) => void };
 
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
 const SIDEBAR_W = 220;
@@ -44,15 +55,6 @@ function IcDocs() {
     </svg>
   );
 }
-function IcFlow() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
-      <rect x="1" y="1" width="4" height="3" rx="1"/><rect x="6" y="6" width="4" height="3" rx="1"/>
-      <rect x="11" y="1" width="4" height="3" rx="1"/><rect x="11" y="11" width="4" height="3" rx="1"/>
-      <path d="M3 4v2.5h5V7.5M13 4v1.5h-3V8.5M8 9.5V12h3.5"/>
-    </svg>
-  );
-}
 function IcChat() {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
@@ -70,7 +72,7 @@ function IcUpload() {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
+export default function ConsultantPanel({ role, tenantId, clientName, activeNav, onNavChange }: Props) {
   const [folderTemplate, setFolderTemplate] = useState<FolderTemplate | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
@@ -85,19 +87,15 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   const [sowResult, setSowResult] = useState<SowValidateResponse | null>(null);
   const [validatingSow, setValidatingSow] = useState(false);
   const [pendingPublishDoc, setPendingPublishDoc] = useState<Document | null>(null);
-  const [showGenerateTests, setShowGenerateTests] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [bulkModalAction, setBulkModalAction] = useState<BulkAction | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [statusReport, setStatusReport] = useState<StatusReportResponse | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
-  const [activeNav, setActiveNav] = useState<NavSection>('overview');
   const [assistantMode, setAssistantMode] = useState<'coach' | 'policy'>('coach');
-  const [showPi, setShowPi] = useState(false);
-  const [piInitialFile, setPiInitialFile] = useState<File | null>(null);
-  const [piInitialDomain, setPiInitialDomain] = useState<PiDomain | undefined>(undefined);
   const [toast, setToast] = useState<{ message: string; id: number } | null>(null);
 
-  const canIngest = role === 'consultant' || role === 'admin';
+  const canIngest = role === 'consultant' || role === 'super_admin' || role === 'project_admin';
 
   const loadDocuments = useCallback(() => {
     setDocsLoading(true);
@@ -148,46 +146,42 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     finally { setGeneratingReport(false); }
   }
 
-  function inferDomain(doc: Document): PiDomain {
-    const ctx = (doc.source_name + ' ' + doc.folder_path + ' ' + doc.module).toLowerCase();
-    if (ctx.includes('recruit')) return 'recruiting';
-    if (ctx.includes('onboard')) return 'onboarding';
-    if (ctx.includes('payroll')) return 'payroll';
-    if (ctx.includes('perform')) return 'performance';
-    if (ctx.includes('job') || ctx.includes('architect')) return 'job_architecture';
-    if (ctx.includes('self') || ctx.includes('ess')) return 'self_service';
-    return 'onboarding';
-  }
-
-  async function handleMapProcesses(doc: Document) {
-    try {
-      const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
-      const resp = await fetch(r.url);
-      const blob = await resp.blob();
-      const f = new File([blob], doc.source_name, { type: blob.type || 'application/octet-stream' });
-      setPiInitialFile(f); setPiInitialDomain(inferDomain(doc)); setShowPi(true);
-    } catch { alert('Could not load document for process mapping'); }
-  }
-
   async function handleBulkAction(action: BulkAction, docs: Document[]) {
     switch (action) {
-      case 'download':
-        for (const doc of docs) { try { const r = await api.post('/documents/download-url', { s3_key: doc.s3_key }); window.open(r.url, '_blank'); } catch { /* skip */ } }
+      case 'download': {
+        setBulkProgress({ done: 0, total: docs.length });
+        let i = 0;
+        for (const doc of docs) { try { const r = await api.post('/documents/download-url', { s3_key: doc.s3_key }); window.open(r.url, '_blank'); } catch { /* skip */ } setBulkProgress({ done: ++i, total: docs.length }); }
+        setBulkProgress(null); setBulkModalAction(null);
         break;
+      }
       case 'delete': {
         const names = docs.map(d => d.source_name).join('\n  • ');
         if (!confirm(`Delete ${docs.length} document${docs.length > 1 ? 's' : ''}?\n\n  • ${names}\n\nThis cannot be undone.`)) return;
-        for (const doc of docs) { try { await deleteDoc(doc.doc_id); } catch { /* skip */ } }
+        setBulkProgress({ done: 0, total: docs.length });
+        let i = 0;
+        for (const doc of docs) { try { await deleteDoc(doc.doc_id); } catch { /* skip */ } setBulkProgress({ done: ++i, total: docs.length }); }
+        setBulkProgress(null); setBulkModalAction(null);
         loadDocuments(); break;
       }
-      case 'publish':
-        for (const doc of docs.filter(d => !d.published)) { try { await publishDoc(doc.doc_id, true); } catch { /* skip */ } }
+      case 'publish': {
+        const eligible = docs.filter(d => !d.published);
+        setBulkProgress({ done: 0, total: eligible.length });
+        let i = 0;
+        for (const doc of eligible) { try { await publishDoc(doc.doc_id, true); } catch { /* skip */ } setBulkProgress({ done: ++i, total: eligible.length }); }
+        setBulkProgress(null); setBulkModalAction(null);
         loadDocuments(); break;
-      case 'unpublish':
-        for (const doc of docs.filter(d => d.published)) { try { await publishDoc(doc.doc_id, false); } catch { /* skip */ } }
+      }
+      case 'unpublish': {
+        const eligible = docs.filter(d => d.published);
+        setBulkProgress({ done: 0, total: eligible.length });
+        let i = 0;
+        for (const doc of eligible) { try { await publishDoc(doc.doc_id, false); } catch { /* skip */ } setBulkProgress({ done: ++i, total: eligible.length }); }
+        setBulkProgress(null); setBulkModalAction(null);
         loadDocuments(); break;
+      }
       case 'analyse':
-        setShowResults(true);
+        setBulkModalAction(null); setShowResults(true);
         for (const doc of docs) {
           setError(null); setResult(null); setSowResult(null); setResultDocName(doc.source_name);
           setAnalyzing(true); setProcessingDocId(doc.doc_id);
@@ -199,10 +193,22 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
     }
   }
 
-  function navTo(nav: NavSection) {
-    setActiveNav(nav); setShowPi(false); setShowResults(false); setPreviewDoc(null);
+  // activeNav is now a controlled prop (URL-backed) — reset the result/preview state whenever
+  // it changes, replacing what the old navTo() did inline before also setting local state.
+  useEffect(() => {
+    setShowResults(false); setPreviewDoc(null);
     setResult(null); setSowResult(null); setStatusReport(null); setError(null); setGoLiveCheckMode(false);
-  }
+  }, [activeNav]);
+
+  // Go-Live Check and Weekly Report are launched directly from their own Platform
+  // Home tiles (see App.tsx's launchApp) rather than picked from a menu, so they
+  // auto-run as soon as this workspace lands on them — once documents have
+  // settled, so onGoLiveCheck can actually find the SOW doc.
+  useEffect(() => {
+    if (docsLoading) return;
+    if (activeNav === 'go-live-check' && !sowResult && !validatingSow && !error) onGoLiveCheck();
+    if (activeNav === 'weekly-report' && !statusReport && !generatingReport && !error) onGenerateReport();
+  }, [activeNav, docsLoading]);
 
   if (!canIngest) {
     return (
@@ -213,7 +219,6 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   }
 
   const policyDocs = documents.filter(d => d.doc_type === 'hr_policy');
-  const processDiagrams = documents.filter(d => isProcessable(d));
 
   return (
     <>
@@ -230,17 +235,14 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
           {/* Nav */}
           <nav style={{ padding: '8px 8px 0', flex: 1 }}>
             {([
-              { id: 'overview'  as NavSection, label: 'Overview',     icon: <IcGrid />, badge: null },
-              { id: 'documents' as NavSection, label: 'Documents',    icon: <IcDocs />, badge: documents.length > 0 ? documents.length : null },
-              { id: 'process'   as NavSection, label: 'Process Maps', icon: <IcFlow />, badge: processDiagrams.length > 0 ? processDiagrams.length : null },
-              { id: 'assistant' as NavSection, label: 'Assistant',    icon: <IcChat />, badge: null },
+              { id: 'documents' as NavSection, label: 'Documents', icon: <IcDocs />, badge: documents.length > 0 ? documents.length : null },
             ]).map(({ id, label, icon, badge }) => {
-              const active = activeNav === id && !showPi;
+              const active = activeNav === id;
               return (
-                <button key={id} onClick={() => navTo(id)} style={{
+                <button key={id} onClick={() => onNavChange(id)} style={{
                   display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
-                  padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', marginBottom: 2,
-                  background: active ? '#EBF5FF' : 'transparent', color: active ? '#0F6FEC' : '#3A3A3C', fontFamily: FONT,
+                  padding: '8px 10px', borderRadius: 999, border: 'none', cursor: 'pointer', marginBottom: 2,
+                  background: active ? '#ECF4EE' : 'transparent', color: active ? '#0F6FEC' : '#3A3A3C', fontFamily: FONT,
                 }}>
                   <span style={{ color: active ? '#0F6FEC' : '#8E8E93' }}>{icon}</span>
                   <span style={{ fontSize: 13, fontWeight: active ? 600 : 500, flex: 1 }}>{label}</span>
@@ -259,7 +261,7 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
             {canIngest && folderTemplate && (
               <button onClick={() => setShowUploadModal(true)} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%',
-                padding: '9px 12px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                padding: '9px 12px', borderRadius: 999, border: 'none', cursor: 'pointer',
                 background: '#1D1D1F', color: '#FFFFFF', fontSize: 13, fontWeight: 600, fontFamily: FONT,
               }}>
                 <IcUpload /> Upload
@@ -274,30 +276,30 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
 
         {/* ── Content ── */}
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {showPi ? (
-            <ProcessIntelligence clientName={clientName} initialFile={piInitialFile ?? undefined} initialDomain={piInitialDomain}
-              onBack={() => { setShowPi(false); setPiInitialFile(null); setPiInitialDomain(undefined); }} />
-          ) : activeNav === 'overview' ? (
-            <OverviewPane documents={documents} statusReport={statusReport} sowResult={sowResult}
-              analyzing={analyzing} validatingSow={validatingSow} generatingReport={generatingReport}
-              goLiveCheckMode={goLiveCheckMode} showResults={showResults} result={result} error={error} resultDocName={resultDocName}
-              onGoLiveCheck={onGoLiveCheck} onGenerateReport={onGenerateReport} onGenerateTests={() => setShowGenerateTests(true)}
-              onBulkActions={(a: BulkAction) => setBulkModalAction(a)} onViewDocuments={() => navTo('documents')} />
-          ) : activeNav === 'documents' ? (
+          {activeNav === 'documents' ? (
             <DocumentsPane documents={documents} docsLoading={docsLoading} processingDocId={processingDocId}
               previewDoc={previewDoc} showResults={showResults} result={result} sowResult={sowResult} statusReport={statusReport}
               error={error} analyzing={analyzing} validatingSow={validatingSow} generatingReport={generatingReport}
               resultDocName={resultDocName} goLiveCheckMode={goLiveCheckMode} canIngest={canIngest} folderTemplate={folderTemplate}
               onPreview={(doc) => { setShowResults(false); setResult(null); setSowResult(null); setStatusReport(null); setError(null); setGoLiveCheckMode(false); setPreviewDoc(doc); }}
-              onAnalyse={onAnalyse} onValidateSow={onValidateSow} onMapProcesses={handleMapProcesses}
-              onDownload={async (doc) => { try { const r = await api.post('/documents/download-url', { s3_key: doc.s3_key }); window.open(r.url, '_blank'); } catch { alert('Failed to download'); } }}
-              onDelete={async (doc) => { if (!confirm(`Delete "${doc.source_name}"? This cannot be undone.`)) return; try { await deleteDoc(doc.doc_id); if (previewDoc?.doc_id === doc.doc_id) setPreviewDoc(null); loadDocuments(); } catch { alert('Failed to delete'); } }}
-              onPublish={(doc, pub) => { if (pub) setPendingPublishDoc(doc); else publishDoc(doc.doc_id, false).then(loadDocuments).catch(() => alert('Failed to unpublish')); }}
+              onAnalyse={onAnalyse} onValidateSow={onValidateSow}
+              onDownload={async (doc) => { setProcessingDocId(doc.doc_id); try { const r = await api.post('/documents/download-url', { s3_key: doc.s3_key }); window.open(r.url, '_blank'); } catch { alert('Failed to download'); } finally { setProcessingDocId(null); } }}
+              onDelete={async (doc) => { if (!confirm(`Delete "${doc.source_name}"? This cannot be undone.`)) return; setProcessingDocId(doc.doc_id); try { await deleteDoc(doc.doc_id); if (previewDoc?.doc_id === doc.doc_id) setPreviewDoc(null); loadDocuments(); } catch { alert('Failed to delete'); } finally { setProcessingDocId(null); } }}
+              onPublish={(doc, pub) => { if (pub) setPendingPublishDoc(doc); else { setProcessingDocId(doc.doc_id); publishDoc(doc.doc_id, false).then(loadDocuments).catch(() => alert('Failed to unpublish')).finally(() => setProcessingDocId(null)); } }}
               onCloseResults={() => { setShowResults(false); setPreviewDoc(null); setResult(null); setSowResult(null); setStatusReport(null); setError(null); setGoLiveCheckMode(false); }}
               onBulkActions={(a: BulkAction) => setBulkModalAction(a)} onOpenUpload={() => setShowUploadModal(true)} />
-          ) : activeNav === 'process' ? (
-            <ProcessMapsPane documents={processDiagrams} onMapProcesses={handleMapProcesses}
-              onNewDiagram={() => setShowPi(true)} onGoToWorkspace={() => navTo('documents')} />
+          ) : activeNav === 'go-live-check' ? (
+            <StandaloneResultPane title="Go-Live Check" loading={validatingSow} loadingLabel="Validating against SOW…"
+              onBack={() => onNavChange('documents')}>
+              {sowResult && <GoLiveReadinessPanel sowResult={sowResult} />}
+              {error && <ErrorPanel message={error} />}
+            </StandaloneResultPane>
+          ) : activeNav === 'weekly-report' ? (
+            <StandaloneResultPane title="Weekly Report" loading={generatingReport} loadingLabel="Generating status report…"
+              onBack={() => onNavChange('documents')}>
+              {statusReport && <StatusReportPanel report={statusReport} />}
+              {error && <ErrorPanel message={error} />}
+            </StandaloneResultPane>
           ) : (
             <AssistantPane mode={assistantMode} setMode={setAssistantMode} clientName={clientName} policyDocs={policyDocs} />
           )}
@@ -309,14 +311,11 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
           onUploaded={(msg) => { loadDocuments(); setToast({ message: msg, id: Date.now() }); }} />
       )}
       {toast && <Toast key={toast.id} message={toast.message} type="success" onDismiss={() => setToast(null)} />}
-      {showGenerateTests && (
-        <GenerateTestsModal documents={documents} onClose={() => setShowGenerateTests(false)}
-          onGenerated={() => { setShowGenerateTests(false); loadDocuments(); }} />
-      )}
       {bulkModalAction && (
         <BulkActionModal action={bulkModalAction} documents={documents} preSelected={new Set()}
+          progress={bulkProgress}
           onClose={() => setBulkModalAction(null)}
-          onExecute={(docs) => { setBulkModalAction(null); handleBulkAction(bulkModalAction, docs); }} />
+          onExecute={(docs) => handleBulkAction(bulkModalAction, docs)} />
       )}
       {pendingPublishDoc && (
         <PublishReviewModal doc={pendingPublishDoc}
@@ -327,12 +326,12 @@ export default function ConsultantPanel({ role, tenantId, clientName }: Props) {
   );
 }
 
-// ── Overview pane ──────────────────────────────────────────────────────────────
-function OverviewPane({ documents, statusReport, sowResult, analyzing, validatingSow, generatingReport, goLiveCheckMode, showResults, result, error, resultDocName, onGoLiveCheck, onGenerateReport, onGenerateTests, onBulkActions, onViewDocuments }: {
+// ── Overview pane (unused — no caller renders it) ────────────────────────────
+function OverviewPane({ documents, statusReport, sowResult, analyzing, validatingSow, generatingReport, goLiveCheckMode, showResults, result, error, resultDocName, onGoLiveCheck, onGenerateReport, onBulkActions, onViewDocuments }: {
   documents: Document[]; statusReport: StatusReportResponse | null; sowResult: SowValidateResponse | null;
   analyzing: boolean; validatingSow: boolean; generatingReport: boolean; goLiveCheckMode: boolean;
   showResults: boolean; result: AnalyzeResponse | null; error: string | null; resultDocName: string | null;
-  onGoLiveCheck: () => void; onGenerateReport: () => void; onGenerateTests: () => void;
+  onGoLiveCheck: () => void; onGenerateReport: () => void;
   onBulkActions: (a: BulkAction) => void; onViewDocuments: () => void;
 }) {
   const modules = [...new Set(documents.map(d => d.module).filter(Boolean))];
@@ -377,7 +376,6 @@ function OverviewPane({ documents, statusReport, sowResult, analyzing, validatin
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <AppleBtn label={validatingSow && goLiveCheckMode ? 'Checking…' : 'Go-live Check'} variant="primary" disabled={isLoading} onClick={onGoLiveCheck} />
           <AppleBtn label={generatingReport ? 'Generating…' : 'Weekly Report'} variant="secondary" disabled={isLoading} onClick={onGenerateReport} />
-          <AppleBtn label="Generate Tests" variant="secondary" disabled={documents.length === 0} onClick={onGenerateTests} />
           <AppleBtn label="View Documents" variant="ghost" disabled={false} onClick={onViewDocuments} />
         </div>
       </div>
@@ -385,7 +383,7 @@ function OverviewPane({ documents, statusReport, sowResult, analyzing, validatin
       {/* Loading */}
       {isLoading && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', background: '#fff', borderRadius: 12, border: '1px solid #E5E5EA', marginBottom: 20 }}>
-          <span style={{ width: 18, height: 18, borderRadius: '50%', border: '2.5px solid #E5E5EA', borderTopColor: '#0071E3', display: 'inline-block', animation: 'spin 0.7s linear infinite', flexShrink: 0 }} />
+          <Spinner size={18} trackColor="#E5E5EA" />
           <div>
             <p style={{ fontSize: 13, fontWeight: 600, color: '#1D1D1F', margin: 0 }}>{validatingSow ? 'Validating against SOW…' : generatingReport ? 'Generating status report…' : 'Analysing…'}</p>
             <p style={{ fontSize: 11, color: '#6E6E73', margin: '2px 0 0' }}>This may take 30–60 seconds</p>
@@ -407,7 +405,7 @@ function OverviewPane({ documents, statusReport, sowResult, analyzing, validatin
             <div className="flex items-center gap-3 text-xs">
               {(['green','yellow','red'] as const).map(tl => { const c={green:'bg-green-100 text-green-700',yellow:'bg-amber-100 text-amber-700',red:'bg-red-100 text-red-700'};const l={green:'Evidenced',yellow:'Partial',red:'Gap'}; return <span key={tl} className={`px-2.5 py-1 rounded-full font-medium ${c[tl]}`}>{sowResult.findings.filter(f=>f.traffic_light===tl).length} {l[tl]}</span>; })}
             </div>
-            <div className="space-y-2">{sowResult.findings.map((f,i)=><SowFindingCard key={i} f={f}/>)}</div>
+            <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">{sowResult.findings.map((f,i)=><SowFindingCard key={i} f={f} first={i===0}/>)}</div>
           </div>
         </ResultSection>
       )}
@@ -420,7 +418,7 @@ function OverviewPane({ documents, statusReport, sowResult, analyzing, validatin
         <ResultSection title={`AI Analysis — ${resultDocName ?? ''}`}>
           <div className="space-y-4">
             <div className="bg-slate-50 rounded-xl p-4"><p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Summary</p><p className="text-sm text-slate-700 leading-relaxed">{result.summary}</p></div>
-            <div className="space-y-2">{result.findings.map((f,i)=><FindingCard key={i} f={f}/>)}</div>
+            <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">{result.findings.map((f,i)=><FindingCard key={i} f={f} first={i===0}/>)}</div>
           </div>
         </ResultSection>
       )}
@@ -438,7 +436,6 @@ function OverviewPane({ documents, statusReport, sowResult, analyzing, validatin
           <p style={{ fontSize: 13, color: '#6E6E73', margin: 0, lineHeight: 1.5 }}>Upload documents using the button in the sidebar to get started.</p>
         </div>
       )}
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }
@@ -454,11 +451,11 @@ function MetricCard({ label, value, sub, valueColor }: { label: string; value: n
 }
 
 function AppleBtn({ label, variant, disabled, onClick }: { label: string; variant: 'primary'|'secondary'|'ghost'; disabled: boolean; onClick: () => void }) {
-  const s = variant === 'primary' ? { background: '#0071E3', color: '#fff', border: 'none' }
+  const s = variant === 'primary' ? { background: '#0C0D0D', color: '#fff', border: 'none' }
     : variant === 'secondary' ? { background: '#fff', color: '#1D1D1F', border: '1px solid #D1D1D6' }
-    : { background: 'transparent', color: '#0071E3', border: '1px solid transparent' };
+    : { background: 'transparent', color: '#0C0D0D', border: '1px solid transparent' };
   return (
-    <button onClick={onClick} disabled={disabled} style={{ padding: '9px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, fontFamily: FONT, ...s }}>
+    <button onClick={onClick} disabled={disabled} style={{ padding: '9px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, fontFamily: FONT, ...s }}>
       {label}
     </button>
   );
@@ -498,13 +495,13 @@ function ago(iso: string) {
   const d = Math.floor(h/24); return d < 7 ? `${d}d ago` : `${Math.floor(d/7)}w ago`;
 }
 
-function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, showResults, result, sowResult, statusReport, error, analyzing, validatingSow, generatingReport, resultDocName, goLiveCheckMode, canIngest, folderTemplate, onPreview, onAnalyse, onValidateSow, onMapProcesses, onDownload, onDelete, onPublish, onCloseResults, onBulkActions, onOpenUpload }: {
+function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, showResults, result, sowResult, statusReport, error, analyzing, validatingSow, generatingReport, resultDocName, goLiveCheckMode, canIngest, folderTemplate, onPreview, onAnalyse, onValidateSow, onDownload, onDelete, onPublish, onCloseResults, onBulkActions, onOpenUpload }: {
   documents: Document[]; docsLoading: boolean; processingDocId: string | null; previewDoc: Document | null;
   showResults: boolean; result: AnalyzeResponse | null; sowResult: SowValidateResponse | null; statusReport: StatusReportResponse | null;
   error: string | null; analyzing: boolean; validatingSow: boolean; generatingReport: boolean;
   resultDocName: string | null; goLiveCheckMode: boolean; canIngest: boolean; folderTemplate: FolderTemplate | null;
   onPreview: (d: Document) => void; onAnalyse: (d: Document) => void; onValidateSow: (d: Document) => void;
-  onMapProcesses: (d: Document) => void; onDownload: (d: Document) => void; onDelete: (d: Document) => void;
+  onDownload: (d: Document) => void; onDelete: (d: Document) => void;
   onPublish: (d: Document, pub: boolean) => void; onCloseResults: () => void;
   onBulkActions: (a: BulkAction) => void; onOpenUpload: () => void;
 }) {
@@ -539,7 +536,7 @@ function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, sh
             </div>
             <button ref={bulkRef} onClick={() => { if (bulkRef.current) { const r = bulkRef.current.getBoundingClientRect(); setBulkPos({ top: r.bottom+4, right: window.innerWidth-r.right }); } setBulkOpen(v=>!v); }}
               disabled={documents.length === 0} title="Bulk actions"
-              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E5EA', background: '#F5F5F7', color: '#3A3A3C', fontSize: 15, cursor: 'pointer', opacity: documents.length===0?0.4:1, lineHeight: 1 }}>
+              style={{ padding: '7px 10px', borderRadius: 999, border: '1px solid #E5E5EA', background: '#F5F5F7', color: '#3A3A3C', fontSize: 15, cursor: 'pointer', opacity: documents.length===0?0.4:1, lineHeight: 1 }}>
               ···
             </button>
           </div>
@@ -552,18 +549,18 @@ function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, sh
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {docsLoading ? (
             <div style={{ display:'flex',justifyContent:'center',alignItems:'center',height:100 }}>
-              <span style={{ width:18,height:18,border:'2px solid #E5E5EA',borderTopColor:'#8E8E93',borderRadius:'50%',display:'inline-block',animation:'spin 0.7s linear infinite' }} />
+              <Spinner size={18} color="#8E8E93" trackColor="#E5E5EA" />
             </div>
           ) : documents.length === 0 ? (
             <div style={{ padding:'40px 20px',textAlign:'center' }}>
               <p style={{ fontSize:13,color:'#6E6E73',margin:'0 0 4px',fontWeight:500 }}>No documents</p>
-              {canIngest && folderTemplate && <button onClick={onOpenUpload} style={{ marginTop:10,padding:'7px 14px',borderRadius:8,border:'none',background:'#1D1D1F',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Upload first document</button>}
+              {canIngest && folderTemplate && <button onClick={onOpenUpload} style={{ marginTop:10,padding:'7px 14px',borderRadius: 999,border:'none',background:'#1D1D1F',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Upload first document</button>}
             </div>
           ) : groups.length === 0 ? (
             <div style={{ padding:'40px 20px',textAlign:'center' }}><p style={{ fontSize:13,color:'#6E6E73',margin:0 }}>No results for "{search}"</p></div>
           ) : (
             <div style={{ padding:'8px 0' }}>
-              {groups.map(g => <DocGroup key={g.dt} group={g} previewDocId={previewDoc?.doc_id??null} processingDocId={processingDocId} onPreview={onPreview} onAnalyse={onAnalyse} onValidateSow={onValidateSow} onMapProcesses={onMapProcesses} onDownload={onDownload} onDelete={onDelete} onPublish={onPublish} />)}
+              {groups.map(g => <DocGroup key={g.dt} group={g} previewDocId={previewDoc?.doc_id??null} processingDocId={processingDocId} onPreview={onPreview} onAnalyse={onAnalyse} onValidateSow={onValidateSow} onDownload={onDownload} onDelete={onDelete} onPublish={onPublish} />)}
             </div>
           )}
         </div>
@@ -597,19 +594,19 @@ function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, sh
                   <p style={{ fontSize:11,color:'#8E8E93',margin:'2px 0 0',textTransform:'uppercase',letterSpacing:'0.05em' }}>{DT_LABEL[previewDoc.doc_type]??previewDoc.doc_type.replace(/-/g,' ')}{previewDoc.published&&<span style={{ marginLeft:8,color:'#16A34A' }}>● Published</span>}</p>
                 )}
               </div>
-              <button onClick={onCloseResults} style={{ width:28,height:28,borderRadius:8,border:'none',background:'#F5F5F7',color:'#6E6E73',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>✕</button>
+              <button onClick={onCloseResults} style={{ width:28,height:28,borderRadius: 999,border:'none',background:'#F5F5F7',color:'#6E6E73',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>✕</button>
             </div>
 
             {/* Detail body */}
             {previewDoc && !isLoading && !result && !sowResult && !statusReport && !error ? (
               <div style={{ flex:1,overflow:'hidden' }}>
-                <DocumentPreviewPanel doc={previewDoc} onAnalyse={onAnalyse} onValidateSow={onValidateSow} onMapProcesses={onMapProcesses} onPublish={onPublish} onDownload={onDownload} onDelete={onDelete} />
+                <DocumentPreviewPanel doc={previewDoc} onAnalyse={onAnalyse} onValidateSow={onValidateSow} onPublish={onPublish} onDownload={onDownload} onDelete={onDelete} />
               </div>
             ) : (
               <div style={{ flex:1,overflowY:'auto',padding:16 }}>
                 {isLoading ? (
                   <div style={{ display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:14 }}>
-                    <span style={{ width:28,height:28,border:'3px solid #E5E5EA',borderTopColor:'#0071E3',borderRadius:'50%',display:'inline-block',animation:'spin 0.7s linear infinite' }} />
+                    <Spinner size={28} />
                     <div style={{ textAlign:'center' }}>
                       <p style={{ fontSize:14,fontWeight:600,color:'#1D1D1F',margin:'0 0 4px' }}>{validatingSow?'Validating against SOW…':generatingReport?'Generating status report…':'Analysing document…'}</p>
                       <p style={{ fontSize:12,color:'#6E6E73',margin:0 }}>This may take 30–60 seconds</p>
@@ -620,14 +617,14 @@ function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, sh
                   <div className="space-y-4">
                     <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4"><p className="text-xs font-medium text-indigo-600 uppercase tracking-wide mb-2">Executive Summary</p><p className="text-sm text-slate-700 leading-relaxed">{sowResult.summary}</p></div>
                     <div className="flex items-center gap-3 text-xs">{(['green','yellow','red'] as const).map(tl=>{const c={green:'bg-green-100 text-green-700',yellow:'bg-amber-100 text-amber-700',red:'bg-red-100 text-red-700'};const l={green:'Evidenced',yellow:'Partial',red:'Gap'};return <span key={tl} className={`px-2.5 py-1 rounded-full font-medium ${c[tl]}`}>{sowResult.findings.filter(f=>f.traffic_light===tl).length} {l[tl]}</span>;})}</div>
-                    <div className="space-y-2">{sowResult.findings.map((f,i)=><SowFindingCard key={i} f={f}/>)}</div>
+                    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">{sowResult.findings.map((f,i)=><SowFindingCard key={i} f={f} first={i===0}/>)}</div>
                     <p className="text-xs text-slate-300 pt-2">Model: {sowResult.model_id}</p>
                   </div>
                 ) : statusReport ? <StatusReportPanel report={statusReport} />
                 : result ? (
                   <div className="space-y-4">
                     <div className="bg-slate-50 rounded-xl p-4"><p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Summary</p><p className="text-sm text-slate-700 leading-relaxed">{result.summary}</p></div>
-                    <div className="space-y-2">{result.findings.map((f,i)=><FindingCard key={i} f={f}/>)}</div>
+                    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">{result.findings.map((f,i)=><FindingCard key={i} f={f} first={i===0}/>)}</div>
                     <p className="text-xs text-slate-300 pt-2">Model: {result.model_id}</p>
                   </div>
                 ) : error ? (
@@ -648,15 +645,14 @@ function DocumentsPane({ documents, docsLoading, processingDocId, previewDoc, sh
           ))}
         </div>
       )}
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }
 
-function DocGroup({ group, previewDocId, processingDocId, onPreview, onAnalyse, onValidateSow, onMapProcesses, onDownload, onDelete, onPublish }: {
+function DocGroup({ group, previewDocId, processingDocId, onPreview, onAnalyse, onValidateSow, onDownload, onDelete, onPublish }: {
   group: { dt: string; label: string; color: string; docs: Document[] }; previewDocId: string | null; processingDocId: string | null;
   onPreview:(d:Document)=>void; onAnalyse:(d:Document)=>void; onValidateSow:(d:Document)=>void;
-  onMapProcesses:(d:Document)=>void; onDownload:(d:Document)=>void; onDelete:(d:Document)=>void; onPublish:(d:Document,pub:boolean)=>void;
+  onDownload:(d:Document)=>void; onDelete:(d:Document)=>void; onPublish:(d:Document,pub:boolean)=>void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   return (
@@ -669,16 +665,16 @@ function DocGroup({ group, previewDocId, processingDocId, onPreview, onAnalyse, 
       </button>
       {!collapsed && group.docs.map(doc=>(
         <DocRow key={doc.doc_id} doc={doc} active={previewDocId===doc.doc_id} processing={processingDocId===doc.doc_id}
-          onPreview={onPreview} onAnalyse={onAnalyse} onValidateSow={onValidateSow} onMapProcesses={onMapProcesses} onDownload={onDownload} onDelete={onDelete} onPublish={onPublish} />
+          onPreview={onPreview} onAnalyse={onAnalyse} onValidateSow={onValidateSow} onDownload={onDownload} onDelete={onDelete} onPublish={onPublish} />
       ))}
     </div>
   );
 }
 
-function DocRow({ doc, active, processing, onPreview, onAnalyse, onValidateSow, onMapProcesses, onDownload, onDelete, onPublish }: {
+function DocRow({ doc, active, processing, onPreview, onAnalyse, onValidateSow, onDownload, onDelete, onPublish }: {
   doc: Document; active: boolean; processing: boolean;
   onPreview:(d:Document)=>void; onAnalyse:(d:Document)=>void; onValidateSow:(d:Document)=>void;
-  onMapProcesses:(d:Document)=>void; onDownload:(d:Document)=>void; onDelete:(d:Document)=>void; onPublish:(d:Document,pub:boolean)=>void;
+  onDownload:(d:Document)=>void; onDelete:(d:Document)=>void; onPublish:(d:Document,pub:boolean)=>void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -696,24 +692,23 @@ function DocRow({ doc, active, processing, onPreview, onAnalyse, onValidateSow, 
   return (
     <div onClick={()=>onPreview(doc)} onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)}
       style={{ display:'flex',alignItems:'center',gap:8,padding:'7px 14px 7px 22px',cursor:'pointer',
-        background: active?'#EBF5FF':hovered?'#F7F7F7':'transparent',
-        borderLeft: `2px solid ${active?'#0071E3':'transparent'}`, position:'relative' }}>
-      <div style={{ flexShrink:0,color:active?'#0071E3':'#8E8E93' }}>
-        {processing ? <span style={{ width:14,height:14,border:'2px solid #E5E5EA',borderTopColor:'#0071E3',borderRadius:'50%',display:'inline-block',animation:'spin 0.7s linear infinite' }}/> : <IcDocs />}
+        background: active?'#ECF4EE':hovered?'#F7F7F7':'transparent',
+        borderLeft: `2px solid ${active?'#0C0D0D':'transparent'}`, position:'relative' }}>
+      <div style={{ flexShrink:0,color:active?'#0C0D0D':'#8E8E93' }}>
+        {processing ? <Spinner size={14} /> : <IcDocs />}
       </div>
       <div style={{ flex:1,minWidth:0 }}>
         <p style={{ fontSize:13,fontWeight:active?600:500,color:active?'#0F6FEC':'#1D1D1F',margin:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{doc.source_name}</p>
         <p style={{ fontSize:11,color:'#8E8E93',margin:'1px 0 0' }}>{ago(doc.uploaded_at)}{doc.published&&<span style={{ marginLeft:6,color:'#16A34A' }}>●</span>}</p>
       </div>
       <button ref={menuBtnRef} onClick={e=>{e.stopPropagation();if(menuBtnRef.current){const r=menuBtnRef.current.getBoundingClientRect();setMenuPos({top:r.bottom+2,left:r.left});}setMenuOpen(v=>!v);}}
-        style={{ width:24,height:24,borderRadius:6,border:'none',background:menuOpen?'#E5E5EA':'transparent',color:'#6E6E73',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0,opacity:hovered||menuOpen?1:0 }}>···</button>
+        style={{ width:24,height:24,borderRadius: 999,border:'none',background:menuOpen?'#E5E5EA':'transparent',color:'#6E6E73',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0,opacity:hovered||menuOpen?1:0 }}>···</button>
       {menuOpen && (
         <div ref={menuRef} onClick={e=>e.stopPropagation()}
-          style={{ position:'fixed',top:menuPos.top,left:menuPos.left,zIndex:9999,background:'#fff',border:'1px solid #E5E5EA',borderRadius:10,boxShadow:'0 4px 16px rgba(0,0,0,0.1)',minWidth:160,overflow:'hidden',padding:'4px 0' }}>
+          style={{ position:'fixed',top:menuPos.top,left:menuPos.left,zIndex:9999,background:'#fff',border:'1px solid #E5E5EA',borderRadius: 999,boxShadow:'0 4px 16px rgba(0,0,0,0.1)',minWidth:160,overflow:'hidden',padding:'4px 0' }}>
           {doc.doc_type==='sow'
             ? <MItem label="Validate SOW" color="#4F46E5" onClick={()=>{setMenuOpen(false);onValidateSow(doc);}} />
             : <MItem label="Analyse" color="#4F46E5" onClick={()=>{setMenuOpen(false);onAnalyse(doc);}} />}
-          {isProcessable(doc) && <MItem label="Map Processes" color="#0C8599" onClick={()=>{setMenuOpen(false);onMapProcesses(doc);}} />}
           <div style={{ height:1,background:'#F5F5F7',margin:'4px 0' }} />
           <MItem label={doc.published?'Unpublish':'Publish'} color={doc.published?'#D97706':'#16A34A'} onClick={()=>{setMenuOpen(false);onPublish(doc,!doc.published);}} />
           <MItem label="Download" color="#3A3A3C" onClick={()=>{setMenuOpen(false);onDownload(doc);}} />
@@ -729,44 +724,34 @@ function MItem({ label, color, onClick }: { label:string; color:string; onClick:
   return <button onClick={onClick} style={{ display:'block',width:'100%',textAlign:'left',padding:'7px 14px',fontSize:13,color,background:'none',border:'none',cursor:'pointer',fontFamily:FONT }}>{label}</button>;
 }
 
-// ── Process maps pane ──────────────────────────────────────────────────────────
-function ProcessMapsPane({ documents, onMapProcesses, onNewDiagram, onGoToWorkspace }: {
-  documents: Document[]; onMapProcesses:(d:Document)=>void; onNewDiagram:()=>void; onGoToWorkspace:()=>void;
+// ── Standalone result panes (Go-Live Check / Weekly Report) ────────────────────
+// Both are launched directly from their own Platform Home tile and auto-run on
+// arrival (see the useEffect in the main component) — this is just the shell:
+// header, back button, loading state, and wherever the caller puts the result.
+function StandaloneResultPane({ title, loading, loadingLabel, onBack, children }: {
+  title: string; loading: boolean; loadingLabel: string; onBack: () => void; children: React.ReactNode;
 }) {
   return (
-    <div style={{ height:'100%',overflowY:'auto',padding:'28px 32px' }}>
-      <div style={{ display:'flex',alignItems:'flex-end',justifyContent:'space-between',marginBottom:24 }}>
-        <div>
-          <h1 style={{ fontSize:24,fontWeight:700,color:'#1D1D1F',margin:0,letterSpacing:'-0.3px' }}>Process Maps</h1>
-          <p style={{ fontSize:13,color:'#6E6E73',margin:'4px 0 0' }}>Map and transform your business processes with AI</p>
+    <div style={{ height: '100%', overflowY: 'auto', padding: '28px 32px' }}>
+      <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#6E6E73', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 20, fontFamily: FONT }}>
+        ← Back to Documents
+      </button>
+      <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1D1D1F', margin: '0 0 20px', letterSpacing: '-0.3px' }}>{title}</h1>
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', background: '#fff', borderRadius: 12, border: '1px solid #E5E5EA' }}>
+          <Spinner size={18} trackColor="#E5E5EA" />
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#1D1D1F', margin: 0 }}>{loadingLabel}</p>
         </div>
-        <button onClick={onNewDiagram} style={{ padding:'9px 18px',borderRadius:10,border:'none',cursor:'pointer',background:'#0071E3',color:'#fff',fontSize:13,fontWeight:600,fontFamily:FONT }}>+ New Analysis</button>
-      </div>
+      ) : children}
+    </div>
+  );
+}
 
-      {documents.length === 0 ? (
-        <div style={{ textAlign:'center',padding:'60px 20px' }}>
-          <div style={{ width:56,height:56,background:'#F5F5F7',borderRadius:16,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',color:'#8E8E93' }}><IcFlow /></div>
-          <p style={{ fontSize:16,fontWeight:600,color:'#1D1D1F',margin:'0 0 8px' }}>No process diagrams</p>
-          <p style={{ fontSize:13,color:'#6E6E73',margin:'0 0 20px',lineHeight:1.6,maxWidth:280,marginLeft:'auto',marginRight:'auto' }}>Upload Visio files (.vsdx) or images (.png, .jpg) in Workspace → Process Diagrams.</p>
-          <div style={{ display:'flex',gap:10,justifyContent:'center' }}>
-            <button onClick={onGoToWorkspace} style={{ padding:'9px 18px',borderRadius:10,border:'1px solid #D1D1D6',background:'#fff',color:'#1D1D1F',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Go to Workspace</button>
-            <button onClick={onNewDiagram} style={{ padding:'9px 18px',borderRadius:10,border:'none',background:'#0071E3',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Start fresh</button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display:'flex',flexDirection:'column',gap:10,maxWidth:680 }}>
-          {documents.map(doc=>(
-            <div key={doc.doc_id} style={{ display:'flex',alignItems:'center',gap:14,background:'#fff',borderRadius:12,border:'1px solid #E5E5EA',padding:'14px 16px' }}>
-              <div style={{ width:40,height:40,background:'#F0FDFA',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',color:'#0C8599',flexShrink:0 }}><IcFlow /></div>
-              <div style={{ flex:1,minWidth:0 }}>
-                <p style={{ fontSize:14,fontWeight:600,color:'#1D1D1F',margin:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{doc.source_name}</p>
-                <p style={{ fontSize:12,color:'#8E8E93',margin:'3px 0 0' }}>Uploaded {ago(doc.uploaded_at)}{doc.module&&<span style={{ marginLeft:10,color:'#6E6E73' }}>{doc.module}</span>}</p>
-              </div>
-              <button onClick={()=>onMapProcesses(doc)} style={{ padding:'7px 14px',borderRadius:8,border:'none',cursor:'pointer',background:'#F0FDFA',color:'#0C8599',fontSize:12,fontWeight:600,fontFamily:FONT,flexShrink:0 }}>Analyse →</button>
-            </div>
-          ))}
-        </div>
-      )}
+function ErrorPanel({ message }: { message: string }) {
+  return (
+    <div style={{ padding: '14px 16px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
+      <p style={{ fontSize: 13, fontWeight: 600, color: '#B91C1C', margin: '0 0 4px' }}>Action failed</p>
+      <p style={{ fontSize: 12, color: '#DC2626', margin: 0 }}>{message}</p>
     </div>
   );
 }
@@ -781,7 +766,7 @@ function AssistantPane({ mode, setMode, clientName, policyDocs }: {
         <div style={{ display:'flex',alignItems:'center',marginBottom:14 }}>
           <div style={{ display:'inline-flex',background:'#F2F2F7',borderRadius:10,padding:3,gap:2 }}>
             {([{id:'coach' as const,label:'Workday Coach'},{id:'policy' as const,label:'Policy Advisor'}]).map(({id,label})=>(
-              <button key={id} onClick={()=>setMode(id)} style={{ padding:'6px 14px',borderRadius:8,border:'none',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:FONT,background:mode===id?'#FFFFFF':'transparent',color:mode===id?'#1D1D1F':'#6E6E73',boxShadow:mode===id?'0 1px 3px rgba(0,0,0,0.12)':'none' }}>{label}</button>
+              <button key={id} onClick={()=>setMode(id)} style={{ padding:'6px 14px',borderRadius: 999,border:'none',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:FONT,background:mode===id?'#FFFFFF':'transparent',color:mode===id?'#1D1D1F':'#6E6E73',boxShadow:mode===id?'0 1px 3px rgba(0,0,0,0.12)':'none' }}>{label}</button>
             ))}
           </div>
           <p style={{ marginLeft:'auto',fontSize:12,color:'#8E8E93' }}>{mode==='policy'?`${policyDocs.length} policy doc${policyDocs.length!==1?'s':''} in context`:'Workday implementation guidance'}</p>
@@ -805,123 +790,6 @@ function topCategory(doc: { doc_type: string; folder_path: string; module: strin
   }
 }
 
-function isIntegrationDoc(doc: { module: string; folder_path: string; doc_type: string }): boolean {
-  const m = (doc.module||'').toLowerCase(); const fp = (doc.folder_path||'').toLowerCase(); const dt = (doc.doc_type||'').toLowerCase();
-  return m.includes('integration') || fp.includes('integration') || dt.includes('integration');
-}
-
-// ── Generate Tests Modal ───────────────────────────────────────────────────────
-function GenerateTestsModal({ documents, onClose, onGenerated }: { documents: Document[]; onClose: () => void; onGenerated: () => void; }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [generating, setGenerating] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<GenerateTestsResponse | null>(null);
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!jobId) return;
-    const currentJobId = jobId;
-    let cancelled = false;
-    function scheduleNextPoll() {
-      pollRef.current = setTimeout(async () => {
-        if (cancelled) return;
-        try {
-          const status = await getTestScriptJob(currentJobId);
-          if (cancelled) return;
-          if (status.status === 'done') { setResult({ doc_id: status.doc_id!, source_name: status.source_name!, functional_count: status.functional_count ?? 0, integration_count: status.integration_count ?? 0, total_count: status.total_count ?? 0, test_type: status.test_type ?? 'functional', latency_ms: status.latency_ms ?? 0 }); setGenerating(false); setJobId(null); }
-          else if (status.status === 'error') { setError(status.error || 'Generation failed'); setGenerating(false); setJobId(null); }
-          else { scheduleNextPoll(); }
-        } catch (err: any) { if (!cancelled) { setError(err.message || 'Failed to check job status'); setGenerating(false); setJobId(null); } }
-      }, 3000);
-    }
-    scheduleNextPoll();
-    return () => { cancelled = true; if (pollRef.current) clearTimeout(pollRef.current); };
-  }, [jobId]);
-
-  const eligibleDocs = useMemo(() => documents.filter(d => d.doc_type !== 'test-script' && d.doc_type !== 'status-report'), [documents]);
-  const grouped = useMemo(() => { const map = new Map<string, Document[]>(); for (const doc of eligibleDocs) { const cat = topCategory(doc); if (!map.has(cat)) map.set(cat, []); map.get(cat)!.push(doc); } return map; }, [eligibleDocs]);
-  const selectedDocs = eligibleDocs.filter(d => selected.has(d.doc_id));
-  const integrationSel = selectedDocs.filter(isIntegrationDoc);
-  const functionalSel = selectedDocs.filter(d => !isIntegrationDoc(d));
-  const hasIntegration = integrationSel.length > 0;
-  function toggle(docId: string) { setSelected(prev => { const n = new Set(prev); n.has(docId) ? n.delete(docId) : n.add(docId); return n; }); }
-  function toggleCategory(docs: Document[]) { const allOn = docs.every(d => selected.has(d.doc_id)); setSelected(prev => { const n = new Set(prev); if (allOn) docs.forEach(d => n.delete(d.doc_id)); else docs.forEach(d => n.add(d.doc_id)); return n; }); }
-  function selectAll() { setSelected(new Set(eligibleDocs.map(d => d.doc_id))); }
-  async function onGenerate() {
-    setError(null); setGenerating(true);
-    try {
-      const r = await generateTestScripts([...selected]);
-      if (r.status === 'processing' && r.job_id) { setJobId(r.job_id); }
-      else if (r.status === 'done') { setResult({ doc_id: r.doc_id!, source_name: r.source_name!, functional_count: r.functional_count ?? 0, integration_count: r.integration_count ?? 0, total_count: r.total_count ?? 0, test_type: r.test_type ?? 'functional', latency_ms: r.latency_ms ?? 0 }); setGenerating(false); }
-      else if (r.status === 'error') { setError(r.error || 'Generation failed'); setGenerating(false); }
-    } catch (err: any) { setError(err.message || String(err)); setGenerating(false); }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 flex flex-col max-h-[90vh]">
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-          <div><h2 className="text-base font-semibold text-slate-900">Generate Test Scripts</h2><p className="text-xs text-slate-400 mt-0.5">Select documents — functional and integration tests will be generated automatically</p></div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">✕</button>
-        </div>
-        {result ? (
-          <div className="px-6 py-8 flex flex-col items-center gap-4 text-center">
-            <div className="w-14 h-14 bg-teal-100 rounded-full flex items-center justify-center"><svg className="w-7 h-7 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
-            <div><p className="text-base font-semibold text-slate-900">Test scripts generated</p><p className="text-xs text-slate-400 mt-1 max-w-xs">{result.source_name}</p></div>
-            <div className="flex gap-4 text-center">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl px-5 py-3"><div className="text-2xl font-bold text-slate-800">{result.functional_count}</div><div className="text-xs text-slate-500 mt-0.5">Functional<br/>Scenario Tests</div></div>
-              {result.integration_count > 0 && <div className="bg-teal-50 border border-teal-200 rounded-xl px-5 py-3"><div className="text-2xl font-bold text-teal-700">{result.integration_count}</div><div className="text-xs text-teal-600 mt-0.5">Integration<br/>Tests</div></div>}
-            </div>
-            <p className="text-xs text-slate-400">Saved as draft — find it in Test Scripts and publish when ready.</p>
-            <button onClick={onGenerated} className="px-5 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors">Done</button>
-          </div>
-        ) : (
-          <>
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-              <div className="flex items-center justify-between"><p className="text-xs text-slate-500">{selected.size} of {eligibleDocs.length} documents selected</p><button onClick={selectAll} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Select all</button></div>
-              {[...grouped.entries()].map(([cat, docs]) => {
-                const allOn = docs.every(d => selected.has(d.doc_id)); const someOn = docs.some(d => selected.has(d.doc_id)); const hasIntDocs = docs.some(isIntegrationDoc);
-                return (
-                  <div key={cat} className="border border-slate-200 rounded-xl overflow-hidden">
-                    <button onClick={() => toggleCategory(docs)} className="w-full flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors text-left">
-                      <input type="checkbox" checked={allOn} ref={el => { if (el) el.indeterminate = someOn && !allOn; }} onChange={() => toggleCategory(docs)} onClick={e => e.stopPropagation()} className="w-3.5 h-3.5 rounded border-slate-300 accent-teal-600" />
-                      <span className="text-xs font-semibold text-slate-700 flex-1">{cat}</span>
-                      {hasIntDocs && <span className="text-[10px] font-medium text-teal-700 bg-teal-100 border border-teal-200 px-1.5 py-0.5 rounded-full">Integration</span>}
-                      <span className="text-xs text-slate-400">{docs.length}</span>
-                    </button>
-                    <div className="divide-y divide-slate-100">{docs.map(doc => (<label key={doc.doc_id} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${selected.has(doc.doc_id) ? 'bg-teal-50' : 'hover:bg-slate-50'}`}><input type="checkbox" checked={selected.has(doc.doc_id)} onChange={() => toggle(doc.doc_id)} className="w-3.5 h-3.5 rounded border-slate-300 accent-teal-600 flex-shrink-0" /><span className="text-xs text-slate-700 flex-1 truncate">{doc.source_name}</span>{isIntegrationDoc(doc) && <span className="text-[10px] text-teal-600 font-medium flex-shrink-0">Integration</span>}</label>))}</div>
-                  </div>
-                );
-              })}
-              {eligibleDocs.length === 0 && <div className="text-center py-8 text-sm text-slate-400">No documents available.</div>}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-100 space-y-3 flex-shrink-0">
-              {selectedDocs.length > 0 && (
-                <div className="flex items-start gap-4 bg-slate-50 rounded-xl px-4 py-3">
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-indigo-500"/><span className="text-slate-700 font-medium">Functional Scenario Tests</span><span className="text-slate-400">from {selectedDocs.length} doc{selectedDocs.length!==1?'s':''}</span></div>
-                    {hasIntegration && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-teal-500"/><span className="text-teal-700 font-medium">Integration Tests</span><span className="text-slate-400">from {integrationSel.length} integration doc{integrationSel.length!==1?'s':''}</span></div>}
-                    {!hasIntegration && <p className="text-xs text-slate-400 pl-4">Add Integration Design docs to also generate Integration Tests</p>}
-                  </div>
-                </div>
-              )}
-              {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-              <div className="flex justify-end gap-2">
-                <button onClick={onClose} disabled={generating} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 disabled:opacity-40 transition-colors">Cancel</button>
-                <button onClick={onGenerate} disabled={selected.size === 0 || generating} className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
-                  {generating && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>}
-                  {generating ? (jobId ? 'Generating… (60–90s)' : 'Starting…') : `Generate (${selected.size} doc${selected.size!==1?'s':''})`}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Bulk Action Modal ──────────────────────────────────────────────────────────
 const BULK_CFG: Record<BulkAction, { title: string; btn: string; btnCls: string; hint?: string; filter?: (d: Document) => boolean; }> = {
   analyse:   { title: 'Analyse Documents',   btn: 'Analyse',   btnCls: 'bg-indigo-600 hover:bg-indigo-700 text-white' },
@@ -931,8 +799,10 @@ const BULK_CFG: Record<BulkAction, { title: string; btn: string; btnCls: string;
   delete:    { title: 'Delete Documents',    btn: 'Delete',    btnCls: 'bg-red-600 hover:bg-red-700 text-white',      hint: 'This action cannot be undone' },
 };
 
-function BulkActionModal({ action, documents, preSelected, onClose, onExecute }: {
-  action: BulkAction; documents: Document[]; preSelected: Set<string>; onClose: () => void; onExecute: (docs: Document[]) => void;
+function BulkActionModal({ action, documents, preSelected, progress, onClose, onExecute }: {
+  action: BulkAction; documents: Document[]; preSelected: Set<string>;
+  progress: { done: number; total: number } | null;
+  onClose: () => void; onExecute: (docs: Document[]) => void;
 }) {
   const cfg = BULK_CFG[action];
   const eligible = cfg.filter ? documents.filter(cfg.filter) : documents;
@@ -941,16 +811,28 @@ function BulkActionModal({ action, documents, preSelected, onClose, onExecute }:
   const selectedList = eligible.filter(d => selected.has(d.doc_id));
   function toggle(id: string) { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
   function toggleAll() { setSelected(selected.size === eligible.length ? new Set() : new Set(eligible.map(d => d.doc_id))); }
+  const busy = progress !== null;
+  const pct = busy && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[80vh]">
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
           <div><h2 className="text-base font-semibold text-slate-900">{cfg.title}</h2>{cfg.hint && <p className="text-xs text-slate-400 mt-0.5">{cfg.hint}</p>}</div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">✕</button>
+          {!busy && <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">✕</button>}
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {eligible.length === 0 ? <p className="text-sm text-slate-400 text-center py-10">No eligible documents</p> : (
+          {busy ? (
+            <div className="space-y-2 py-6">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span className="w-3.5 h-3.5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
+                <span>{cfg.btn}ing… <span className="text-slate-400">({progress.done}/{progress.total})</span></span>
+              </div>
+              <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          ) : eligible.length === 0 ? <p className="text-sm text-slate-400 text-center py-10">No eligible documents</p> : (
             <div className="space-y-3">
               <div className="flex items-center justify-between"><p className="text-xs text-slate-500">{selected.size} of {eligible.length} selected</p><button onClick={toggleAll} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">{selected.size === eligible.length ? 'Deselect all' : 'Select all'}</button></div>
               {[...grouped.entries()].map(([cat, docs]) => (
@@ -963,8 +845,8 @@ function BulkActionModal({ action, documents, preSelected, onClose, onExecute }:
           )}
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2 flex-shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors">Cancel</button>
-          <button onClick={() => onExecute(selectedList)} disabled={selectedList.length === 0} className={`px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${cfg.btnCls}`}>{cfg.btn} ({selectedList.length})</button>
+          <button onClick={onClose} disabled={busy} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-full hover:bg-slate-100 disabled:opacity-50 transition-colors">Cancel</button>
+          <button onClick={() => onExecute(selectedList)} disabled={busy || selectedList.length === 0} className={`px-4 py-2 text-sm font-medium rounded-full disabled:opacity-50 transition-colors ${cfg.btnCls}`}>{cfg.btn} ({selectedList.length})</button>
         </div>
       </div>
     </div>
@@ -972,15 +854,9 @@ function BulkActionModal({ action, documents, preSelected, onClose, onExecute }:
 }
 
 // ── Document Preview Panel ─────────────────────────────────────────────────────
-function isProcessable(doc: Document): boolean {
-  if (doc.doc_type === 'process-diagram') return true;
-  const name = doc.source_name.toLowerCase();
-  return name.endsWith('.vsdx') || name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg');
-}
-
-function DocumentPreviewPanel({ doc, onAnalyse, onValidateSow, onMapProcesses, onPublish, onDownload, onDelete }: {
+function DocumentPreviewPanel({ doc, onAnalyse, onValidateSow, onPublish, onDownload, onDelete }: {
   doc: Document; onAnalyse?: (d: Document) => void; onValidateSow?: (d: Document) => void;
-  onMapProcesses?: (d: Document) => void; onPublish?: (d: Document, published: boolean) => void;
+  onPublish?: (d: Document, published: boolean) => void;
   onDownload: (d: Document) => void; onDelete?: (d: Document) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -1010,24 +886,23 @@ function DocumentPreviewPanel({ doc, onAnalyse, onValidateSow, onMapProcesses, o
       </div>
       <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0">
         <div className="flex flex-wrap gap-1.5">
-          {isSow && onValidateSow && <button onClick={() => onValidateSow(doc)} className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">Validate SOW</button>}
-          {!isSow && onAnalyse && <button onClick={() => onAnalyse(doc)} className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">Analyse</button>}
-          {onMapProcesses && isProcessable(doc) && <button onClick={() => onMapProcesses(doc)} className="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors">Map Processes</button>}
-          {onPublish && <button onClick={() => onPublish(doc, !doc.published)} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${doc.published ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-green-600 text-white hover:bg-green-700'}`}>{doc.published ? 'Unpublish' : 'Publish'}</button>}
-          <button onClick={() => onDownload(doc)} className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">Download</button>
-          {onDelete && <button onClick={() => onDelete(doc)} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">Delete</button>}
+          {isSow && onValidateSow && <button onClick={() => onValidateSow(doc)} className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-full transition-colors">Validate SOW</button>}
+          {!isSow && onAnalyse && <button onClick={() => onAnalyse(doc)} className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-full transition-colors">Analyse</button>}
+          {onPublish && <button onClick={() => onPublish(doc, !doc.published)} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${doc.published ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-green-600 text-white hover:bg-green-700'}`}>{doc.published ? 'Unpublish' : 'Publish'}</button>}
+          <button onClick={() => onDownload(doc)} className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors">Download</button>
+          {onDelete && <button onClick={() => onDelete(doc)} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-full transition-colors">Delete</button>}
         </div>
       </div>
     </div>
   );
 }
 
-function FindingCard({ f }: { f: Finding }) {
+function FindingCard({ f, first }: { f: Finding; first?: boolean }) {
   const [open, setOpen] = useState(false);
   const sevClass = f.severity === 'high' ? 'bg-red-100 text-red-700' : f.severity === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
   const catClass = f.category === 'risk' ? 'text-red-600' : f.category === 'anti-pattern' ? 'text-amber-600' : 'text-teal-600';
   return (
-    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+    <div className={first ? '' : 'border-t border-slate-100'}>
       <button onClick={() => setOpen(v => !v)} className="w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors">
         <span className={`mt-0.5 text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${sevClass}`}>{f.severity}</span>
         <span className="text-xs font-medium text-slate-800 flex-1 leading-snug">{f.title}</span>
@@ -1038,13 +913,13 @@ function FindingCard({ f }: { f: Finding }) {
   );
 }
 
-function SowFindingCard({ f }: { f: SowFinding }) {
+function SowFindingCard({ f, first }: { f: SowFinding; first?: boolean }) {
   const [open, setOpen] = useState(false);
   const tlDot: Record<string, string> = { green: 'bg-green-500', yellow: 'bg-amber-400', red: 'bg-red-500' };
   const tlLabel: Record<string, string> = { green: 'Evidenced', yellow: 'Partial', red: 'Gap' };
   const tlText: Record<string, string> = { green: 'text-green-700', yellow: 'text-amber-700', red: 'text-red-700' };
   return (
-    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+    <div className={first ? '' : 'border-t border-slate-100'}>
       <button onClick={() => setOpen(v => !v)} className="w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors">
         <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0 ${tlDot[f.traffic_light] ?? 'bg-slate-400'}`} />
         <span className="text-xs font-medium text-slate-800 flex-1 leading-snug">{f.deliverable}</span>
@@ -1065,9 +940,9 @@ function StatusReportPanel({ report }: { report: StatusReportResponse }) {
         <p className="text-sm text-slate-700 leading-relaxed">{report.exec_summary}</p>
       </div>
       {report.highlights.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Highlights</p><ul className="space-y-1.5">{report.highlights.map((h, i) => (<li key={i} className="flex items-start gap-2"><span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" /><span className="text-xs text-slate-700 leading-relaxed">{h}</span></li>))}</ul></div>)}
-      {report.workstreams.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Workstreams <span className="text-slate-400 normal-case font-normal">({report.workstreams.length})</span></p><div className="space-y-2">{report.workstreams.map((ws, i) => <WorkstreamCard key={i} ws={ws} />)}</div></div>)}
-      {report.decisions_needed.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Decisions Needed</p><div className="space-y-2">{report.decisions_needed.map((d, i) => (<div key={i} className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2.5"><p className="text-xs font-medium text-slate-800 mb-1.5">{d.decision}</p><div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500"><span>Owner: <span className="font-medium text-slate-700">{d.owner}</span></span><span>By: <span className="font-medium text-slate-700">{d.deadline}</span></span></div>{d.impact_if_delayed && <p className="text-xs text-amber-700 mt-1.5">⚠ {d.impact_if_delayed}</p>}</div>))}</div></div>)}
-      {report.key_risks.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Key Risks</p><div className="space-y-2">{report.key_risks.map((r, i) => (<div key={i} className={`rounded-lg px-3 py-2.5 border ${r.severity === 'high' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}><div className="flex items-start gap-2 mb-1"><span className={`text-xs font-semibold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${r.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{r.severity}</span><span className="text-xs font-medium text-slate-800 leading-snug">{r.risk}</span></div><p className="text-xs text-slate-600">Mitigation: {r.mitigation}</p></div>))}</div></div>)}
+      {report.workstreams.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Workstreams <span className="text-slate-400 normal-case font-normal">({report.workstreams.length})</span></p><div className="border border-slate-200 rounded-lg bg-white overflow-hidden">{report.workstreams.map((ws, i) => <WorkstreamCard key={i} ws={ws} first={i===0} />)}</div></div>)}
+      {report.decisions_needed.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Decisions Needed</p><div className="border border-amber-200 rounded-lg overflow-hidden">{report.decisions_needed.map((d, i) => (<div key={i} className={`bg-amber-50 px-3 py-2.5 ${i > 0 ? 'border-t border-amber-100' : ''}`}><p className="text-xs font-medium text-slate-800 mb-1.5">{d.decision}</p><div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500"><span>Owner: <span className="font-medium text-slate-700">{d.owner}</span></span><span>By: <span className="font-medium text-slate-700">{d.deadline}</span></span></div>{d.impact_if_delayed && <p className="text-xs text-amber-700 mt-1.5">⚠ {d.impact_if_delayed}</p>}</div>))}</div></div>)}
+      {report.key_risks.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Key Risks</p><div className="border border-slate-200 rounded-lg overflow-hidden">{report.key_risks.map((r, i) => (<div key={i} className={`px-3 py-2.5 ${r.severity === 'high' ? 'bg-red-50' : 'bg-amber-50'} ${i > 0 ? 'border-t border-slate-200' : ''}`}><div className="flex items-start gap-2 mb-1"><span className={`text-xs font-semibold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${r.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{r.severity}</span><span className="text-xs font-medium text-slate-800 leading-snug">{r.risk}</span></div><p className="text-xs text-slate-600">Mitigation: {r.mitigation}</p></div>))}</div></div>)}
       {report.upcoming_milestones.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Upcoming Milestones</p><div className="space-y-1.5">{report.upcoming_milestones.map((m, i) => { const icon = { on_track: '✓', at_risk: '⚠', delayed: '✗' }[m.status] ?? '→'; const cls = { on_track: 'text-green-600', at_risk: 'text-amber-600', delayed: 'text-red-600' }[m.status] ?? 'text-slate-500'; return (<div key={i} className="flex items-center gap-2.5"><span className={`text-sm font-bold flex-shrink-0 ${cls}`}>{icon}</span><span className="text-xs text-slate-700 flex-1">{m.milestone}</span><span className="text-xs text-slate-400 flex-shrink-0">{m.due}</span></div>); })}</div></div>)}
       {report.next_week_focus.length > 0 && (<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Next Week Focus</p><ul className="space-y-1.5">{report.next_week_focus.map((f, i) => (<li key={i} className="flex items-start gap-2"><span className="text-violet-400 text-xs mt-0.5 flex-shrink-0">→</span><span className="text-xs text-slate-700">{f}</span></li>))}</ul></div>)}
       <p className="text-xs text-slate-300 pt-2">Model: {report.model_id} · {report.latency_ms}ms</p>
@@ -1092,21 +967,20 @@ function GoLiveReadinessPanel({ sowResult }: { sowResult: SowValidateResponse })
         <div className="flex gap-4 text-xs"><span className="text-green-700 font-medium">{green} Evidenced</span><span className="text-amber-700 font-medium">{yellow} Partial</span><span className="text-red-700 font-medium">{red} Gap</span></div>
       </div>
       <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4"><p className="text-xs font-medium text-indigo-600 uppercase tracking-wide mb-2">Assessment</p><p className="text-sm text-slate-700 leading-relaxed">{sowResult.summary}</p></div>
-      {red > 0 && (<div><p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Gaps — Action Required ({red})</p><div className="space-y-1.5">{sowResult.findings.filter(f => f.traffic_light === 'red').map((f, i) => <ReadinessCheckItem key={i} f={f} />)}</div></div>)}
-      {yellow > 0 && (<div><p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Partial — Monitor ({yellow})</p><div className="space-y-1.5">{sowResult.findings.filter(f => f.traffic_light === 'yellow').map((f, i) => <ReadinessCheckItem key={i} f={f} />)}</div></div>)}
-      {green > 0 && (<div><p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Evidenced — Ready ({green})</p><div className="space-y-1.5">{sowResult.findings.filter(f => f.traffic_light === 'green').map((f, i) => <ReadinessCheckItem key={i} f={f} />)}</div></div>)}
+      {red > 0 && (<div><p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Gaps — Action Required ({red})</p><div className="border border-red-200 rounded-lg bg-white overflow-hidden">{sowResult.findings.filter(f => f.traffic_light === 'red').map((f, i) => <ReadinessCheckItem key={i} f={f} first={i===0} />)}</div></div>)}
+      {yellow > 0 && (<div><p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Partial — Monitor ({yellow})</p><div className="border border-amber-200 rounded-lg bg-white overflow-hidden">{sowResult.findings.filter(f => f.traffic_light === 'yellow').map((f, i) => <ReadinessCheckItem key={i} f={f} first={i===0} />)}</div></div>)}
+      {green > 0 && (<div><p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Evidenced — Ready ({green})</p><div className="border border-slate-200 rounded-lg bg-white overflow-hidden">{sowResult.findings.filter(f => f.traffic_light === 'green').map((f, i) => <ReadinessCheckItem key={i} f={f} first={i===0} />)}</div></div>)}
       <p className="text-xs text-slate-300 pt-2">Model: {sowResult.model_id}</p>
     </div>
   );
 }
 
-function ReadinessCheckItem({ f }: { f: SowFinding }) {
+function ReadinessCheckItem({ f, first }: { f: SowFinding; first?: boolean }) {
   const [open, setOpen] = useState(false);
   const icon = { green: '✓', yellow: '~', red: '✗' }[f.traffic_light] ?? '·';
   const iconCls = { green: 'text-green-600', yellow: 'text-amber-600', red: 'text-red-600' }[f.traffic_light] ?? 'text-slate-500';
-  const borderCls = { green: 'border-slate-200', yellow: 'border-amber-200', red: 'border-red-200' }[f.traffic_light] ?? 'border-slate-200';
   return (
-    <div className={`border rounded-lg overflow-hidden bg-white ${borderCls}`}>
+    <div className={first ? '' : 'border-t border-slate-100'}>
       <button onClick={() => setOpen(v => !v)} className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-slate-50 transition-colors">
         <span className={`font-bold text-sm flex-shrink-0 mt-0.5 ${iconCls}`}>{icon}</span>
         <span className="text-xs text-slate-800 flex-1 leading-snug">{f.deliverable}</span>
@@ -1117,11 +991,11 @@ function ReadinessCheckItem({ f }: { f: SowFinding }) {
   );
 }
 
-function WorkstreamCard({ ws }: { ws: StatusWorkstream }) {
+function WorkstreamCard({ ws, first }: { ws: StatusWorkstream; first?: boolean }) {
   const [open, setOpen] = useState(false);
   const dotColors: Record<string, string> = { green: 'bg-green-500', yellow: 'bg-amber-400', red: 'bg-red-500' };
   return (
-    <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+    <div className={first ? '' : 'border-t border-slate-100'}>
       <button onClick={() => setOpen(v => !v)} className="w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors">
         <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColors[ws.status] ?? 'bg-slate-400'}`} />
         <div className="flex-1 min-w-0"><span className="text-xs font-medium text-slate-800 leading-snug">{ws.name}</span>{!open && <p className="text-xs text-slate-400 mt-0.5 truncate">{ws.summary}</p>}</div>

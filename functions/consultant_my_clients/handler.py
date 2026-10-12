@@ -27,6 +27,14 @@ def handler(event, context):
     clients = []
     for item in items:
         tenant_id = item["sk"].removeprefix("CLIENT#")
+        # Archiving a client only flips its own TENANT#/METADATA status — the
+        # ASSIGN# record itself is untouched, so this list must cross-check
+        # the tenant's current status itself rather than trust the
+        # assignment record alone (otherwise a consultant keeps seeing an
+        # archived client indefinitely).
+        tenant = config.get_item(f"TENANT#{tenant_id}", "METADATA")
+        if tenant is None or tenant.get("status") == "archived":
+            continue
         clients.append({
             "tenant_id": tenant_id,
             "name": item.get("client_name", tenant_id),

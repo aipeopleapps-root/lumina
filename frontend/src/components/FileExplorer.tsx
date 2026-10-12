@@ -106,14 +106,14 @@ function SelectionBar({
       </span>
       <div className="flex items-center gap-1.5 flex-wrap">
         {canPublish && hasPublishable && (
-          <button onClick={() => onAction('publish')} className="px-2.5 py-1 text-xs font-medium bg-green-600 hover:bg-green-700 rounded-lg transition-colors">✓ Publish</button>
+          <button onClick={() => onAction('publish')} className="px-2.5 py-1 text-xs font-medium bg-green-600 hover:bg-green-700 rounded-full transition-colors">✓ Publish</button>
         )}
         {canPublish && hasUnpublishable && (
-          <button onClick={() => onAction('unpublish')} className="px-2.5 py-1 text-xs font-medium bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors">↩ Unpublish</button>
+          <button onClick={() => onAction('unpublish')} className="px-2.5 py-1 text-xs font-medium bg-amber-500 hover:bg-amber-600 rounded-full transition-colors">↩ Unpublish</button>
         )}
-        <button onClick={() => onAction('analyse')} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">🔍 Analyse</button>
-        <button onClick={() => onAction('download')} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">↓ Download</button>
-        <button onClick={() => onAction('delete')} className="px-2.5 py-1 text-xs font-medium bg-red-500 hover:bg-red-600 rounded-lg transition-colors">✕ Delete</button>
+        <button onClick={() => onAction('analyse')} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-full transition-colors">🔍 Analyse</button>
+        <button onClick={() => onAction('download')} className="px-2.5 py-1 text-xs font-medium bg-white/20 hover:bg-white/30 rounded-full transition-colors">↓ Download</button>
+        <button onClick={() => onAction('delete')} className="px-2.5 py-1 text-xs font-medium bg-red-500 hover:bg-red-600 rounded-full transition-colors">✕ Delete</button>
       </div>
     </div>
   );
@@ -175,7 +175,7 @@ function ContextMenu({
       <button
         ref={btnRef}
         onClick={openMenu}
-        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors text-sm leading-none"
+        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors text-sm leading-none"
         title="More actions"
       >
         ···
@@ -334,12 +334,18 @@ function DocRow({
               <span className="flex-shrink-0 text-xs text-slate-400 w-28 text-right">
                 {formatDate(old.uploaded_at)}
               </span>
-              <div className="flex items-center gap-1 opacity-0 group-hover/old:opacity-100 transition-opacity flex-shrink-0">
-                <button onClick={() => onDownload(old)} className="px-2 py-0.5 text-xs bg-slate-200 text-slate-600 rounded hover:bg-slate-300 transition-colors" title="Download">↓</button>
-                {onDelete && (
-                  <button onClick={() => onDelete(old)} className="px-2 py-0.5 text-xs bg-red-50 text-red-400 rounded hover:bg-red-100 transition-colors" title="Delete">✕</button>
-                )}
-              </div>
+              {processingDocId === old.doc_id ? (
+                <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center" title="Processing…">
+                  <span className="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 opacity-0 group-hover/old:opacity-100 transition-opacity flex-shrink-0">
+                  <button onClick={() => onDownload(old)} className="px-2 py-0.5 text-xs bg-slate-200 text-slate-600 rounded hover:bg-slate-300 transition-colors" title="Download">↓</button>
+                  {onDelete && (
+                    <button onClick={() => onDelete(old)} className="px-2 py-0.5 text-xs bg-red-50 text-red-400 rounded hover:bg-red-100 transition-colors" title="Delete">✕</button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -511,7 +517,7 @@ export function FileExplorer({ template, documents, onDownload, onDelete, onAnal
             <button
               key={tab.id}
               onClick={() => { setStatusFilter(tab.id); clearSelection(); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 active ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
               }`}
             >

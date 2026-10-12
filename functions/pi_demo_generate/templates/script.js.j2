@@ -1,0 +1,179 @@
+{# Inline <script> — nav routing, tab switching, per-agent STARTED map, Replay
+   wiring, and the chat/mini-chat animation engine. Animation pacing constants
+   below are fixed per spec §4 rule 7 — never templated, never configurable.
+   CHAT_SCRIPTS/CHAT_META/MINI_CHATS/SUGGESTIONS/CHAT_IDS/WORKSPACE_IDS are
+   plain Python data prepared by the worker (card HTML already rendered via
+   the macros in macros.html.j2) and embedded here as JSON — the LLM never
+   produces any of the markup inside them. #}
+<script>
+const CHAT_SCRIPTS = {{ chat_scripts | tojson }};
+const CHAT_META = {{ chat_meta | tojson }};
+const MINI_CHATS = {{ mini_chats | tojson }};
+const SUGGESTIONS = {{ suggestions | tojson }};
+const CHAT_IDS = {{ chat_ids | tojson }};
+const WORKSPACE_IDS = {{ workspace_ids | tojson }};
+
+const STARTED = {};
+
+function scrollDown(el){ el.scrollTop = el.scrollHeight + 200; }
+
+function playChat(agentId){
+  const container = document.getElementById('messages-' + agentId);
+  if(!container) return;
+  container.innerHTML = '';
+  const meta = CHAT_META[agentId] || {};
+  const script = CHAT_SCRIPTS[agentId] || [];
+  let i = 0;
+
+  function renderDivider(label){
+    const d = document.createElement('div');
+    d.className = 'divider';
+    d.textContent = label;
+    container.appendChild(d);
+    scrollDown(container);
+  }
+  function renderChips(chips){
+    const row = document.createElement('div');
+    row.className = 'chips-row';
+    chips.forEach(label=>{
+      const c = document.createElement('button');
+      c.className = 'sugg-chip';
+      c.textContent = label;
+      row.appendChild(c);
+    });
+    container.appendChild(row);
+    scrollDown(container);
+  }
+  function renderMessage(step, cb){
+    const isUser = step.type === 'user_message';
+    const row = document.createElement('div');
+    row.className = 'row ' + (isUser ? 'user' : 'agent');
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar-sm ' + (isUser ? 'user' : 'agent');
+    avatar.textContent = isUser ? (meta.initials || 'U') : '✦';
+    const col = document.createElement('div');
+    col.className = 'col';
+    const tag = document.createElement('div');
+    tag.className = 'name-tag';
+    tag.textContent = isUser ? [meta.name, meta.role].filter(Boolean).join(' · ') : (meta.title || '');
+    col.appendChild(tag);
+    if(isUser){ row.appendChild(col); row.appendChild(avatar); }
+    else { row.appendChild(avatar); row.appendChild(col); }
+    container.appendChild(row);
+    scrollDown(container);
+
+    if(!isUser){
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble typing';
+      bubble.innerHTML = '<span></span><span></span><span></span>';
+      col.appendChild(bubble);
+      scrollDown(container);
+      setTimeout(()=>{
+        col.removeChild(bubble);
+        if(step.text){
+          const real = document.createElement('div');
+          real.className = 'bubble';
+          real.textContent = step.text;
+          col.appendChild(real);
+        }
+        (step.cards_html || []).forEach(html=>{
+          const wrap = document.createElement('div');
+          wrap.innerHTML = html;
+          if(wrap.firstElementChild) col.appendChild(wrap.firstElementChild);
+        });
+        scrollDown(container);
+        cb();
+      }, 2800 + Math.random()*900);
+    } else {
+      const real = document.createElement('div');
+      real.className = 'bubble';
+      real.textContent = step.text;
+      col.appendChild(real);
+      scrollDown(container);
+      setTimeout(cb, 900);
+    }
+  }
+  function step(){
+    if(i >= script.length) return;
+    const s = script[i++];
+    if(s.type === 'divider'){ renderDivider(s.label); setTimeout(step, 1400); }
+    else if(s.type === 'chip_row'){ renderChips(s.chips); setTimeout(step, 1600); }
+    else { renderMessage(s, ()=> setTimeout(step, 1600)); }
+  }
+  step();
+}
+
+function playMiniChat(agentId){
+  const log = document.getElementById('miniLog-' + agentId);
+  if(!log) return;
+  log.innerHTML = '';
+  const data = MINI_CHATS[agentId] || [];
+  let i = 0;
+  function step(){
+    if(i >= data.length) return;
+    const d = data[i++];
+    const isUser = d.type === 'user_message';
+    const row = document.createElement('div');
+    row.className = 'mini-row ' + (isUser ? 'user' : 'agent');
+    const av = document.createElement('div');
+    av.className = 'mini-avatar ' + (isUser ? 'user' : 'agent');
+    av.textContent = isUser ? 'YOU' : '✦';
+    const b = document.createElement('div');
+    b.className = 'mini-bubble';
+    b.textContent = d.text;
+    if(isUser){ row.appendChild(b); row.appendChild(av); }
+    else { row.appendChild(av); row.appendChild(b); }
+    log.appendChild(row);
+    setTimeout(step, 1800);
+  }
+  step();
+}
+
+function navigate(id){
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('panel-' + id);
+  if(target) target.classList.add('active');
+
+  document.querySelectorAll('[data-agent]').forEach(el=>{
+    el.classList.toggle('is-current', el.dataset.agent === id);
+    el.classList.toggle('active', el.classList.contains('nav-item') && el.dataset.agent === id);
+  });
+
+  const sugg = document.getElementById('suggestionText');
+  if(sugg) sugg.textContent = SUGGESTIONS[id] || "Select an agent from the left, or browse the suite on Home.";
+
+  if(CHAT_IDS.includes(id) && !STARTED[id]){
+    STARTED[id] = true;
+    playChat(id);
+  }
+  if(WORKSPACE_IDS.includes(id) && !STARTED[id]){
+    STARTED[id] = true;
+    playMiniChat(id);
+  }
+}
+
+function showTab(agentId, which){
+  const btnLive = document.getElementById('btnLive-' + agentId);
+  const btnHiw = document.getElementById('btnHiw-' + agentId);
+  const tabLive = document.getElementById('tabLive-' + agentId);
+  const tabHiw = document.getElementById('tabHiw-' + agentId);
+  if(btnLive) btnLive.classList.toggle('active', which==='live');
+  if(btnHiw) btnHiw.classList.toggle('active', which==='hiw');
+  if(tabLive) tabLive.classList.toggle('active', which==='live');
+  if(tabHiw) tabHiw.classList.toggle('active', which==='hiw');
+}
+
+document.querySelectorAll('[data-agent]').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    const id = el.dataset.agent;
+    if(id === '__more__') return;
+    navigate(id);
+  });
+});
+
+document.querySelectorAll('[data-replay]').forEach(btn=>{
+  btn.addEventListener('click', ()=> playChat(btn.dataset.replay));
+});
+
+navigate('home');
+</script>

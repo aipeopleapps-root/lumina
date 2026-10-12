@@ -82,6 +82,7 @@ export function PublishReviewModal({ doc, onConfirmPublish, onCancel }: Props) {
   const [findings, setFindings] = useState<DeliveryFinding[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     analyzeDoc(doc.doc_id, 'all', 'delivery_review')
@@ -94,11 +95,14 @@ export function PublishReviewModal({ doc, onConfirmPublish, onCancel }: Props) {
   }, [doc.doc_id]);
 
   async function handleDownload() {
+    setDownloading(true);
     try {
       const r = await api.post('/documents/download-url', { s3_key: doc.s3_key });
       window.open(r.url, '_blank');
     } catch {
       alert('Failed to download document');
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -219,20 +223,21 @@ export function PublishReviewModal({ doc, onConfirmPublish, onCancel }: Props) {
 
             <button
               onClick={handleDownload}
-              className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              disabled={downloading}
+              className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-full hover:bg-slate-50 disabled:opacity-50 transition-colors"
             >
-              Download
+              {downloading ? 'Downloading…' : 'Download'}
             </button>
             <button
               onClick={onCancel}
-              className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-full hover:bg-slate-50 transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handlePublish}
               disabled={publishing}
-              className={`px-4 py-2 text-sm rounded-lg font-medium transition-colors disabled:opacity-50 ${
+              className={`px-4 py-2 text-sm rounded-full font-medium transition-colors disabled:opacity-50 ${
                 hasBlockers
                   ? 'bg-slate-700 text-white hover:bg-slate-900'
                   : 'bg-green-600 text-white hover:bg-green-700'

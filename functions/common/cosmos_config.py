@@ -22,6 +22,16 @@ log = logging.getLogger(__name__)
 
 _client: CosmosClient | None = None
 
+# Cosmos document `id` forbids '/', '\', '?', '#' — but `sk` values commonly
+# contain '#' (e.g. "CLIENT#acme", mirroring DynamoDB composite-key
+# convention). `id` is never queried by this module (pk/sk are), so it's safe
+# to sanitize independently of the real sk value.
+_ID_ILLEGAL_CHARS = str.maketrans({c: "_" for c in "/\\?#"})
+
+
+def _sanitize_id(sk: str) -> str:
+    return sk.translate(_ID_ILLEGAL_CHARS)
+
 
 def _container():
     global _client
@@ -35,14 +45,14 @@ def _container():
 def get_item(pk: str, sk: str) -> dict[str, Any] | None:
     """Point read. Returns None if missing (mirrors DynamoDB get_item's absent 'Item')."""
     try:
-        return _container().read_item(item=sk, partition_key=pk)
+        return _container().read_item(item=_sanitize_id(sk), partition_key=pk)
     except exceptions.CosmosResourceNotFoundError:
         return None
 
 
 def put_item(item: dict[str, Any]) -> None:
-    """Item must include 'pk' and 'sk'; 'id' defaults to 'sk' if not already set."""
-    item.setdefault("id", item["sk"])
+    """Item must include 'pk' and 'sk'; 'id' defaults to a sanitized 'sk' if not already set."""
+    item.setdefault("id", _sanitize_id(item["sk"]))
     _container().upsert_item(item)
 
 
@@ -52,7 +62,7 @@ def create_item(item: dict[str, Any]) -> None:
     `ConditionExpression="attribute_not_exists(pk)"` used for e.g. tenant creation,
     where Cosmos's upsert-only put_item would silently overwrite instead of rejecting.
     """
-    item.setdefault("id", item["sk"])
+    item.setdefault("id", _sanitize_id(item["sk"]))
     try:
         _container().create_item(item)
     except exceptions.CosmosResourceExistsError as exc:
@@ -75,7 +85,7 @@ def update_item(pk: str, sk: str, updates: dict[str, Any]) -> None:
 
 def delete_item(pk: str, sk: str) -> None:
     try:
-        _container().delete_item(item=sk, partition_key=pk)
+        _container().delete_item(item=_sanitize_id(sk), partition_key=pk)
     except exceptions.CosmosResourceNotFoundError:
         pass
 

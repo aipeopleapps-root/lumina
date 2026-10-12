@@ -1,0 +1,49 @@
+using '../main.bicep'
+
+// Template for the eventual move to Deloitte's Azure tenant/subscription.
+//
+// To use: copy this file to deloitte.bicepparam (drop the .example suffix) and fill in the
+// blanks below. Everything else can stay as-is unless there's a specific reason to diverge —
+// see pilot.bicepparam (the environment this was cloned from) for what a fully-filled-in
+// version looks like, and docs/AZURE_MIGRATION.md's Phase 3a section for how to produce the
+// Entra values via bicep/scripts/register-entra-app.sh run against the Deloitte tenant.
+//
+// SUBSCRIPTION_ID: <fill in — az account show --query id -o tsv, after `az login` into the
+// Deloitte tenant/subscription>
+
+param location = 'eastus2'
+param namePrefix = 'lumina'
+param resourceGroupName = 'lumina-rg'
+
+param corsAllowedOrigins = [
+  'http://localhost:5173'
+  'http://localhost:3000'
+]
+
+param postgresAdminUsername = 'platformadmin'
+
+param claudeModelName = 'claude-haiku-4-5'
+param claudeModelVersion = '2'
+param claudeDeploymentCapacity = 1
+param deployClaudeModel = true // Deloitte's subscription may already have quota — try true first
+
+param embeddingModelName = 'text-embedding-3-large'
+param embeddingModelVersion = '1'
+param embeddingDeploymentCapacity = 30
+
+param modelProviderIndustry = 'technology'
+param modelProviderOrganizationName = 'Deloitte' // update to the actual legal org name
+param modelProviderCountryCode = 'US'
+
+// Pick a new short unique string — do NOT reuse the pilot environment's suffix, this needs to
+// be unique across ALL Azure subscriptions/tenants for Cosmos/Storage/Key Vault/Foundry naming.
+param uniqueSuffix = ''
+
+// From re-running bicep/scripts/register-entra-app.sh against the Deloitte tenant
+// (az login into that tenant first) — see that script's summary output.
+param entraAppClientId = ''
+param entraTenantId = ''
+
+param apimPublisherEmail = ''
+
+param swaSku = 'Free'

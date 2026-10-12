@@ -22,7 +22,7 @@ from common import (
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger(__name__)
 
-_GENERATION_MODEL_ID = os.environ["GENERATION_MODEL_ID"]
+_GENERATION_MODEL_ID = os.environ["GENERATION_MODEL_NAME"]
 _PROMPT_PATH = Path(__file__).parent / "prompt.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 _DELIVERY_REVIEW_PROMPT_PATH = Path(__file__).parent / "prompt_delivery_review.md"
@@ -36,7 +36,7 @@ def handler(event, context):
         return http.forbidden(str(e))
 
     try:
-        ctx.require_role("consultant", "admin")
+        ctx.require_role("consultant", "super_admin")
     except TenantError as e:
         return http.forbidden(str(e))
 

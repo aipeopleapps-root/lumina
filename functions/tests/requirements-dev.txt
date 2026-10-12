@@ -1,0 +1,7 @@
+# Test-only dependencies — deliberately NOT in functions/requirements.txt,
+# which is what Oryx's remote build actually installs for the deployed
+# Function App package (see that file's own header comment on drift risk).
+# Install alongside functions/requirements.txt to run the test suite locally
+# or in CI: pip install -r requirements.txt -r tests/requirements-dev.txt
+pytest>=8.0,<9
+pytest-mock>=3.14,<4
